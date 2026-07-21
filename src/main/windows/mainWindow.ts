@@ -29,14 +29,65 @@ export interface MainWindowResult {
   view: WebContentsView;
 }
 
-/** 将 WebContentsView 布局到标题栏下方，铺满剩余区域。 */
-export function layoutView(win: BrowserWindow, view: WebContentsView): void {
+/** 已创建且持有 chat 视图的窗口集合（display-metrics-changed 时统一重新布局）。 */
+const chatWindows = new Map<BrowserWindow, () => WebContentsView | null>();
+let displayMetricsListenerAdded = false;
+
+/**
+ * 实际设置 WebContentsView 边界（同步核心）。
+ * 含防零/防负与销毁守卫：窗口或视图已销毁、或尺寸非法时直接返回，不设置错误 bounds。
+ */
+function applyViewBounds(win: BrowserWindow, view: WebContentsView): void {
+  if (win.isDestroyed() || view.webContents.isDestroyed()) return;
   const [width, height] = win.getContentSize();
+  if (width <= 0 || height <= 0) return;
   view.setBounds({
     x: 0,
     y: TITLEBAR_HEIGHT,
     width,
     height: Math.max(0, height - TITLEBAR_HEIGHT),
+  });
+}
+
+/** 每个窗口的延迟布局 timer（WeakMap 避免内存泄漏，且窗口销毁后自动回收 key）。 */
+const layoutTimers = new WeakMap<BrowserWindow, ReturnType<typeof setTimeout>>();
+
+/**
+ * 延迟布局：将实际 setBounds 包在 setTimeout(..., 0) 中，让窗口在 resize / maximize /
+ * unmaximize 等事件完成、尺寸稳定后再布局，避免网页拿到错误的 viewport 做响应式布局。
+ * 用 WeakMap 保存每个窗口的 timer，多个事件快速触发时只保留最后一次（防抖）。
+ */
+export function scheduleLayoutView(win: BrowserWindow, view: WebContentsView): void {
+  if (win.isDestroyed() || view.webContents.isDestroyed()) return;
+  const prev = layoutTimers.get(win);
+  if (prev !== undefined) clearTimeout(prev);
+  const timer = setTimeout(() => {
+    layoutTimers.delete(win);
+    applyViewBounds(win, view);
+  }, 0);
+  layoutTimers.set(win, timer);
+}
+
+/** 将 WebContentsView 布局到标题栏下方，铺满剩余区域（防零/防负 + 延迟防抖）。 */
+export function layoutView(win: BrowserWindow, view: WebContentsView): void {
+  scheduleLayoutView(win, view);
+}
+
+/** 监听显示器 / DPI 变化，统一重新布局所有已注册窗口的 chat 视图（全局仅注册一次）。 */
+function ensureDisplayMetricsListener(): void {
+  if (displayMetricsListenerAdded) return;
+  displayMetricsListenerAdded = true;
+  // 测试环境下 electron 的 screen 可能没有 on（如 bwindow.test 的桩），安全跳过。
+  if (typeof screen.on !== 'function') return;
+  screen.on('display-metrics-changed', () => {
+    for (const [w, getV] of chatWindows) {
+      if (w.isDestroyed()) {
+        chatWindows.delete(w);
+        continue;
+      }
+      const v = getV();
+      if (v && !v.webContents.isDestroyed()) scheduleLayoutView(w, v);
+    }
   });
 }
 
@@ -58,10 +109,32 @@ export function createChatView(win: BrowserWindow, getView: () => WebContentsVie
   win.contentView.addChildView(view);
   view.webContents.loadURL(DEEPSEEK_URL);
   layoutView(win, view);
-  win.on('resize', () => {
+
+  // 注册该窗口，供 DPI / 显示器变化时统一重新布局。
+  chatWindows.set(win, getView);
+  ensureDisplayMetricsListener();
+  // 清理：窗口真正销毁时才从集合移除；仅视图销毁（如 swapMainSub 原地重建）则保留，
+  // 因为 getView 仍会返回新的当前视图。
+  const cleanupRegistry = (): void => {
+    if (win.isDestroyed()) chatWindows.delete(win);
+  };
+  view.webContents.once('destroyed', cleanupRegistry);
+  win.once('closed', cleanupRegistry);
+
+  // 窗口状态变化（resize/maximize/unmaximize/full-screen/show）后重新布局。
+  // 所有监听器内部都通过 getView() 取「当前」视图，不闭包捕获旧 view
+  // （swapMainSub 会原地重建视图，旧 view 已销毁）。
+  const relayout = (): void => {
     const v = getView();
-    if (v && !v.webContents.isDestroyed()) layoutView(win, v);
-  });
+    if (v && !v.webContents.isDestroyed()) scheduleLayoutView(win, v);
+  };
+  win.on('resize', relayout);
+  win.on('resized', relayout);
+  win.on('maximize', relayout);
+  win.on('unmaximize', relayout);
+  win.on('enter-full-screen', relayout);
+  win.on('leave-full-screen', relayout);
+  win.on('show', relayout);
   return view;
 }
 
@@ -127,6 +200,8 @@ export function createMainWindow(
     if (!config.get('minimizeToTrayOnStart') || !config.get('trayEnabled')) {
       win.show();
     }
+    // 窗口真正显示并居中后，立即刷新视图边界（确保拿到稳定后的 viewport 尺寸）。
+    if (!win.isDestroyed()) layoutView(win, view);
   });
 
   return { win, view };

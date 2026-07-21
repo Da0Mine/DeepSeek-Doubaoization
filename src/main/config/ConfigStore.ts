@@ -1,6 +1,6 @@
 /**
  * 配置读写（%APPDATA%/DeepSeek/config.json）。
- * 启动读 config.json 并与 28 项默认值做「深度合并」；
+ * 启动读 config.json 并与 27 项默认值做「深度合并」；
  * set 后自动 save；支持 onChange 订阅。
  */
 import * as fs from 'fs';
@@ -8,7 +8,7 @@ import * as path from 'path';
 import { CONFIG_PATH } from '../constants';
 import type { ConfigKey, ConfigShape } from '../../shared/types';
 
-/** 28 项配置默认值（必须完整覆盖 ConfigShape）。 */
+/** 27 项配置默认值（必须完整覆盖 ConfigShape）。 */
 const DEFAULT_CONFIG: ConfigShape = {
   globalToggleShortcut: 'Alt+`',
   screenshotShortcut: 'Ctrl+Shift+A',
@@ -24,7 +24,6 @@ const DEFAULT_CONFIG: ConfigShape = {
   alwaysOnTop: true,
   fontSize: 14,
   realTimeTranslateSync: true,
-  windowCopyKeepsContext: true,
   enableRoleSwap: true,
   autoStartVisionModel: true,
   screenshotSavePath: '',

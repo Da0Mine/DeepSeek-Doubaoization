@@ -27,7 +27,6 @@
       { key: 'defaultModelMode', label: '默认模型模式', type: 'select', options: [{ label: '快速模式', value: 'simple' }, { label: '专家模式', value: 'expert' }, { label: '识图模式', value: 'vision' }] },
       { key: 'autoStartVisionModel', label: '识图自动开视觉模型', type: 'checkbox' },
       { key: 'realTimeTranslateSync', label: '翻译实时同步', type: 'checkbox' },
-      { key: 'windowCopyKeepsContext', label: '复制保留上下文', type: 'checkbox' },
     ]},
     { section: '交互与通知', items: [
       { key: 'notificationEnabled', label: '通知开关', type: 'checkbox' },

@@ -14,7 +14,7 @@ import {
 } from '../constants';
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
-import { layoutView } from './mainWindow';
+import { layoutView, scheduleLayoutView } from './mainWindow';
 import type { ConfigStore } from '../config/ConfigStore';
 import type { ScreenshotRect } from '../../shared/types';
 
@@ -80,9 +80,18 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
   win.contentView.addChildView(view);
   view.webContents.loadURL(DEEPSEEK_URL);
   layoutView(win, view);
-  win.on('resize', () => {
-    if (!win.isDestroyed()) layoutView(win, view);
-  });
+  // 窗口状态变化后重新布局（B 窗口无主副切换，view 为固定局部变量，可安全闭包捕获）。
+  // 使用 scheduleLayoutView 做延迟防抖，避免 maximize/unmaximize 时拿到不稳定尺寸。
+  const relayout = (): void => {
+    if (!win.isDestroyed()) scheduleLayoutView(win, view);
+  };
+  win.on('resize', relayout);
+  win.on('resized', relayout);
+  win.on('maximize', relayout);
+  win.on('unmaximize', relayout);
+  win.on('enter-full-screen', relayout);
+  win.on('leave-full-screen', relayout);
+  win.on('show', relayout);
 
   win.once('ready-to-show', () => {
     if (!win.isDestroyed()) {
