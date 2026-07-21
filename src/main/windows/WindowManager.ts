@@ -304,22 +304,132 @@ export class WindowManager {
     injectHideScrollbar();
     view.webContents.on('did-finish-load', injectHideScrollbar);
 
+    // 完整 DOM 探测脚本：把页面布局关键信息打到主进程日志，便于诊断"主内容区不显示"问题。
+    // 列出 viewport、所有 left=0..1300 范围内、width>=100 的 div，含 position / fixed 标志。
+    const DOM_PROBE = `
+      (() => {
+        try {
+          const out = {
+            vw: window.innerWidth, vh: window.innerHeight,
+            scrollY: window.scrollY,
+            bodyHeight: document.body ? document.body.scrollHeight : 0,
+            htmlHeight: document.documentElement ? document.documentElement.scrollHeight : 0,
+            candidates: []
+          };
+          const all = document.querySelectorAll('div, aside, main, section, header, footer');
+          for (const el of all) {
+            try {
+              const r = el.getBoundingClientRect();
+              if (r.left < 0 || r.left > 1300) continue;
+              if (r.width < 100 || r.width > 2000) continue;
+              if (r.height < 50) continue;
+              const cs = window.getComputedStyle(el);
+              out.candidates.push({
+                tag: el.tagName,
+                cls: (el.className || '').slice(0, 32),
+                id: el.id || '',
+                pos: cs.position,
+                left: Math.round(r.left), top: Math.round(r.top),
+                w: Math.round(r.width), h: Math.round(r.height),
+                z: cs.zIndex,
+                vis: cs.visibility,
+                disp: cs.display
+              });
+            } catch (e) { /* 单个元素出错不影响整体 */ }
+          }
+          out.bodyChildren = [];
+          if (document.body) {
+            for (const c of document.body.children) {
+              try {
+                const r = c.getBoundingClientRect();
+                const cs = window.getComputedStyle(c);
+                out.bodyChildren.push({
+                  tag: c.tagName,
+                  cls: (c.className || '').slice(0, 32),
+                  pos: cs.position,
+                  left: Math.round(r.left), top: Math.round(r.top),
+                  w: Math.round(r.width), h: Math.round(r.height)
+                });
+              } catch (e) { /* ignore */ }
+            }
+          }
+          return out;
+        } catch (e) {
+          return { error: String(e) };
+        }
+      })()
+    `;
+    const probeAndLog = (): void => {
+      // 多重守卫：view / view.webContents / isDestroyed() 任何一环失败都安全退出
+      try {
+        if (!view || view.webContents.isDestroyed()) return;
+        const wc = view.webContents;
+        wc.executeJavaScript(DOM_PROBE, true)
+          .then((res) => {
+            try {
+              const r = res as { vw?: number; vh?: number; scrollY?: number; bodyHeight?: number; htmlHeight?: number; candidates?: Array<Record<string, unknown>>; bodyChildren?: Array<Record<string, unknown>>; error?: string };
+              if (r.error) {
+                logf('dom-probe', 'error', r.error);
+                return;
+              }
+              logf('dom-probe', 'viewport/scroll', { vw: r.vw, vh: r.vh, scrollY: r.scrollY, bodyH: r.bodyHeight, htmlH: r.htmlHeight });
+              if (r.bodyChildren) logf('dom-probe', 'bodyChildren', r.bodyChildren);
+              const cands = r.candidates || [];
+              const chunks: Array<Record<string, unknown>[]> = [];
+              for (let i = 0; i < cands.length; i += 8) chunks.push(cands.slice(i, i + 8));
+              chunks.forEach((c, idx) => logf('dom-probe', `candidates[${idx}]`, c));
+            } catch (e) {
+              /* 忽略 */
+            }
+          })
+          .catch(() => {
+            /* 忽略 */
+          });
+      } catch (e) {
+        /* 守卫：view 或 view.webContents 不可用时安全吞掉 */
+      }
+    };
+    // 延迟 1.5s 探测（等 DeepSeek 渲染完成）；之后每次 did-finish-load 也探测
+    setTimeout(probeAndLog, 1500);
+    view.webContents.on('did-finish-load', () => setTimeout(probeAndLog, 1500));
+
     // 强制把页面滚到顶部：DeepSeek 整个 body 高度 12000+，浏览器记忆的滚动位置可能在中间，
     // 导致用户看到的是"中间的空内容 + 底部的输入框"而不是页面顶部。每次 did-finish-load
-    // 把页面滚到 0，且禁用 history 的滚动记忆。
+    // 把页面滚到 0，且禁用 history 的滚动记忆。同时多重延迟重试，覆盖 SPA 路由切换后
+    // scrollY 又被恢复的情况。
+    const SCROLL_TO_TOP_JS = `
+      (() => {
+        try {
+          window.scrollTo(0, 0);
+          if (document.documentElement) document.documentElement.scrollTop = 0;
+          if (document.body) document.body.scrollTop = 0;
+          if (history && history.scrollRestoration) history.scrollRestoration = 'manual';
+          return window.scrollY;
+        } catch (e) { return -1; }
+      })()
+    `;
     const scrollToTop = (): void => {
-      if (view.webContents.isDestroyed()) return;
-      view.webContents
-        .executeJavaScript(
-          'try { window.scrollTo(0, 0); if (history.scrollRestoration) history.scrollRestoration = "manual"; } catch (e) {}',
-          true
-        )
-        .catch(() => {
-          /* 忽略执行失败 */
-        });
+      try {
+        if (!view || view.webContents.isDestroyed()) return;
+        const wc = view.webContents;
+        // 立即 + 200ms + 1s + 3s 四次重试，覆盖 React 重渲染可能把 scrollY 恢复的情况
+        const tryOnce = (): void => {
+          wc.executeJavaScript(SCROLL_TO_TOP_JS, true).catch(() => { /* 忽略 */ });
+        };
+        tryOnce();
+        setTimeout(tryOnce, 200);
+        setTimeout(tryOnce, 1000);
+        setTimeout(tryOnce, 3000);
+      } catch (e) {
+        /* 守卫 */
+      }
     };
     scrollToTop();
-    view.webContents.on('did-finish-load', scrollToTop);
+    view.webContents.on('did-finish-load', () => {
+      scrollToTop();
+      // 路由切换后再次滚回顶部
+      setTimeout(scrollToTop, 1000);
+    });
   }
 
   /**
