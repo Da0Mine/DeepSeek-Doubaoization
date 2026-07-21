@@ -143,13 +143,26 @@ function installSidebarLayoutFix(): void {
         style.id = STYLE_ID;
         style.textContent = `
           /* 根因修复：DeepSeek 整个页面渲染为 12000+ 像素高，导致 WebContentsView 显示超长滚动条。
-             隐藏 html/body 的 overflow 后，DeepSeek 内部各容器（sidebar/chat area）会自己滚动，
-             外壳 window 不再出现超长滚动条。 */
+             解决思路：
+             1) 把 html/body 锁死在视口尺寸内（position: fixed; inset: 0; overflow: hidden），
+                让 body 不再出现"整个页面"的整体滚动条。
+             2) DeepSeek 内部已有的滚动容器（class 含 ds-scroll-area）继续负责自身滚动。
+             3) 兜底：若某些容器没有自带 overflow，给其设 overflow: auto + max-height: 100%
+                强制内部滚动，避免内容被遮挡。 */
           html, body {
-            overflow: hidden !important;
-            min-width: 0 !important;
-            height: 100% !important;
+            position: fixed !important;
+            inset: 0 !important;
             width: 100% !important;
+            height: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+          }
+          /* 兜底：让 DeepSeek 内层主要容器自带滚动条（防被 body 裁剪后无法访问） */
+          .ds-scroll-area,
+          [class*="scroll-area"] {
+            overflow: auto !important;
+            max-height: 100% !important;
           }
         `;
         (document.head || document.documentElement).appendChild(style);
@@ -161,7 +174,7 @@ function installSidebarLayoutFix(): void {
         try { console.log(line); } catch { /* 忽略 */ }
         try { ipcRenderer.send('ds:debug', line); } catch { /* 忽略 */ }
       };
-      report('installed (no-collapse mode)', { vh: window.innerHeight, vw: window.innerWidth });
+      report('installed (viewport-lock + scroll-area)', { vh: window.innerHeight, vw: window.innerWidth });
     } catch (e) {
       console.error('[sidebar-fix] FATAL:', e);
     }
