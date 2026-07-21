@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>翻译</title>
+    <link rel="stylesheet" href="titlebar.css" />
+    <link rel="stylesheet" href="translate.css" />
+  </head>
+  <body>
+    <div id="titlebar">
+      <div class="tb-left">
+        <span class="tb-logo">DeepSeek 翻译</span>
+        <span id="login-status" class="tb-status">检测中…</span>
+      </div>
+      <div class="tb-right">
+        <button id="btn-settings" class="tb-btn" title="设置">设置</button>
+        <button id="btn-pin" class="tb-btn" title="置顶">📌</button>
+        <button id="btn-swap" class="tb-btn" title="主副切换">⇄</button>
+        <button id="btn-theme" class="tb-btn" title="切换主题">主题</button>
+        <button id="btn-min" class="tb-btn" title="最小化">—</button>
+        <button id="btn-max" class="tb-btn" title="最大化">▢</button>
+        <button id="btn-close" class="tb-btn" title="关闭">✕</button>
+      </div>
+    </div>
+
+    <div class="translate-body">
+      <div class="lang-row">
+        <select id="src-lang" class="lang-select"></select>
+        <span class="swap">→</span>
+        <select id="dst-lang" class="lang-select"></select>
+      </div>
+      <div class="editor-row">
+        <textarea id="src-text" class="editor" placeholder="输入或粘贴要翻译的内容…"></textarea>
+        <textarea id="dst-text" class="editor" placeholder="译文（实时回填）" readonly></textarea>
+      </div>
+      <div class="action-row">
+        <label class="sync-toggle">
+          <input type="checkbox" id="sync-toggle" checked /> 实时同步到对话
+        </label>
+        <button id="btn-send" class="send-btn">发送结果到对话</button>
+      </div>
+    </div>
+
+    <script src="translate.js"></script>
+  </body>
+</html>

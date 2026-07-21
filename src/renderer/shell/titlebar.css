@@ -1,0 +1,104 @@
+/* 自定义标题栏样式（原生 CSS，不依赖任何框架）。配色由主进程经 --ds-* 变量下发。 */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 40px; /* 标题栏高度，与 constants.TITLEBAR_HEIGHT 对应 */
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: var(--ds-font-size, 13px);
+  background: var(--ds-tb-bg, #f3f3f3);
+  color: var(--ds-tb-fg, #333);
+}
+
+#titlebar {
+  -webkit-app-region: drag;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  user-select: none;
+  border-bottom: 1px solid var(--ds-border, #e0e0e0);
+  background: var(--ds-tb-bg, #f3f3f3);
+}
+
+.tb-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tb-logo {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.tb-status {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--ds-border, #e0e0e0);
+  color: var(--ds-tb-fg, #555);
+  white-space: nowrap;
+}
+
+.tb-status.ok {
+  background: rgba(76, 175, 80, 0.18);
+  color: #2e7d32;
+}
+
+.tb-status.warn {
+  background: rgba(244, 67, 54, 0.18);
+  color: #c62828;
+}
+
+.tb-right {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  height: 100%;
+}
+
+.tb-btn {
+  -webkit-app-region: no-drag;
+  border: none;
+  background: transparent;
+  color: var(--ds-tb-fg, #333);
+  height: 32px;
+  min-width: 36px;
+  padding: 0 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+}
+
+.tb-btn:hover {
+  background: var(--ds-border, #e0e0e0);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+/* 标题栏内联 SVG 图标（如设置齿轮）：统一 currentColor（深色主题下为白色），描边风格。 */
+.tb-btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tb-btn:active {
+  transform: translateY(1px);
+}

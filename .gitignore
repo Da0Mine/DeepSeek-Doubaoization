@@ -1,0 +1,29 @@
+# 依赖与构建产物
+node_modules/
+dist/
+release/
+out/
+
+# 日志与缓存
+*.log
+npm-debug.log*
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+
+# 本地配置（用户数据由 app.getPath('userData') 管理，不入库）
+config.json
+
+# 运行时 / 测试 / 调试产物
+coverage/
+.inspect/
+*.log
+nul
+jest-out.json
+test-debug-output.json
+test-debug.js
+tmp-*.js
+debug-*.md
+

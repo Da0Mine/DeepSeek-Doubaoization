@@ -1,0 +1,80 @@
+/* 自定义标题栏交互（原生 JS）。通过 window.shell（shellPreload 暴露）与主进程通信。 */
+(function () {
+  'use strict';
+
+  function ready(fn) {
+    if (document.readyState !== 'loading') fn();
+    else document.addEventListener('DOMContentLoaded', fn);
+  }
+
+  ready(function () {
+    var shell = window.shell;
+    if (!shell) {
+      console.error('[titlebar] window.shell 不可用');
+      return;
+    }
+
+    var btnTheme = document.getElementById('btn-theme');
+    var btnSettings = document.getElementById('btn-settings');
+    var btnPin = document.getElementById('btn-pin');
+    var btnSwap = document.getElementById('btn-swap');
+    var btnMin = document.getElementById('btn-min');
+    var btnMax = document.getElementById('btn-max');
+    var btnClose = document.getElementById('btn-close');
+    var loginStatus = document.getElementById('login-status');
+
+    if (btnSettings) btnSettings.onclick = function () { shell.openSettings(); };
+    if (btnPin) {
+      // 置顶按钮仅副窗口需要；主窗口去掉（见需求）。
+      if (shell.windowType === 'main') {
+        btnPin.style.display = 'none';
+      } else {
+        btnPin.onclick = function () { shell.alwaysOnTop(); };
+      }
+    }
+    // 主题、设置按钮仅主窗口需要；副窗口（sub / B 类）去掉（见需求）。
+    if (shell.windowType !== 'main') {
+      if (btnTheme) btnTheme.style.display = 'none';
+      if (btnSettings) btnSettings.style.display = 'none';
+    }
+    if (btnSwap) btnSwap.onclick = function () { shell.swapMainSub(); };
+    if (btnTheme) btnTheme.onclick = function () {
+      var cur = document.documentElement.getAttribute('data-theme') || 'system';
+      var next = cur === 'dark' ? 'light' : 'dark';
+      shell.applyTheme(next);
+    };
+    if (btnMin) btnMin.onclick = function () { shell.minimize(); };
+    if (btnMax) btnMax.onclick = function () { shell.toggleMax(); };
+    if (btnClose) btnClose.onclick = function () { shell.close(); };
+
+    // 主副切换总开关关闭时隐藏切换按钮
+    try {
+      shell.getConfig('enableRoleSwap').then(function (on) {
+        if (btnSwap && !on) btnSwap.style.display = 'none';
+      }).catch(function () {});
+    } catch (e) {}
+
+    // 主题变量下发：写入 :root
+    shell.onThemeVars(function (vars) {
+      for (var k in vars) {
+        if (Object.prototype.hasOwnProperty.call(vars, k)) {
+          document.documentElement.style.setProperty(k, vars[k]);
+        }
+      }
+      var dark = getComputedStyle(document.documentElement).getPropertyValue('--ds-bg').trim() === '#1e1e1e';
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    });
+
+    // 登录态回报
+    shell.onLoginStatus(function (p) {
+      if (!loginStatus) return;
+      if (p.loggedIn) {
+        loginStatus.textContent = '已登录';
+        loginStatus.className = 'tb-status ok';
+      } else {
+        loginStatus.textContent = '未登录，请登录';
+        loginStatus.className = 'tb-status warn';
+      }
+    });
+  });
+})();

@@ -1,0 +1,25 @@
+# electron-builder 配置（单一来源，替代 package.json 中的 build 字段）
+appId: com.deepseek.desktop
+productName: DeepSeek
+copyright: Copyright © 2026 Kou
+directories:
+  output: release
+  buildResources: src/renderer/assets/icons
+files:
+  - dist/**/*
+  - package.json
+# 注意：运行时零依赖，仅打包编译产物 dist/。图标为可选，缺失时使用默认图标。
+win:
+  target: nsis
+  artifactName: DeepSeek-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target: dmg
+  category: public.app-category.productivity
+linux:
+  target: AppImage
+  category: Utility
+  # Linux 托盘依赖 libappindicator；具体说明见 README

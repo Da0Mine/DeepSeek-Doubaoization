@@ -1,0 +1,111 @@
+classDiagram
+    direction LR
+
+    class ConfigStore {
+        +static CONFIG_PATH: string
+        -data: ConfigShape
+        +load(): ConfigShape
+        +save(): void
+        +get~K~(key: K): ConfigShape[K]
+        +set~K~(key: K, value: ConfigShape[K]): void
+        +getAll(): ConfigShape
+        +reset(): void
+        +onChange(cb: (c: ConfigShape) => void): void
+    }
+
+    class WindowManager {
+        -windows: Map~string, BrowserWindow~
+        -mainView: WebContentsView
+        +createMainWindow(): BrowserWindow
+        +createSubWindow(type: WindowType): BrowserWindow
+        +getActiveWebContents(): WebContents
+        +copyWindow(id: string): BrowserWindow
+        +swapRoles(idA: string, idB: string): void
+        +setAlwaysOnTop(id: string, on: boolean): void
+        +toggleMainWindow(): void
+    }
+
+    class ScreenshotManager {
+        -overlay: BrowserWindow
+        +startCapture(): void
+        +captureSources(): Promise~Source[]
+        +selectRegion(rect: Rect): Buffer
+        +saveToFile(buf: Buffer, path: string): void
+        +copyToClipboard(buf: Buffer): void
+        +getImageData(): Buffer
+    }
+
+    class ShortcutManager {
+        -registrations: Map~string, GlobalShortcut~
+        +register(accelerator: string, cb: () => void): void
+        +unregister(accelerator: string): void
+        +applyFromConfig(cfg: ConfigShape): void
+        +unregisterAll(): void
+    }
+
+    class TrayManager {
+        -tray: Tray
+        +buildMenu(): void
+        +show(): void
+        +hide(): void
+        +rebuild(): void
+    }
+
+    class ThemeManager {
+        -current: 'light'|'dark'|'system'
+        +applyTheme(mode: ThemeMode): void
+        +onSystemThemeChange(cb: () => void): void
+        +getCssVars(): Record~string,string~
+    }
+
+    class Injector {
+        -selectors: DeepseekSelectors
+        +sendToChat(wc: WebContents, text: string, img?: string): Promise~void~
+        +uploadImage(wc: WebContents, imgPath: string): Promise~void~
+        +switchToVisionModel(wc: WebContents): Promise~boolean~
+        +extractText(wc: WebContents, img: Buffer): Promise~string~
+        +translate(wc: WebContents, img: Buffer, lang: string): Promise~string~
+        +explain(wc: WebContents, img: Buffer): Promise~string~
+        +detectLogin(wc: WebContents): Promise~boolean~
+    }
+
+    class PromptTemplates {
+        +render(tpl: string, vars: Record~string,string|Content~): string
+        +extractTextPrompt(): string
+        +translatePrompt(targetLang: string): string
+        +explainPrompt(): string
+        +visionPrompt(): string
+    }
+
+    class ScreenshotOverlay {
+        +show(): void
+        +hide(): void
+        +onAction(cb: (action: ScreenshotAction, rect: Rect) => void): void
+    }
+
+    class IPCChannels {
+        <<const>>
+        +WIN_TOGGLE: 'win:toggle'
+        +WIN_MIN: 'win:min'
+        +WIN_MAX: 'win:max'
+        +WIN_CLOSE: 'win:close'
+        +SS_START: 'screenshot:start'
+        +SS_ACTION: 'screenshot:action'
+        +CFG_GET: 'config:get'
+        +CFG_SET: 'config:set'
+        +THEME_APPLY: 'theme:apply'
+        +TRANSLATE_SYNC: 'translate:sync'
+    }
+
+    ConfigStore ..> IPCChannels : used by
+    WindowManager ..> ConfigStore : reads
+    WindowManager ..> ScreenshotOverlay : opens
+    ShortcutManager ..> WindowManager : toggles/captures
+    ShortcutManager ..> ScreenshotManager : triggers
+    TrayManager ..> WindowManager : controls
+    TrayManager ..> ScreenshotManager : triggers
+    ThemeManager ..> WindowManager : restyles
+    Injector ..> PromptTemplates : builds prompts
+    Injector ..> IPCChannels : invokes
+    ScreenshotManager ..> ScreenshotOverlay : uses
+    ScreenshotManager ..> Injector : routes action

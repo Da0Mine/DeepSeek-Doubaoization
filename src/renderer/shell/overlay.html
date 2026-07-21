@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>截图</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <!-- 标注工具栏（选区完成后显示） -->
+    <div id="toolbar" class="hidden">
+      <span class="tb-title">标注：</span>
+      <span id="palette" class="palette"></span>
+      <button class="tool-btn" data-tool="pen" title="画笔"><svg class="ico" viewBox="0 0 24 24"><path d="M3 21l3-1 13-13-2-2L4 18z"/><path d="M14 7l2 2"/></svg></button>
+      <button class="tool-btn" data-tool="rect" title="矩形"><svg class="ico" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="2"/></svg></button>
+      <button class="tool-btn" data-tool="ellipse" title="椭圆"><svg class="ico" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg></button>
+      <button id="btn-undo" class="tool-btn" title="撤销"><svg class="ico" viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/></svg></button>
+      <button id="btn-clear" class="tool-btn" title="清空"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button>
+    </div>
+
+    <!-- 动作条（选区完成后显示） -->
+    <div id="actionbar" class="hidden">
+      <button class="act-btn" data-action="clipboard"><svg class="ico" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span class="act-label">复制</span></button>
+      <button class="act-btn" data-action="extract"><svg class="ico" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M10 9h6M10 13h6M10 17h4"/></svg><span class="act-label">提取文字</span></button>
+      <button class="act-btn" data-action="translate"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><span class="act-label">翻译</span></button>
+      <button class="act-btn" data-action="explain"><svg class="ico" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10c1 1 1 2 1 3h6c0-1 0-2 1-3a6 6 0 0 0-4-10z"/></svg><span class="act-label">解释</span></button>
+      <div class="act-divider"></div>
+      <button class="act-btn" data-action="sendCurrent" title="发送到当前对话"><svg class="ico" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg><span class="act-label">当前对话</span></button>
+      <button class="act-btn" data-action="sendNew" title="发送到新对话"><svg class="ico" viewBox="0 0 24 24"><path d="M5 3h14v18H5z"/><path d="M12 8v8M8 12h8"/></svg><span class="act-label">新对话</span></button>
+      <div class="act-divider"></div>
+      <button id="btn-cancel" class="act-btn cancel"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="act-label">取消</span></button>
+    </div>
+
+    <div id="hint">请在屏幕上拖拽选择区域</div>
+
+    <!-- 冻结的截图底图（选区完成后定位显示） -->
+    <img id="frozen" alt="" />
+    <!-- 标注画布（叠加在底图之上） -->
+    <canvas id="anno"></canvas>
+    <!-- 选区可交互框：常驻显示，内含 8 个缩放手柄 + 4 条边带（拖动边带=移动，拖动手柄=缩放） -->
+    <div id="selection">
+      <div class="sel-strip" data-dir="n"></div>
+      <div class="sel-strip" data-dir="s"></div>
+      <div class="sel-strip" data-dir="w"></div>
+      <div class="sel-strip" data-dir="e"></div>
+      <div class="sel-handle" data-dir="nw"></div>
+      <div class="sel-handle" data-dir="n"></div>
+      <div class="sel-handle" data-dir="ne"></div>
+      <div class="sel-handle" data-dir="e"></div>
+      <div class="sel-handle" data-dir="se"></div>
+      <div class="sel-handle" data-dir="s"></div>
+      <div class="sel-handle" data-dir="sw"></div>
+      <div class="sel-handle" data-dir="w"></div>
+    </div>
+
+    <script src="overlay.js"></script>
+  </body>
+</html>

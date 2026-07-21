@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>设置</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <div id="titlebar">
+      <div class="tb-left"><span class="tb-logo">设置</span></div>
+      <div class="tb-right">
+        <button id="btn-min" class="tb-btn" title="最小化">—</button>
+        <button id="btn-close" class="tb-btn" title="关闭">✕</button>
+      </div>
+    </div>
+    <div id="app">
+      <nav id="sidebar"></nav>
+      <main id="panel">
+        <div id="panel-header"></div>
+        <div id="panel-body"></div>
+      </main>
+    </div>
+    <div id="actions">
+      <button id="btn-reset">重置默认</button>
+      <span id="status"></span>
+    </div>
+    <script src="settings.js"></script>
+  </body>
+</html>

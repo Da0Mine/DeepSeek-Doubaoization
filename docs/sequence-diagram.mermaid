@@ -1,0 +1,66 @@
+%% 流程 (a) 全局快捷键 Alt+` 显示/隐藏主窗口
+sequenceDiagram
+    participant U as 用户
+    participant GS as globalShortcut
+    participant SM as ShortcutManager
+    participant WM as WindowManager
+    participant MW as 主窗口(BrowserWindow)
+
+    U->>GS: 按下 Alt+`
+    GS->>SM: 触发回调 (accelerator='Alt+`')
+    SM->>WM: toggleMainWindow()
+    alt 窗口当前可见
+        WM->>MW: hide() / 或 minimize(若 closeToTray)
+        Note over WM: 若 config.closeToTray=true 仅隐藏到托盘
+    else 窗口当前隐藏
+        WM->>MW: show() + focus()
+    end
+    MW-->>U: 窗口显示/隐藏
+
+%% 流程 (b) Ctrl+Shift+A 截图 → 选区 → 发送到对话 注入网页
+sequenceDiagram
+    participant U as 用户
+    participant GS as globalShortcut
+    participant SM as ShortcutManager
+    participant ScM as ScreenshotManager
+    participant OV as ScreenshotOverlay
+    participant Inj as Injector
+    participant WC as 网页 webContents
+    participant DS as chat.deepseek.com
+
+    U->>GS: 按下 Ctrl+Shift+A
+    GS->>SM: 触发截图回调
+    SM->>ScM: startCapture()
+    ScM->>OV: show()（全屏半透明遮罩）
+    U->>OV: 拖拽矩形选区 → 点"发送到对话"
+    OV->>ScM: onAction('chat', rect)
+    ScM->>ScM: selectRegion(rect) → PNG Buffer
+    ScM->>ScM: 按 config.screenshotSavePath 落盘(可选)
+    ScM->>Inj: sendToChat(activeWC, prompt, imgPath)
+    Inj->>WC: executeJavaScript(注入JS)
+    WC->>DS: 定位输入框/上传图片/填提示词/点发送
+    DS-->>U: 网页开始对话
+    Inj-->>ScM: resolve()
+    ScM->>OV: hide()
+
+%% 流程 (c) 副窗口：翻译窗口实时同步
+sequenceDiagram
+    participant U as 用户
+    participant TW as 翻译窗口(renderer)
+    participant SP as shellPreload
+    participant Inj as Injector
+    participant WC as 网页 webContents
+    participant DS as chat.deepseek.com
+
+    U->>TW: 在原文区输入 + 选目标语言
+    TW->>TW: debounce 400ms
+    TW->>SP: IPC translate:sync(text, targetLang)
+    SP->>Inj: translate(activeWC, promptBuf, targetLang)
+    Inj->>WC: executeJavaScript(填翻译提示词+发送)
+    WC->>DS: 发起对话
+    DS-->>WC: 返回译文
+    WC-->>Inj: 抓取译文文本
+    Inj-->>SP: 译文结果
+    SP-->>TW: 回填译文区
+    TW-->>U: 实时显示译文
+    Note over TW: 仅当 config.realTimeTranslateSync=true

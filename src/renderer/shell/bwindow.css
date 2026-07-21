@@ -1,0 +1,45 @@
+/* B 类临时窗口标题栏样式（复用外壳变量，无主副切换/设置）。 */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 36px;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: var(--ds-font-size, 13px);
+  background: var(--ds-tb-bg, #f3f3f3);
+  color: var(--ds-tb-fg, #333);
+}
+
+#titlebar {
+  -webkit-app-region: drag;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  user-select: none;
+  border-bottom: 1px solid var(--ds-border, #e0e0e0);
+  background: var(--ds-tb-bg, #f3f3f3);
+}
+
+.tb-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tb-logo { font-weight: 600; letter-spacing: 0.3px; }
+
+.tb-right { display: flex; align-items: center; gap: 4px; }
+
+.tb-btn {
+  -webkit-app-region: no-drag;
+  border: none;
+  background: transparent;
+  color: var(--ds-tb-fg, #333);
+  height: 26px;
+  min-width: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.tb-btn:hover { background: var(--ds-border, #e0e0e0); }
+.tb-btn:active { transform: translateY(1px); }
