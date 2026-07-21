@@ -40,7 +40,7 @@ let displayMetricsListenerAdded = false;
  */
 function applyViewBounds(win: BrowserWindow, view: WebContentsView): void {
   if (win.isDestroyed() || view.webContents.isDestroyed()) return;
-  const [width, height] = win.getContentSize();
+  const { width, height } = win.getContentBounds();
   if (width <= 0 || height <= 0) return;
   // 诊断用：仅当项目根目录存在 .debug-autolog（或 DS_DEBUG=1）时才落盘/打印，生产环境无感。
   logf('layout', 'applyViewBounds', { width, height, titlebar: TITLEBAR_HEIGHT });
@@ -151,11 +151,13 @@ export function createMainWindow(
   getView?: () => WebContentsView | null
 ): MainWindowResult {
   const win = new BrowserWindow({
-    width: 1100,
-    height: 740,
+    width: 1280,
+    height: 770,
     minWidth: 480,
     minHeight: 360,
+    autoHideMenuBar: true,
     frame: false,
+    titleBarOverlay: false,
     title: 'DeepSeek',
     backgroundColor: resolveBackgroundColor(config),
     show: false,
