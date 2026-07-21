@@ -88,9 +88,10 @@ const dsApi = {
    */
   reportNewConversation(): void {
     try {
+      console.log('[preload] reportNewConversation → 发送 IPC NEW_CONVERSATION');
       ipcRenderer.send(IPC.NEW_CONVERSATION);
     } catch (e) {
-      // 忽略
+      console.log('[preload] reportNewConversation 异常 ' + e);
     }
   },
 };

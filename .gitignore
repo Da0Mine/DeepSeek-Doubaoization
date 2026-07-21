@@ -27,3 +27,7 @@ test-debug.js
 tmp-*.js
 debug-*.md
 
+# 自检日志（主理人调试用，确认修复后删除 .debug-autolog 即可关闭）
+.debug-autolog
+logs/
+

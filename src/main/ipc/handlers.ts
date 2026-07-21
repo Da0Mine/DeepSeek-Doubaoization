@@ -304,8 +304,8 @@ export function registerHandlers(ctx: HandlerCtx): void {
       case 'deepThinkEnabled': {
         // Bug3 修复：setDeepThink 实现后此前从未被调用。现设置变更时即时对全部对话窗口应用开关，
         // 并同步在新建对话 / 应用默认模型时（applyDefaultModelMode）生效，使「默认深度思考」真正落地。
+        // 注：不再弹出 toast 通知（用户要求：每次改设置都弹通知太烦）。
         const enabled = Boolean(value);
-        notify('深度思考', enabled ? '已开启' : '已关闭');
         for (const wc of windows.getAllChatWebContents()) {
           injector.setDeepThink(wc, enabled).catch(() => {});
         }
@@ -313,7 +313,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
       }
       case 'smartSearchEnabled': {
         const enabled = Boolean(value);
-        notify('智能搜索', enabled ? '已开启' : '已关闭');
+        // 注：不再弹出 toast 通知（用户要求：每次改设置都弹通知太烦）。
         for (const wc of windows.getAllChatWebContents()) {
           injector.setSmartSearch(wc, enabled).catch(() => {});
         }
