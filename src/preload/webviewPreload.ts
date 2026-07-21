@@ -134,79 +134,44 @@ bindScissorsTrigger();
  * 探测会失败、再也找不到该栏而无法还原）。
  */
 function installSidebarLayoutFix(): void {
-  try {
-    const STYLE_ID = 'ds-sidebar-fix';
-    if (!document.getElementById(STYLE_ID)) {
-      const style = document.createElement('style');
-      style.id = STYLE_ID;
-      style.textContent = `
-        html, body { overflow-x: hidden !important; min-width: 0 !important; }
-      `;
-      document.head.appendChild(style);
-    }
-
-    const SIDEBAR_MIN_WIDTH = 200;
-    const SIDEBAR_MAX_WIDTH = 400;
-    let lastSidebar: HTMLElement | null = null;
-    let alreadyCollapsed = false;
-
-    /** 查找「贴近左侧、宽度达标」的侧边栏候选（优先复用已记录的元素）。 */
-    function findSidebar(): HTMLElement | null {
-      if (lastSidebar && document.contains(lastSidebar)) return lastSidebar;
-      let best: HTMLElement | null = null;
-      let bestWidth = 0;
-      const candidates = document.querySelectorAll<HTMLElement>('div, aside, nav');
-      candidates.forEach((el) => {
-        const rect = el.getBoundingClientRect();
-        if (
-          rect.width >= SIDEBAR_MIN_WIDTH &&
-          rect.width <= SIDEBAR_MAX_WIDTH &&
-          rect.left >= -1 &&
-          rect.left <= 4 &&
-          rect.height > 200
-        ) {
-          if (rect.width > bestWidth) {
-            bestWidth = rect.width;
-            best = el;
+      /** 实际的安装逻辑：必须等 document.head 存在后再执行。 */
+  function doInstall(): void {
+    try {
+      const STYLE_ID = 'ds-sidebar-fix';
+      if (!document.getElementById(STYLE_ID)) {
+        const style = document.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent = `
+          /* 根因修复：DeepSeek 整个页面渲染为 12000+ 像素高，导致 WebContentsView 显示超长滚动条。
+             隐藏 html/body 的 overflow 后，DeepSeek 内部各容器（sidebar/chat area）会自己滚动，
+             外壳 window 不再出现超长滚动条。 */
+          html, body {
+            overflow: hidden !important;
+            min-width: 0 !important;
+            height: 100% !important;
+            width: 100% !important;
           }
-        }
-      });
-      lastSidebar = best;
-      return best;
-    }
-
-    /** 折叠侧边栏（仅首次执行，不改 DOM 结构，仅改内联样式）。 */
-    function collapseSidebarOnce(): void {
-      if (alreadyCollapsed) return;
-      const sidebar = findSidebar();
-      if (!sidebar) return;
-      const rect = sidebar.getBoundingClientRect();
-      if (rect.width < SIDEBAR_MIN_WIDTH * 0.5) return;
-      alreadyCollapsed = true;
-      const sibling = sidebar.nextElementSibling as HTMLElement | null;
-      sidebar.style.setProperty('width', '0', 'important');
-      sidebar.style.setProperty('max-width', '0', 'important');
-      sidebar.style.setProperty('min-width', '0', 'important');
-      sidebar.style.setProperty('overflow', 'hidden', 'important');
-      sidebar.style.setProperty('opacity', '0', 'important');
-      if (sibling) {
-        sibling.style.setProperty('flex', '1 1 auto', 'important');
-        sibling.style.setProperty('min-width', '480px', 'important');
-        sibling.style.setProperty('margin-left', '0', 'important');
+        `;
+        (document.head || document.documentElement).appendChild(style);
       }
-    }
 
-    // 页面首次加载时折叠侧边栏（仅一次，不绑定 resize，用户手动展开后可保持）
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', collapseSidebarOnce, { once: true });
-    } else {
-      collapseSidebarOnce();
+      // 占位：保留诊断 hook，不进行 sidebar 折叠（用户已确认左侧 sidebar 没问题）
+      const report = (msg: string, extra?: unknown): void => {
+        const line = `[sidebar-fix] ${msg}` + (extra !== undefined ? ' ' + JSON.stringify(extra) : '');
+        try { console.log(line); } catch { /* 忽略 */ }
+        try { ipcRenderer.send('ds:debug', line); } catch { /* 忽略 */ }
+      };
+      report('installed (no-collapse mode)', { vh: window.innerHeight, vw: window.innerWidth });
+    } catch (e) {
+      console.error('[sidebar-fix] FATAL:', e);
     }
-    // SPA 路由变化后延迟补判：DeepSeek 为 SPA，侧边栏可能稍后才挂载
-    setTimeout(collapseSidebarOnce, 500);
-    setTimeout(collapseSidebarOnce, 1500);
-  } catch {
-    // 极端环境忽略，不影响注入
+  }
+
+  // 必须在 document.head 存在后再执行；preload 在 head 之前就跑了
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', doInstall, { once: true });
+  } else {
+    doInstall();
   }
 }
 installSidebarLayoutFix();
