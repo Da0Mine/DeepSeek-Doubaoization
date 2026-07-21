@@ -14,7 +14,6 @@
     if (!shell) { console.error('[translate] window.shell 不可用'); return; }
 
     // ---- 标题栏按钮（与 titlebar.js 一致）----
-    var btnTheme = document.getElementById('btn-theme');
     var btnSettings = document.getElementById('btn-settings');
     var btnPin = document.getElementById('btn-pin');
     var btnSwap = document.getElementById('btn-swap');
@@ -25,10 +24,6 @@
     if (btnSettings) btnSettings.onclick = function () { shell.openSettings(); };
     if (btnPin) btnPin.onclick = function () { shell.alwaysOnTop(); };
     if (btnSwap) btnSwap.onclick = function () { shell.swapMainSub(); };
-    if (btnTheme) btnTheme.onclick = function () {
-      var cur = document.documentElement.getAttribute('data-theme') || 'system';
-      shell.applyTheme(cur === 'dark' ? 'light' : 'dark');
-    };
     if (btnMin) btnMin.onclick = function () { shell.minimize(); };
     if (btnMax) btnMax.onclick = function () { shell.toggleMax(); };
     if (btnClose) btnClose.onclick = function () { shell.close(); };

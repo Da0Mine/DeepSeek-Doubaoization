@@ -830,7 +830,31 @@ export class Injector {
           }
           return best;
         }
+        function getModelMode(){
+          // 读取当前选中的模型模式：radio 的 aria-checked 决定（对齐 switchModelMode 的选择器）
+          var radios = Array.from(document.querySelectorAll('[data-model-type][role="radio"]'));
+          for (var i = 0; i < radios.length; i++) {
+            if (radios[i].getAttribute('aria-checked') === 'true') {
+              var t = radios[i].getAttribute('data-model-type');
+              if (t === 'expert') return 'expert';
+              if (t === 'vision') return 'vision';
+              return 'simple';
+            }
+          }
+          return null; // 未知（选择器未就绪等）：保守返回 null
+        }
+        function isExpertMode(){ return getModelMode() === 'expert'; }
+        function syncScissorsVisibility(){
+          var btn = document.getElementById('ds-scissors-btn');
+          if (isExpertMode()) { if (btn) btn.remove(); return; }
+          if (!btn) inject();
+        }
         function inject() {
+          if (isExpertMode()) {
+            // 专家模式不允许上传图片/附件，不显示截图按钮
+            console.log('[Injector] 专家模式下不注入剪刀按钮');
+            return false;
+          }
           if (document.getElementById('ds-scissors-btn')) return true;
           var anchor = getUploadButton();
           if (!anchor) {
@@ -888,11 +912,11 @@ export class Injector {
             console.log('[Injector-DUMP]  cb#' + i + ' ' + b.tagName + (b.id ? '#' + b.id : '') + '.' + (b.className && b.className.toString ? b.className.toString() : '').slice(0, 26) + ' aria=' + (b.getAttribute('aria-label') || '') + (b.querySelector('input[type="file"]') ? ' [F]' : '') + (b.querySelector('svg') ? ' [S]' : ''));
           });
         }
-        inject();
+        syncScissorsVisibility();
         var mo = new MutationObserver(function () {
-          if (!document.getElementById('ds-scissors-btn')) inject();
+          syncScissorsVisibility();
         });
-        mo.observe(document.body, { childList: true, subtree: true });
+        mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-checked'] });
         window.__dsScissorsMO = mo;
         return document.getElementById('ds-scissors-btn') != null;
       } catch (e) { console.error('[Injector] inject 异常', e); return false; }

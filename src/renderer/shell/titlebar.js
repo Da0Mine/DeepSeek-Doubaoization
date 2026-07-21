@@ -14,7 +14,6 @@
       return;
     }
 
-    var btnTheme = document.getElementById('btn-theme');
     var btnSettings = document.getElementById('btn-settings');
     var btnPin = document.getElementById('btn-pin');
     var btnSwap = document.getElementById('btn-swap');
@@ -32,17 +31,11 @@
         btnPin.onclick = function () { shell.alwaysOnTop(); };
       }
     }
-    // 主题、设置按钮仅主窗口需要；副窗口（sub / B 类）去掉（见需求）。
+    // 设置按钮仅主窗口需要；副窗口（sub / B 类）去掉（见需求）。
     if (shell.windowType !== 'main') {
-      if (btnTheme) btnTheme.style.display = 'none';
       if (btnSettings) btnSettings.style.display = 'none';
     }
     if (btnSwap) btnSwap.onclick = function () { shell.swapMainSub(); };
-    if (btnTheme) btnTheme.onclick = function () {
-      var cur = document.documentElement.getAttribute('data-theme') || 'system';
-      var next = cur === 'dark' ? 'light' : 'dark';
-      shell.applyTheme(next);
-    };
     if (btnMin) btnMin.onclick = function () { shell.minimize(); };
     if (btnMax) btnMax.onclick = function () { shell.toggleMax(); };
     if (btnClose) btnClose.onclick = function () { shell.close(); };
