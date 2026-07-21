@@ -6,6 +6,11 @@
     <link rel="stylesheet" href="overlay.css" />
   </head>
   <body>
+    <!-- 全屏截图背景图：替代透明窗口看穿桌面，修复全屏独占应用下黑屏（z-index 0） -->
+    <img id="bg" src="" alt="" />
+    <!-- 半透明暗化层（盖在背景之上，选区之下）（z-index 1） -->
+    <div id="shade"></div>
+
     <!-- 标注工具栏（选区完成后显示） -->
     <div id="toolbar" class="hidden">
       <span class="tb-title">标注：</span>

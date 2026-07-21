@@ -32,15 +32,10 @@
     { section: '交互与通知', items: [
       { key: 'notificationEnabled', label: '通知开关', type: 'checkbox' },
       { key: 'enableRoleSwap', label: '主副切换总开关', type: 'checkbox' },
-      { key: 'screenshotAfterAction', label: '截图默认动作', type: 'select', options: [{ label: '无', value: 'none' }, { label: '发送到对话', value: 'chat' }, { label: '提取文字', value: 'extract' }, { label: '翻译', value: 'translate' }, { label: '解释', value: 'explain' }, { label: '复制到剪贴板', value: 'clipboard' }] },
     ]},
     { section: '快捷键管理', items: [
       { key: 'screenshotShortcut', label: '截图快捷键', type: 'shortcut' },
       { key: 'subWindowShortcut', label: '副窗呼出键', type: 'shortcut' },
-    ]},
-    { section: '翻译', items: [
-      { key: 'defaultTranslateSourceLang', label: '翻译源语言', type: 'text' },
-      { key: 'defaultTranslateTargetLang', label: '翻译目标语言', type: 'text' },
     ]},
     { section: '截图', items: [
       { key: 'screenshotSavePath', label: '截图落盘路径', type: 'text' },

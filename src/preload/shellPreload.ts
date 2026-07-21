@@ -60,6 +60,8 @@ const shellApi = {
     ipcRenderer.send(IPC.OVERLAY_SET_TOOL, { tool }),
   overlayUndo: (): void => ipcRenderer.send(IPC.OVERLAY_UNDO),
   overlayClear: (): void => ipcRenderer.send(IPC.OVERLAY_CLEAR),
+  /** 渲染（overlay）-> 主：渲染进程就绪（监听器已注册），请求主进程下发截图背景图。 */
+  overlayReady: (): void => ipcRenderer.send(IPC.OVERLAY_READY),
 
   translateSync: (payload: TranslateSyncPayload): void => ipcRenderer.send(IPC.TRANSLATE_SYNC, payload),
 
@@ -95,6 +97,11 @@ const shellApi = {
       const result = cb(annotations);
       ipcRenderer.send(IPC.OVERLAY_COMPOSE_RESULT, result);
     });
+  },
+
+  // ---- 主 -> 渲染（overlay）：全屏截图背景图（修复全屏应用黑屏） ----
+  onOverlayBackgroundImage: (cb: (dataUrl: string) => void): void => {
+    ipcRenderer.on(IPC.OVERLAY_SET_BACKGROUND_IMAGE, (_e, dataUrl: string) => cb(dataUrl));
   },
 };
 

@@ -12,15 +12,6 @@ export type DefaultModelMode = 'simple' | 'expert' | 'vision';
 /** 主题模式。 */
 export type ThemeMode = 'light' | 'dark' | 'system';
 
-/** 截图后的默认动作。 */
-export type ScreenshotAfterAction =
-  | 'none'
-  | 'chat'
-  | 'extract'
-  | 'translate'
-  | 'explain'
-  | 'clipboard';
-
 /** 用户在遮罩上选择截图后提交的动作。 */
 export type ScreenshotAction =
   | 'chat'
@@ -58,7 +49,7 @@ export type OverlayState =
 /** 窗口角色标签：主窗口为 'main'，副窗口为 'sub'。 */
 export type SubWindowRole = 'main' | 'sub';
 
-/** 完整的配置形状（31 项）。ConfigStore 的默认值必须完整覆盖。 */
+/** 完整的配置形状（28 项）。ConfigStore 的默认值必须完整覆盖。 */
 export interface ConfigShape {
   globalToggleShortcut: string;
   screenshotShortcut: string;
@@ -73,13 +64,10 @@ export interface ConfigShape {
   customTitleBar: boolean;
   alwaysOnTop: boolean;
   fontSize: number;
-  defaultTranslateSourceLang: string;
-  defaultTranslateTargetLang: string;
   realTimeTranslateSync: boolean;
   windowCopyKeepsContext: boolean;
   enableRoleSwap: boolean;
   autoStartVisionModel: boolean;
-  screenshotAfterAction: ScreenshotAfterAction;
   screenshotSavePath: string;
   visionPromptTemplate: string;
   extractTextPromptTemplate: string;

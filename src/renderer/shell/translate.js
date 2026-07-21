@@ -58,15 +58,12 @@
       dstSel.appendChild(o2);
     });
 
-    // 读取配置默认值
-    Promise.all([
-      shell.getConfig('defaultTranslateSourceLang'),
-      shell.getConfig('defaultTranslateTargetLang'),
-      shell.getConfig('realTimeTranslateSync'),
-    ]).then(function (vals) {
-      if (vals[0]) srcSel.value = vals[0];
-      if (vals[1]) dstSel.value = vals[1];
-      if (typeof vals[2] === 'boolean') syncToggle.checked = vals[2];
+    // 翻译设置项已移出设置面板；此处用固定默认语言（源=自动检测，目标=English），
+    // 下拉选择为窗口内会话状态，不再持久化到配置。
+    srcSel.value = 'Auto';
+    dstSel.value = 'English';
+    shell.getConfig('realTimeTranslateSync').then(function (v) {
+      if (typeof v === 'boolean') syncToggle.checked = v;
     }).catch(function () {});
 
     // ---- 实时同步 ----
@@ -98,8 +95,6 @@
     syncToggle.addEventListener('change', function () {
       shell.setConfig('realTimeTranslateSync', syncToggle.checked);
     });
-    srcSel.addEventListener('change', function () { shell.setConfig('defaultTranslateSourceLang', srcSel.value); });
-    dstSel.addEventListener('change', function () { shell.setConfig('defaultTranslateTargetLang', dstSel.value); });
 
     btnSend.onclick = function () { doSync(); };
 

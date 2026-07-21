@@ -8,6 +8,19 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { IPC } from '../src/main/ipc/channels';
+
+// 隔离 screenshotOverlay：提供可控的 overlay webContents，便于断言「背景图发送时机」。
+jest.mock('../src/main/windows/screenshotOverlay', () => {
+  const wc = { send: jest.fn(), isDestroyed: () => false };
+  (global as { __OVERLAY_WC__?: unknown }).__OVERLAY_WC__ = wc;
+  return {
+    showOverlay: jest.fn(),
+    hideOverlay: jest.fn(),
+    getOverlayWebContents: jest.fn(() => wc),
+    onOverlayClosed: jest.fn(),
+  };
+});
 
 jest.mock('electron', () => {
   const f = require('fs') as typeof fs;
@@ -26,6 +39,8 @@ jest.mock('electron', () => {
         (global as { __CROP__?: unknown }).__CROP__ = c;
         return fakeImg;
       },
+      // sendOverlayBackground 调用 thumbnail.toDataURL() 生成背景图 dataURL
+      toDataURL: () => 'data:image/png;base64,FAKEBG',
     },
   };
 
@@ -153,5 +168,45 @@ describe('ScreenshotManager - DPI 缩放裁剪数学（I-03）', () => {
     const sm = new ScreenshotManager(cfg);
     // 未调用 captureSources，sources 为空
     expect(sm.getImageData({ x: 0, y: 0, width: 10, height: 10 }, 2)).toBeNull();
+  });
+});
+
+/**
+ * 回归：截图遮罩背景图发送时序（修复竞态）。
+ * 旧实现：startCapture() 在 showOverlay() 之后立即 send 背景图，而此时 overlay 渲染进程
+ * （loadFile 异步）尚未执行 overlay.js，监听器未注册，webContents.send 直接丢弃消息，
+ * 导致 #bg.src 永远为空，全屏应用下黑屏修复实际失效。
+ * 新实现：仅在 overlay 渲染进程就绪（发 overlay:ready）后，由主进程下发背景图。
+ */
+describe('ScreenshotManager - 背景图发送时序（修复竞态）', () => {
+  function overlayWc(): { send: jest.Mock; isDestroyed: () => boolean } {
+    return (global as { __OVERLAY_WC__?: { send: jest.Mock; isDestroyed: () => boolean } }).__OVERLAY_WC__ as never;
+  }
+  function bgSendCount(): number {
+    return overlayWc().send.mock.calls.filter((c) => c[0] === IPC.OVERLAY_SET_BACKGROUND_IMAGE).length;
+  }
+
+  test('startCapture 不在 overlay 就绪前发送背景图（避免消息被丢弃）', async () => {
+    const sm = new ScreenshotManager(cfg);
+    await sm.captureSources();
+    await sm.startCapture();
+    // 渲染进程尚未就绪（overlay:ready 未到），不应提前发送背景图。
+    expect(bgSendCount()).toBe(0);
+  });
+
+  test('overlay 就绪后（OVERLAY_READY 处理）才下发全屏背景图 dataURL', async () => {
+    const sm = new ScreenshotManager(cfg);
+    await sm.captureSources();
+    await sm.startCapture();
+    overlayWc().send.mockClear();
+
+    // 模拟 handlers 收到 overlay:ready 后的处理：调用 sendOverlayBackground()。
+    sm.sendOverlayBackground();
+
+    const calls = overlayWc().send.mock.calls.filter((c) => c[0] === IPC.OVERLAY_SET_BACKGROUND_IMAGE);
+    expect(calls).toHaveLength(1);
+    const dataUrl = calls[0][1] as string;
+    expect(typeof dataUrl).toBe('string');
+    expect(dataUrl.startsWith('data:')).toBe(true);
   });
 });

@@ -41,7 +41,28 @@ export class ScreenshotManager {
     this.windows?.hideChatWindowsForScreenshot();
     await new Promise((resolve) => setTimeout(resolve, 100));
     await this.captureSources();
+    // 仅弹出遮罩；背景图不在此时发送——overlay 渲染进程就绪后会发 overlay:ready，
+    // 主进程收到后才下发背景图，避免 webContents.send 早于监听器注册被丢弃（竞态会导致黑屏修复失效）。
     showOverlay();
+  }
+
+  /**
+   * 取主屏 source 的完整 thumbnail（设备像素尺寸）转 dataURL，下发给 overlay 作为遮罩背景。
+   * overlay 窗口大小 = 主屏 display.bounds（逻辑像素），而 thumbnail = bounds × scaleFactor，
+   * 故渲染层用 CSS object-fit: cover 即可铺满（宽高比一致，精确对齐）。
+   * 透明窗口在全屏独占（视频/游戏）下 DWM 合成失效会变黑，铺背景图可彻底规避。
+   * 注意：本方法只在收到 overlay:ready（渲染进程已注册监听）后由 handlers 调用（见 ScreenshotManager/README）。
+   */
+  public sendOverlayBackground(): void {
+    const primary = screen.getPrimaryDisplay();
+    const source: Electron.DesktopCapturerSource | undefined =
+      (primary.id != null && this.sourceByDisplay.get(String(primary.id))) || this.sources[0];
+    if (!source) return;
+    const dataUrl = source.thumbnail.toDataURL();
+    const wc = getOverlayWebContents();
+    if (wc && !wc.isDestroyed()) {
+      wc.send(IPC.OVERLAY_SET_BACKGROUND_IMAGE, dataUrl);
+    }
   }
 
   /**

@@ -118,6 +118,13 @@
     }
 
     // ---- 主进程 -> 渲染 订阅 ----
+    // 全屏截图背景图：铺在 #bg 上，替代透明看穿桌面，修复全屏应用黑屏。
+    // 背景在 showOverlay 后下发，此时监听已注册；为保险，若 #bg 暂未就绪也先保存。
+    shell.onOverlayBackgroundImage(function (dataUrl) {
+      var bg = document.getElementById('bg');
+      if (bg) bg.src = dataUrl;
+    });
+
     shell.onOverlayImage(function (dataUrl) {
       baseDataUrl = dataUrl;
       frozen.onload = function () {
@@ -440,5 +447,9 @@
     window.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') shell.close();
     });
+
+    // 所有监听器已注册完毕，通知主进程渲染就绪，主进程据此下发全屏截图背景图。
+    // 必须在 onOverlayBackgroundImage 注册之后发送，否则 webContents.send 早于监听会被丢弃（黑屏竞态）。
+    shell.overlayReady();
   });
 })();

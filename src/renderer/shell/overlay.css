@@ -15,7 +15,29 @@ html, body {
 }
 
 body {
+  background: transparent;
+}
+
+/* 全屏截图背景图：替代透明窗口看穿桌面，修复全屏独占应用（视频/游戏）下透明失效黑屏。 */
+#bg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* 半透明暗化层：盖在背景图之上、选区与冻结图之下，营造截图蒙版观感（z-index 1）。 */
+#shade {
+  position: fixed;
+  inset: 0;
   background: rgba(0, 0, 0, 0.35);
+  z-index: 1;
+  pointer-events: none;
 }
 
 .hidden { display: none !important; }

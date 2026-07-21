@@ -53,6 +53,10 @@ export const IPC = {
   OVERLAY_COMPOSE: 'overlay:compose',
   /** 渲染（overlay）-> 主：合成结果（PNG dataURL）。 */
   OVERLAY_COMPOSE_RESULT: 'overlay:compose-result',
+  /** 主 -> 渲染（overlay）：下发全屏截图背景图（PNG dataURL），替代透明窗口看穿桌面（修复全屏独占应用黑屏）。 */
+  OVERLAY_SET_BACKGROUND_IMAGE: 'overlay:setBackgroundImage',
+  /** 渲染（overlay）-> 主：渲染进程就绪（监听器已注册），主进程据此才下发背景图，避免 send 早于监听被丢弃。 */
+  OVERLAY_READY: 'overlay:ready',
 
   /** 渲染 -> 主（invoke）：应用主题。 */
   THEME_APPLY: 'theme:apply',

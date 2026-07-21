@@ -119,6 +119,10 @@ export function registerHandlers(ctx: HandlerCtx): void {
   ipcMain.on(IPC.OVERLAY_UNDO, forwardToOverlay(IPC.OVERLAY_UNDO));
   ipcMain.on(IPC.OVERLAY_CLEAR, forwardToOverlay(IPC.OVERLAY_CLEAR));
 
+  // overlay 渲染进程就绪（监听器已注册）后，才下发全屏截图背景图。
+  // 避免 startCapture 在 showOverlay 的异步 loadFile 尚未完成、监听未注册时就 send 导致消息被丢弃（黑屏竞态）。
+  ipcMain.on(IPC.OVERLAY_READY, () => screenshot.sendOverlayBackground());
+
   // overlay 合成结果回传 -> 唤醒 ScreenshotManager 的 composeAnnotated
   ipcMain.on(IPC.OVERLAY_COMPOSE_RESULT, (_e, dataUrl: string) => {
     screenshot.resolveCompose(dataUrl);
@@ -221,7 +225,8 @@ export function registerHandlers(ctx: HandlerCtx): void {
             if (action === 'extract') {
               await injector.extractText(wc, tmp);
             } else if (action === 'translate') {
-              const lang = config.get('defaultTranslateTargetLang');
+              // 翻译设置项已移除，截图翻译目标语言固定为 English（与旧默认值一致）。
+              const lang = 'English';
               const prompt = templates.render(templates.translatePrompt(lang), { content: '' });
               await injector.submitToChat(wc, prompt, tmp);
             } else {
@@ -365,7 +370,8 @@ export function registerHandlers(ctx: HandlerCtx): void {
     }
     const wc = windows.getActiveWebContents();
     if (!wc) return;
-    const lang = payload.targetLang || config.get('defaultTranslateTargetLang');
+    // 翻译设置项已移除，实时同步目标语言缺省固定为 English（与旧默认值一致），优先取译文窗口选择。
+    const lang = payload.targetLang || 'English';
     injector.translate(wc, payload.text, lang).then((ok) => {
       if (!ok) {
         notify('翻译注入失败', '未找到对话输入框，请确认已登录');
