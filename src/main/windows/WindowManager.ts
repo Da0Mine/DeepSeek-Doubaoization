@@ -126,9 +126,11 @@ export class WindowManager {
         const url = view.webContents.getURL();
         const wcId = view.webContents.id;
         const prev = this.lastUrlByWc.get(wcId) ?? '';
-        const prevHistory = /\/a\/chat\/[0-9a-fA-F-]+/.test(prev);
+        // Bug1 修复：会话 id 未必是严格 uuid（可能含其它字符 / 无连字符），
+        // 故放宽为「/a/chat/ 之后还有任意非空片段即视为历史会话」，避免漏判。
+        const prevHasId = /\/a\/chat\/.+/.test(prev);
         const curRoot = /\/a\/chat\/?(\?.*)?$/.test(url.split('#')[0]);
-        if (prevHistory && curRoot) {
+        if (prevHasId && curRoot) {
           console.log('[WindowManager] 检测到「历史会话 → 新建对话」路由变化，应用默认模型模式');
           applyDefaultMode().catch(() => {});
         }
