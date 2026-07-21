@@ -8,7 +8,7 @@ import * as path from 'path';
 import { CONFIG_PATH } from '../constants';
 import type { ConfigKey, ConfigShape } from '../../shared/types';
 
-/** 26 项配置默认值（必须完整覆盖 ConfigShape）。 */
+/** 31 项配置默认值（必须完整覆盖 ConfigShape）。 */
 const DEFAULT_CONFIG: ConfigShape = {
   globalToggleShortcut: 'Alt+`',
   screenshotShortcut: 'Ctrl+Shift+A',
@@ -18,6 +18,8 @@ const DEFAULT_CONFIG: ConfigShape = {
   startAtLogin: false,
   minimizeToTrayOnStart: false,
   deepThinkEnabled: false,
+  /** 智能搜索默认开启（用户要求）。 */
+  smartSearchEnabled: true,
   customTitleBar: true,
   alwaysOnTop: true,
   fontSize: 14,

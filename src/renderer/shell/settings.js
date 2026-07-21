@@ -22,6 +22,7 @@
     ]},
     { section: '对话与模型', items: [
       { key: 'deepThinkEnabled', label: '深度思考', type: 'checkbox' },
+      { key: 'smartSearchEnabled', label: '智能搜索', type: 'checkbox' },
       { key: 'collapseThinking', label: '折叠思考过程', type: 'checkbox' },
       { key: 'defaultModelMode', label: '默认模型模式', type: 'select', options: [{ label: '快速模式', value: 'simple' }, { label: '专家模式', value: 'expert' }, { label: '识图模式', value: 'vision' }] },
       { key: 'autoStartVisionModel', label: '识图自动开视觉模型', type: 'checkbox' },

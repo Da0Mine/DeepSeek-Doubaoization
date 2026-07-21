@@ -1,10 +1,10 @@
 /**
  * ConfigStore 增量回归测试（I-03 / I-08 / I-09）。
  * 验证本次增量后：
- *   - DEFAULT_CONFIG 共 30 项（原 26 + 新增 subWindowShortcut / annotationColors / collapseThinking / defaultModelMode，alwaysOnTop 默认 true）；
+ *   - DEFAULT_CONFIG 共 31 项（原 26 + 新增 subWindowShortcut / annotationColors / collapseThinking / defaultModelMode / smartSearchEnabled，alwaysOnTop 默认 true）；
  *   - deepMerge 向后兼容：数组/字符串按值替换、缺项补默认、旧 config 的 alwaysOnTop:false 升级后被保留；
  *   - 落盘到临时目录（jest.mock('electron') 提供内存版 app.getPath），不写 %APPDATA%。
- * 既有 config.test.ts 的「29 项」断言已同步更新为 30 项（见该文件），属合理回归。
+ * 既有 config.test.ts 的「30 项」断言已同步更新为 31 项（见该文件），属合理回归。
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -42,10 +42,10 @@ afterAll(() => {
   if (dir && fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe('ConfigStore 增量 - 30 项默认值与新增键', () => {
-  test('DEFAULT_CONFIG 共 30 项', () => {
+describe('ConfigStore 增量 - 31 项默认值与新增键', () => {
+  test('DEFAULT_CONFIG 共 31 项', () => {
     const store = new ConfigStore();
-    expect(Object.keys(store.getAll())).toHaveLength(30);
+    expect(Object.keys(store.getAll())).toHaveLength(31);
   });
 
   test('新增 subWindowShortcut 默认值 "Alt+Q" 且为字符串', () => {
@@ -79,6 +79,7 @@ describe('ConfigStore 增量 - 30 项默认值与新增键', () => {
       startAtLogin: false,
       minimizeToTrayOnStart: false,
       deepThinkEnabled: false,
+      smartSearchEnabled: true,
       customTitleBar: true,
       alwaysOnTop: true,
       fontSize: 14,
@@ -114,13 +115,13 @@ describe('ConfigStore 增量 - 向后兼容 deepMerge（I-03 §6）', () => {
     // 新增键由 DEFAULT_CONFIG 补默认
     expect(store.get('subWindowShortcut')).toBe(DEFAULT_SUB_WINDOW_SHORTCUT);
     expect(store.get('annotationColors')).toEqual(DEFAULT_ANNOTATION_COLORS);
-    expect(Object.keys(store.getAll())).toHaveLength(30);
+    expect(Object.keys(store.getAll())).toHaveLength(31);
   });
 
   test('旧 config 缺失新键时自动补默认且不崩溃', () => {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify({ theme: 'dark' }));
     const store = new ConfigStore();
-    expect(Object.keys(store.getAll())).toHaveLength(30);
+    expect(Object.keys(store.getAll())).toHaveLength(31);
     expect(store.get('subWindowShortcut')).toBe(DEFAULT_SUB_WINDOW_SHORTCUT);
     expect(store.get('annotationColors')).toEqual(DEFAULT_ANNOTATION_COLORS);
     expect(store.get('alwaysOnTop')).toBe(true);
@@ -139,10 +140,10 @@ describe('ConfigStore 增量 - 向后兼容 deepMerge（I-03 §6）', () => {
     expect(store.get('annotationColors')).toEqual(custom);
   });
 
-  test('磁盘损坏时回退默认且仍含 30 项', () => {
+  test('磁盘损坏时回退默认且仍含 31 项', () => {
     fs.writeFileSync(CONFIG_PATH, '{ 这不是合法 JSON ');
     const store = new ConfigStore();
     expect(store.get('subWindowShortcut')).toBe(DEFAULT_SUB_WINDOW_SHORTCUT);
-    expect(Object.keys(store.getAll())).toHaveLength(30);
+    expect(Object.keys(store.getAll())).toHaveLength(31);
   });
 });

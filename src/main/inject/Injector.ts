@@ -18,6 +18,7 @@ import {
   TEXT_INPUT_SELECTORS,
   UPLOAD_BUTTON_SELECTORS,
 } from './deepseek-selectors';
+import { logf } from '../logger';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -368,11 +369,12 @@ export class Injector {
       // 测试桩直接返回裸布尔，视为确定性结果
       if (typeof obj === 'boolean') return obj;
       if (!obj || !obj.found) {
-        console.log('[Injector] setDeepThink: 未找到深度思考开关（账号可能未灰度到）');
+        logf('setDeepThink', `未找到深度思考开关（账号可能未灰度到）；enabled=${enabled}`);
         return false;
       }
+      logf('setDeepThink', `当前 on=${obj.on} 目标 enabled=${enabled}`);
       if (obj.on === enabled) {
-        console.log('[Injector] setDeepThink -> 已是 ' + (enabled ? '开启' : '关闭'));
+        logf('setDeepThink', `已是 ${enabled ? '开启' : '关闭'}`);
         return true;
       }
       await wc.executeJavaScript(clickCode);
@@ -383,14 +385,99 @@ export class Injector {
         try { c = JSON.parse(cur); } catch { c = cur; }
         if (typeof c === 'boolean') return c;
         if (c && c.found && c.on === enabled) {
-          console.log('[Injector] setDeepThink -> 已切换为 ' + (enabled ? '开启' : '关闭'));
+          logf('setDeepThink', `已切换为 ${enabled ? '开启' : '关闭'}`);
           return true;
         }
       }
-      console.log('[Injector] setDeepThink -> 点击后状态未确认');
+      logf('setDeepThink', `点击后状态未确认（enabled=${enabled}）`);
       return false;
     } catch (e) {
       console.error('[Injector] setDeepThink 异常', e);
+      return false;
+    }
+  }
+
+  /**
+   * 设置对话窗口「智能搜索」（联网搜索）开关状态（true=开启，false=关闭）。
+   * 识别与切换策略对齐 setDeepThink 与参考实现 ensureTogglesState：
+   *   - 选择器恒为 `.ds-toggle-button`，按 textContent 含「智能搜索」/「联网」/search 锁定目标；
+   *   - 状态以 aria-pressed==='true' 判定（兼容 aria-checked / class）；
+   *   - 目标状态与当前不一致时 el.click() 切换。
+   * 全程诊断日志 + 多轮重试；失败静默返回 false。
+   */
+  public async setSmartSearch(wc: WebContents, enabled: boolean): Promise<boolean> {
+    const SEL = '.ds-toggle-button';
+    const findCode = `(() => {
+      try {
+        function isSmartSearch(el){
+          var t = (el.textContent || '').trim();
+          return t.indexOf('智能搜索') >= 0 || t.indexOf('联网') >= 0
+              || t.toLowerCase().indexOf('search') >= 0;
+        }
+        var cands = Array.from(document.querySelectorAll('${SEL}'));
+        var el = null;
+        for (var i = 0; i < cands.length; i++) { if (isSmartSearch(cands[i])) { el = cands[i]; break; } }
+        if (!el) return JSON.stringify({ found: false, on: false });
+        function isOn(e){
+          if (e.getAttribute) {
+            if (e.getAttribute('aria-pressed') === 'true') return true;
+            if (e.getAttribute('aria-checked') === 'true') return true;
+          }
+          if (e.classList && (e.classList.contains('ds-toggle-button--selected')
+              || e.classList.contains('active') || e.classList.contains('on')
+              || e.classList.contains('checked') || e.classList.contains('pressed'))) return true;
+          return false;
+        }
+        return JSON.stringify({ found: true, on: isOn(el) });
+      } catch (e) { return JSON.stringify({ found: false, on: false, err: String(e) }); }
+    })()`;
+
+    const clickCode = `(() => {
+      try {
+        function isSmartSearch(el){
+          var t = (el.textContent || '').trim();
+          return t.indexOf('智能搜索') >= 0 || t.indexOf('联网') >= 0
+              || t.toLowerCase().indexOf('search') >= 0;
+        }
+        var cands = Array.from(document.querySelectorAll('${SEL}'));
+        var el = null;
+        for (var i = 0; i < cands.length; i++) { if (isSmartSearch(cands[i])) { el = cands[i]; break; } }
+        if (!el) return false;
+        el.click();
+        return true;
+      } catch (e) { return false; }
+    })()`;
+
+    try {
+      const res = await wc.executeJavaScript(findCode);
+      let obj: any;
+      try { obj = JSON.parse(res); } catch { obj = res; }
+      if (typeof obj === 'boolean') return obj;
+      if (!obj || !obj.found) {
+        logf('setSmartSearch', `未找到智能搜索开关；enabled=${enabled}`);
+        return false;
+      }
+      logf('setSmartSearch', `当前 on=${obj.on} 目标 enabled=${enabled}`);
+      if (obj.on === enabled) {
+        logf('setSmartSearch', `已是 ${enabled ? '开启' : '关闭'}`);
+        return true;
+      }
+      await wc.executeJavaScript(clickCode);
+      for (let poll = 0; poll < 15; poll++) {
+        await sleep(150);
+        const cur = await wc.executeJavaScript(findCode);
+        let c: any;
+        try { c = JSON.parse(cur); } catch { c = cur; }
+        if (typeof c === 'boolean') return c;
+        if (c && c.found && c.on === enabled) {
+          logf('setSmartSearch', `已切换为 ${enabled ? '开启' : '关闭'}`);
+          return true;
+        }
+      }
+      logf('setSmartSearch', `点击后状态未确认（enabled=${enabled}）`);
+      return false;
+    } catch (e) {
+      console.error('[Injector] setSmartSearch 异常', e);
       return false;
     }
   }
@@ -412,11 +499,12 @@ export class Injector {
     if (mode === 'vision') return this.switchToVisionModel(wc);
     const MODE_TYPE = mode === 'expert' ? 'expert' : 'default';
     const TARGET = `[data-model-type="${MODE_TYPE}"][role="radio"]`;
+    logf('switchModel', `mode=${mode} target=${TARGET}`);
 
     // 已是该模式则直接返回（兼容裸布尔/对象返回）
     const already = await this.readRadioChecked(wc, TARGET);
     if (already === true) {
-      console.log('[Injector] switchModelMode(' + mode + ') -> 已是该模式');
+      logf('switchModel', `mode=${mode} -> 已是该模式（无需点击）`);
       return true;
     }
 
@@ -444,13 +532,13 @@ export class Injector {
       await sleep(150);
 
       if (await this.waitRadioChecked(wc, TARGET, 20)) {
-        console.log('[Injector] switchModelMode -> ' + mode);
+        logf('switchModel', `mode=${mode} -> 切换成功`);
         return true;
       }
       await sleep(300);
     }
 
-    console.log('[Injector] switchModelMode(' + mode + '): 未找到可见的模型按钮');
+    logf('switchModel', `mode=${mode} -> 失败：未找到可见的模型按钮（或点击未生效）`);
     return false;
   }
 
@@ -838,18 +926,26 @@ export class Injector {
         window.__dsNewConvBound = true;
         function report() {
           try {
+            console.log('[PAGE-NEWCONV] 调用 reportNewConversation');
             if (window.__ds && typeof window.__ds.reportNewConversation === 'function') {
               window.__ds.reportNewConversation();
+            } else {
+              console.log('[PAGE-NEWCONV] window.__ds.reportNewConversation 不存在（preload 未就绪？）');
             }
-          } catch (e2) {}
+          } catch (e2) { console.log('[PAGE-NEWCONV] report 异常 ' + e2); }
         }
         function isNewChatButton(el) {
           if (!el || !el.getAttribute) return false;
           var txt = (el.textContent || '').replace(/\\s+/g, '').toLowerCase();
-          // 容错：用 includes 而非严格相等，兼容「新建对话」前后带图标/空格/其它文案的变体
-          if (txt.includes('新建对话') || txt === '新对话' || txt === 'newchat') return true;
           var aria = (el.getAttribute('aria-label') || '').toLowerCase();
+          // 精确优先：兼容「新建对话」前后带图标/空格/其它文案的变体
+          if (txt.indexOf('新建对话') >= 0 || txt === '新对话' || txt.indexOf('newchat') >= 0) return true;
           if (aria.indexOf('新建对话') >= 0 || aria.indexOf('newchat') >= 0) return true;
+          // 放宽：覆盖「新建 / New chat / New conversation」等变体（参考实现以显式点击新建对话按钮为准）
+          if (txt.indexOf('新建') >= 0 && txt.indexOf('对话') >= 0) return true;
+          if (txt.indexOf('new') >= 0 && txt.indexOf('chat') >= 0) return true;
+          if (aria.indexOf('new') >= 0 && aria.indexOf('chat') >= 0) return true;
+          if (aria.indexOf('new conversation') >= 0) return true;
           return false;
         }
         // 仅捕获阶段监听「新建对话」按钮点击；不监听 URL 变化事件，避免普通会话切换误触发。
@@ -857,7 +953,19 @@ export class Injector {
           try {
             var node = e.target;
             while (node && node !== document.body) {
-              if (node.getAttribute && isNewChatButton(node)) { setTimeout(report, 350); return; }
+              if (node.getAttribute && isNewChatButton(node)) {
+                console.log('[PAGE-NEWCONV] 命中新建对话按钮，350ms 后上报 IPC');
+                setTimeout(report, 350); return;
+              }
+              // 诊断：遇到会话相关按钮但未命中规则，记录真实文本/aria，便于主理人精修匹配
+              if (node.tagName === 'BUTTON' || node.getAttribute('role') === 'button') {
+                var t = (node.textContent || '').replace(/\\s+/g, ' ').trim();
+                var a = node.getAttribute('aria-label') || '';
+                var low = (t + ' ' + a).toLowerCase();
+                if (low.indexOf('对话') >= 0 || low.indexOf('chat') >= 0) {
+                  console.log('[PAGE-NEWCONV-DIAG] 会话相关按钮未命中: text=' + JSON.stringify(t) + ' aria=' + JSON.stringify(a) + ' class=' + JSON.stringify(typeof node.className === 'string' ? node.className : ''));
+                }
+              }
               node = node.parentElement;
             }
           } catch (err) {}

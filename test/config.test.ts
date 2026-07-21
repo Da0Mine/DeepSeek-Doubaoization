@@ -26,7 +26,7 @@ import { ConfigStore } from '../src/main/config/ConfigStore';
 import { CONFIG_PATH } from '../src/main/constants';
 import type { ConfigShape } from '../src/shared/types';
 
-/** PRD 规定的 30 项默认值（键名 + 值），用作断言基准。 */
+/** PRD 规定的 31 项默认值（键名 + 值），用作断言基准。 */
 const PRD_DEFAULTS: Record<string, unknown> = {
   globalToggleShortcut: 'Alt+`',
   screenshotShortcut: 'Ctrl+Shift+A',
@@ -36,6 +36,7 @@ const PRD_DEFAULTS: Record<string, unknown> = {
   startAtLogin: false,
   minimizeToTrayOnStart: false,
   deepThinkEnabled: false,
+  smartSearchEnabled: true,
   customTitleBar: true,
   alwaysOnTop: true,
   fontSize: 14,
@@ -82,10 +83,10 @@ afterAll(() => {
   }
 });
 
-describe('ConfigStore - 30 项默认值', () => {
-  test('getAll 返回恰好 30 个键', () => {
+describe('ConfigStore - 31 项默认值', () => {
+  test('getAll 返回恰好 31 个键', () => {
     const store = new ConfigStore();
-    expect(Object.keys(store.getAll())).toHaveLength(30);
+    expect(Object.keys(store.getAll())).toHaveLength(31);
   });
 
   test('所有默认值与 PRD 完全一致', () => {
@@ -117,8 +118,8 @@ describe('ConfigStore - 深度合并 (load)', () => {
     expect(all.closeToTray).toBe(true);
     expect(all.trayEnabled).toBe(true);
     expect(all.screenshotAfterAction).toBe('none');
-    // 总数仍为 28
-    expect(Object.keys(all)).toHaveLength(30);
+    // 总数仍为 31
+    expect(Object.keys(all)).toHaveLength(31);
   });
 
   test('磁盘已有值不被默认值覆盖', () => {
@@ -141,7 +142,7 @@ describe('ConfigStore - 深度合并 (load)', () => {
     fs.writeFileSync(CONFIG_PATH, '{ this is not valid json ');
     const store = new ConfigStore();
     expect(store.get('fontSize')).toBe(14);
-    expect(Object.keys(store.getAll())).toHaveLength(30);
+    expect(Object.keys(store.getAll())).toHaveLength(31);
   });
 });
 
@@ -154,11 +155,11 @@ describe('ConfigStore - set / 持久化', () => {
     expect(raw.fontSize).toBe(18);
   });
 
-  test('set 写入的是完整配置（含全部 30 项默认），不会丢字段', () => {
+  test('set 写入的是完整配置（含全部 31 项默认），不会丢字段', () => {
     const store = new ConfigStore();
     store.set('theme', 'dark');
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    expect(Object.keys(raw)).toHaveLength(30);
+    expect(Object.keys(raw)).toHaveLength(31);
     expect(raw.theme).toBe('dark');
     expect(raw.fontSize).toBe(14); // 其它默认仍在
   });
@@ -190,7 +191,7 @@ describe('ConfigStore - reset', () => {
     expect(store.get('fontSize')).toBe(14);
     expect(store.get('theme')).toBe('system');
     expect(store.get('closeToTray')).toBe(true);
-    expect(Object.keys(store.getAll())).toHaveLength(30);
+    expect(Object.keys(store.getAll())).toHaveLength(31);
   });
 
   test('reset 后落盘也是默认', () => {

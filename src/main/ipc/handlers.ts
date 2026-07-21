@@ -14,6 +14,7 @@ import type { ShortcutManager } from '../shortcuts/ShortcutManager';
 import type { PromptTemplates } from '../prompts/promptTemplates';
 import type { SettingsWindow } from '../windows/settingsWindow';
 import { applyThinkCollapse } from '../inject/thinkCollapse';
+import { logf } from '../logger';
 import type {
   Annotation,
   ConfigKey,
@@ -249,6 +250,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
   });
   ipcMain.on(IPC.NEW_CONVERSATION, (e) => {
     // 网页内「新建对话」被触发：自动把当前对话窗口切换到设置的默认模型模式（Bug2 修复）。
+    logf('NEW_CONV', `收到网页新建对话事件 senderId=${e.sender?.id}`);
     windows.applyDefaultModelMode(e.sender);
   });
   ipcMain.on(IPC.SCISSORS_TRIGGER, () => screenshot.startCapture());
@@ -306,6 +308,14 @@ export function registerHandlers(ctx: HandlerCtx): void {
         notify('深度思考', enabled ? '已开启' : '已关闭');
         for (const wc of windows.getAllChatWebContents()) {
           injector.setDeepThink(wc, enabled).catch(() => {});
+        }
+        break;
+      }
+      case 'smartSearchEnabled': {
+        const enabled = Boolean(value);
+        notify('智能搜索', enabled ? '已开启' : '已关闭');
+        for (const wc of windows.getAllChatWebContents()) {
+          injector.setSmartSearch(wc, enabled).catch(() => {});
         }
         break;
       }
