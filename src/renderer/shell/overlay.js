@@ -187,21 +187,36 @@
       redraw();
     }
 
-    // 工具栏贴在框「上方」、动作条贴在框「下方」，居中对齐并随框移动/缩放实时跟随
-    function layoutChrome() {
+    // 工具栏贴在框「上方」、动作条贴在框「下方」，居中对齐并随框移动/缩放实时跟随。
+    // 两侧均显式设置 left 并把 right 清为 auto，避免 CSS 中 left/right:auto 退化到贴左边缘
+    // （表现为「左边边栏被异常展开拉长」）。位置完全由 rect 计算，rect 为空则不动。
+    function positionToolbar() {
       if (!rect) return;
       var tbH = toolbar.offsetHeight || 40;
-      var abH = actionbar.offsetHeight || 44;
       var cx = rect.x + rect.width / 2;
-      // 工具栏：框上方，太靠顶则夹紧到 4px
-      toolbar.style.left = cx + 'px';
+      // 水平夹紧到视口内，避免工具栏越界（body overflow:hidden 已兜底，此处仅为观感）
+      var left = Math.max(8, Math.min(cx, window.innerWidth - 8));
+      toolbar.style.right = 'auto';
+      toolbar.style.left = left + 'px';
       toolbar.style.transform = 'translateX(-50%)';
       toolbar.style.bottom = 'auto';
       toolbar.style.top = Math.max(4, rect.y - tbH - 8) + 'px';
-      // 动作条：框下方，太靠底则夹紧
-      actionbar.style.left = cx + 'px';
+    }
+
+    function positionActionbar() {
+      if (!rect) return;
+      var abH = actionbar.offsetHeight || 44;
+      var cx = rect.x + rect.width / 2;
+      var left = Math.max(8, Math.min(cx, window.innerWidth - 8));
+      actionbar.style.right = 'auto';
+      actionbar.style.left = left + 'px';
       actionbar.style.transform = 'translateX(-50%)';
       actionbar.style.top = Math.min(window.innerHeight - 4 - abH, rect.y + rect.height + 8) + 'px';
+    }
+
+    function layoutChrome() {
+      positionToolbar();
+      positionActionbar();
     }
 
     // ---- 选择 / 标注 鼠标逻辑 ----
@@ -336,7 +351,9 @@
       hint.classList.add('hidden');
       toolbar.classList.remove('hidden');
       actionbar.classList.remove('hidden');
-      // 立即定位框 / 工具栏 / 动作条，并请求主进程按 scaleFactor 裁剪选区回传冻结图
+      // 先按 rect 立即定位工具栏/动作条（显式设置 left），杜绝它们贴左边缘的退化观感；
+      // 再定位框 / 冻结图 / 标注并请求主进程按 scaleFactor 裁剪选区回传冻结图。
+      layoutChrome();
       positionLayers();
       shell.overlaySelect(rect);
     }

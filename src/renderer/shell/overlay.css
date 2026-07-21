@@ -1,11 +1,17 @@
 /* 截图遮罩样式：全屏半透明 + 选区 + 冻结底图 + 标注画布 + 工具栏。 */
 * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
 
+/* 严格锁定视口：使用 100vw/100vh 而非 100%，并强制 overflow:hidden，
+   杜绝大图 / 负偏移手柄把文档流撑开、产生纵向滚动条。 */
 html, body {
+  position: fixed;
+  inset: 0;
   margin: 0;
   padding: 0;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
   overflow: hidden;
   background: transparent;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -14,16 +20,17 @@ html, body {
   user-select: none;
 }
 
-body {
-  background: transparent;
-}
-
-/* 全屏截图背景图：替代透明窗口看穿桌面，修复全屏独占应用（视频/游戏）下透明失效黑屏。 */
+/* 全屏截图背景图：替代透明窗口看穿桌面，修复全屏独占应用（视频/游戏）下透明失效黑屏。
+   双重保险：width/height 用 100vw/100vh 且 max-width/max-height:100% 防止溢出视口；
+   display:block 消除 img 行内元素底部默认间隙；background:transparent 使 src 为空时也不影响布局。 */
 #bg {
   position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
   object-fit: cover;
   z-index: 0;
   pointer-events: none;
@@ -35,6 +42,8 @@ body {
 #shade {
   position: fixed;
   inset: 0;
+  max-width: 100vw;
+  max-height: 100vh;
   background: rgba(0, 0, 0, 0.35);
   z-index: 1;
   pointer-events: none;
