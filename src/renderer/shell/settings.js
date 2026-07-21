@@ -11,7 +11,6 @@
     { section: '常规 · 外观', items: [
       { key: 'theme', label: '主题', type: 'select', options: [{ label: '浅色', value: 'light' }, { label: '深色', value: 'dark' }, { label: '跟随系统', value: 'system' }] },
       { key: 'fontSize', label: '外壳字号', type: 'number' },
-      { key: 'customTitleBar', label: '自绘标题栏', type: 'checkbox' },
     ]},
     { section: '窗口与托盘', items: [
       { key: 'alwaysOnTop', label: '默认置顶', type: 'checkbox' },
@@ -25,19 +24,13 @@
       { key: 'smartSearchEnabled', label: '智能搜索', type: 'checkbox' },
       { key: 'collapseThinking', label: '折叠思考过程', type: 'checkbox' },
       { key: 'defaultModelMode', label: '默认模型模式', type: 'select', options: [{ label: '快速模式', value: 'simple' }, { label: '专家模式', value: 'expert' }, { label: '识图模式', value: 'vision' }] },
-      { key: 'autoStartVisionModel', label: '识图自动开视觉模型', type: 'checkbox' },
-      { key: 'realTimeTranslateSync', label: '翻译实时同步', type: 'checkbox' },
     ]},
     { section: '交互与通知', items: [
       { key: 'notificationEnabled', label: '通知开关', type: 'checkbox' },
-      { key: 'enableRoleSwap', label: '主副切换总开关', type: 'checkbox' },
     ]},
     { section: '快捷键管理', items: [
       { key: 'screenshotShortcut', label: '截图快捷键', type: 'shortcut' },
       { key: 'subWindowShortcut', label: '副窗呼出键', type: 'shortcut' },
-    ]},
-    { section: '截图', items: [
-      { key: 'screenshotSavePath', label: '截图落盘路径', type: 'text' },
     ]},
     { section: '代理', items: [
       { key: 'proxyEnabled', label: '代理开关', type: 'checkbox' },

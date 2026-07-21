@@ -14,6 +14,7 @@ import {
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
 import type { ConfigStore } from '../config/ConfigStore';
+import { logf } from '../logger';
 
 /** 依据配置主题 + 系统深浅，计算窗口底色（首帧防白屏）。 */
 function resolveBackgroundColor(config: ConfigStore): string {
@@ -41,6 +42,8 @@ function applyViewBounds(win: BrowserWindow, view: WebContentsView): void {
   if (win.isDestroyed() || view.webContents.isDestroyed()) return;
   const [width, height] = win.getContentSize();
   if (width <= 0 || height <= 0) return;
+  // 诊断用：仅当项目根目录存在 .debug-autolog（或 DS_DEBUG=1）时才落盘/打印，生产环境无感。
+  logf('layout', 'applyViewBounds', { width, height, titlebar: TITLEBAR_HEIGHT });
   view.setBounds({
     x: 0,
     y: TITLEBAR_HEIGHT,

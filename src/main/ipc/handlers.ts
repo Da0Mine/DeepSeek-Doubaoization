@@ -364,10 +364,9 @@ export function registerHandlers(ctx: HandlerCtx): void {
   });
 
   // ---------------- 翻译实时同步 ----------------
+  // 注：realTimeTranslateSync 配置项已移除，翻译同步功能固定为「始终启用」（不再提供开关）。
+  // 原 `if (config.get('realTimeTranslateSync')) { ... }` 条件判断已移除，下方代码无条件执行。
   ipcMain.on(IPC.TRANSLATE_SYNC, (e, payload: TranslateSyncPayload) => {
-    if (!config.get('realTimeTranslateSync')) {
-      return;
-    }
     const wc = windows.getActiveWebContents();
     if (!wc) return;
     // 翻译设置项已移除，实时同步目标语言缺省固定为 English（与旧默认值一致），优先取译文窗口选择。

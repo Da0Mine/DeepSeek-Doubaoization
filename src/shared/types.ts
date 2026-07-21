@@ -49,7 +49,7 @@ export type OverlayState =
 /** 窗口角色标签：主窗口为 'main'，副窗口为 'sub'。 */
 export type SubWindowRole = 'main' | 'sub';
 
-/** 完整的配置形状（27 项）。ConfigStore 的默认值必须完整覆盖。 */
+/** 完整的配置形状（22 项）。ConfigStore 的默认值必须完整覆盖。 */
 export interface ConfigShape {
   globalToggleShortcut: string;
   screenshotShortcut: string;
@@ -61,13 +61,8 @@ export interface ConfigShape {
   deepThinkEnabled: boolean;
   /** 新建对话/窗口就绪时是否自动开启「智能搜索」（联网搜索）。默认开启。 */
   smartSearchEnabled: boolean;
-  customTitleBar: boolean;
   alwaysOnTop: boolean;
   fontSize: number;
-  realTimeTranslateSync: boolean;
-  enableRoleSwap: boolean;
-  autoStartVisionModel: boolean;
-  screenshotSavePath: string;
   visionPromptTemplate: string;
   extractTextPromptTemplate: string;
   translatePromptTemplate: string;

@@ -378,7 +378,7 @@ export class WindowManager {
    * @param subId 要交换的副窗口 id；缺省时回退为 currentSubId（快捷键等场景）。
    */
   public swapMainSub(subId?: string): boolean {
-    if (this.config.get('enableRoleSwap') === false) return false;
+    // 主副切换总开关（enableRoleSwap）已移除，固定为始终启用。
     const main = this.entries.get('main');
     if (!main || !main.view || main.win.isDestroyed()) return false;
 

@@ -40,12 +40,7 @@
     if (btnMax) btnMax.onclick = function () { shell.toggleMax(); };
     if (btnClose) btnClose.onclick = function () { shell.close(); };
 
-    // 主副切换总开关关闭时隐藏切换按钮
-    try {
-      shell.getConfig('enableRoleSwap').then(function (on) {
-        if (btnSwap && !on) btnSwap.style.display = 'none';
-      }).catch(function () {});
-    } catch (e) {}
+    // 主副切换总开关（enableRoleSwap）已移除，主副切换按钮固定可用。
 
     // 主题变量下发：写入 :root
     shell.onThemeVars(function (vars) {

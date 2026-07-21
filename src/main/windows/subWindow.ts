@@ -2,7 +2,7 @@
  * 副窗口工厂：识图 / 翻译 / 解释 / 提取文字。
  * - vision / explain / extract：复用标题栏 + WebContentsView 内嵌 chat（共享 session）。
  * - translate：加载 translate.html（纯 UI，经 IPC 把翻译请求发往主对话窗口）。
- * 所有窗口均使用自定义标题栏（customTitleBar 配置生效时）。
+ * 所有窗口均使用自绘标题栏（frame: false，customTitleBar 配置已移除，固定为自绘）。
  */
 import { BrowserWindow, WebContentsView, nativeTheme } from 'electron';
 import {
@@ -52,7 +52,7 @@ export function createSubWindow(
     height: isTranslate ? 560 : SUB_WINDOW_HEIGHT,
     minWidth: isTranslate ? 420 : 300,
     minHeight: isTranslate ? 320 : Math.round(300 / (9 / 16)),
-    frame: !config.get('customTitleBar'),
+    frame: false,
     title: WINDOW_TITLES[type],
     backgroundColor: resolveBackgroundColor(config),
     show: false,
@@ -75,10 +75,8 @@ export function createSubWindow(
   let view: WebContentsView | null = null;
   if (!isTranslate) {
     view = createChatView(win, getView ?? (() => null));
-    // 视觉模型窗口按配置自动开启视觉能力（注入时再确保切换）。
-    if (type === 'vision' && config.get('autoStartVisionModel')) {
-      // 实际切换在 Injector.switchToVisionModel 中完成；此处仅占位。待联调。
-    }
+    // 备注：B/vision 窗口的视觉切换由 Injector 在页面注入时完成（switchToVisionModel），
+    // 此处不再根据 autoStartVisionModel 配置做判断（该配置项已移除）。
   }
 
   // 关闭行为：closeToTray 且非真正退出时隐藏；正在退出则放行 close。

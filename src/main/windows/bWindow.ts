@@ -53,7 +53,7 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
     minHeight: Math.round(240 / (9 / 16)),
     x,
     y,
-    frame: !config.get('customTitleBar'),
+    frame: false,
     title: '结果',
     backgroundColor: '#ffffff',
     show: false,

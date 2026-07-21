@@ -27,11 +27,7 @@
     if (btnMin) btnMin.onclick = function () { shell.minimize(); };
     if (btnMax) btnMax.onclick = function () { shell.toggleMax(); };
     if (btnClose) btnClose.onclick = function () { shell.close(); };
-    try {
-      shell.getConfig('enableRoleSwap').then(function (on) {
-        if (btnSwap && !on) btnSwap.style.display = 'none';
-      }).catch(function () {});
-    } catch (e) {}
+    // 主副切换总开关（enableRoleSwap）已移除，主副切换按钮固定可用。
 
     shell.onThemeVars(function (vars) {
       for (var k in vars) {
@@ -60,11 +56,10 @@
 
     // 翻译设置项已移出设置面板；此处用固定默认语言（源=自动检测，目标=English），
     // 下拉选择为窗口内会话状态，不再持久化到配置。
+    // realTimeTranslateSync 配置项已移除，翻译同步固定为「始终启用」；
+    // 本地 sync-toggle（HTML 默认 checked）仅作为窗口内「输入时自动同步」的会话级开关，不持久化。
     srcSel.value = 'Auto';
     dstSel.value = 'English';
-    shell.getConfig('realTimeTranslateSync').then(function (v) {
-      if (typeof v === 'boolean') syncToggle.checked = v;
-    }).catch(function () {});
 
     // ---- 实时同步 ----
     var srcText = document.getElementById('src-text');
@@ -92,9 +87,7 @@
       }
     });
 
-    syncToggle.addEventListener('change', function () {
-      shell.setConfig('realTimeTranslateSync', syncToggle.checked);
-    });
+    // 注：realTimeTranslateSync 配置项已移除，不再将开关持久化到配置（仅作为窗口内会话级开关）。
 
     btnSend.onclick = function () { doSync(); };
 

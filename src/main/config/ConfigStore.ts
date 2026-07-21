@@ -1,6 +1,6 @@
 /**
  * 配置读写（%APPDATA%/DeepSeek/config.json）。
- * 启动读 config.json 并与 27 项默认值做「深度合并」；
+ * 启动读 config.json 并与 22 项默认值做「深度合并」；
  * set 后自动 save；支持 onChange 订阅。
  */
 import * as fs from 'fs';
@@ -8,7 +8,7 @@ import * as path from 'path';
 import { CONFIG_PATH } from '../constants';
 import type { ConfigKey, ConfigShape } from '../../shared/types';
 
-/** 27 项配置默认值（必须完整覆盖 ConfigShape）。 */
+/** 22 项配置默认值（必须完整覆盖 ConfigShape）。 */
 const DEFAULT_CONFIG: ConfigShape = {
   globalToggleShortcut: 'Alt+`',
   screenshotShortcut: 'Ctrl+Shift+A',
@@ -20,13 +20,8 @@ const DEFAULT_CONFIG: ConfigShape = {
   deepThinkEnabled: false,
   /** 智能搜索默认开启（用户要求）。 */
   smartSearchEnabled: true,
-  customTitleBar: true,
   alwaysOnTop: true,
   fontSize: 14,
-  realTimeTranslateSync: true,
-  enableRoleSwap: true,
-  autoStartVisionModel: true,
-  screenshotSavePath: '',
   visionPromptTemplate: '请识别并描述这张图片中的内容。',
   extractTextPromptTemplate: '请提取图片中的所有文字，保留原有排版。',
   translatePromptTemplate: '请将以下内容翻译为{targetLang}：\n{content}',

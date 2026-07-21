@@ -172,19 +172,7 @@ export class ScreenshotManager {
     }
   }
 
-  /** 选区 -> 裁剪 -> 落盘，返回文件路径。 */
-  public async saveToFile(): Promise<string> {
-    const img = this.lastImage;
-    if (!img) throw new Error('截图失败：未获取到图像');
-    const saveDir = this.resolveSaveDir();
-    fs.mkdirSync(saveDir, { recursive: true });
-    const fileName = `deepseek-screenshot-${Date.now()}-${++this.counter}.png`;
-    const filePath = path.join(saveDir, fileName);
-    fs.writeFileSync(filePath, img.toPNG());
-    return filePath;
-  }
-
-  /** 把截图写入临时文件（供注入上传使用），返回路径。 */
+  /** 把截图写入临时文件（供注入上传使用，如「发送到对话/新对话」），返回路径。 */
   public writeTempImage(img: Electron.NativeImage): string {
     const tmpDir = path.join(os.tmpdir(), 'deepseek-screenshot');
     fs.mkdirSync(tmpDir, { recursive: true });
@@ -200,26 +188,13 @@ export class ScreenshotManager {
     if (img) clipboard.writeImage(img);
   }
 
-  /** 保存选区并裁剪落盘（供 handlers 调用）。 */
-  public async captureRegion(rect: ScreenshotRect): Promise<string> {
-    this.selectRegion(rect);
-    const sf = this.getScaleFactorForRect(rect);
-    this.getImageData(rect, sf);
-    return this.saveToFile();
-  }
-
-  /** 隐藏遮罩。 */
+  /**
+   * 隐藏遮罩。
+   * 注：screenshotSavePath 配置项已移除，截图不再落盘到任何路径（仅发送到剪贴板 / 对话）。
+   * 原 saveToFile / captureRegion / resolveSaveDir 的落盘逻辑已一并移除。
+   */
   public hideOverlayNow(): void {
     hideOverlay();
-  }
-
-  private resolveSaveDir(): string {
-    const cfgPath = this.config.get('screenshotSavePath');
-    if (cfgPath && cfgPath.trim().length > 0) {
-      return cfgPath;
-    }
-    const pictures = path.join(os.homedir(), 'Pictures', 'DeepSeek');
-    return pictures;
   }
 
   private normalizeRect(rect: ScreenshotRect): ScreenshotRect {

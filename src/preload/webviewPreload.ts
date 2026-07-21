@@ -117,6 +117,121 @@ function bindScissorsTrigger(): void {
 }
 bindScissorsTrigger();
 
+/**
+ * 修复主窗口侧边栏异常展开（用户反馈：窗口偏窄时左侧历史会话栏被展开、挤压主内容区，
+ * 并出现超长滚动条）。
+ *
+ * 策略（只改样式、不破坏 DeepSeek 官网 DOM 结构）：
+ *  1) 注入兜底 CSS（<style id="ds-sidebar-fix">）：给 html/body 设 overflow-x:hidden; min-width:0，
+ *     从根本上杜绝横向溢出导致的超长滚动条。
+ *  2) JS 动态探测页面中「贴近左侧、宽度达标」的侧边栏元素（getBoundingClientRect），
+ *     当窗口可用宽度不足（innerWidth - 侧边栏宽度 < 主内容最小宽度）时，给侧边栏加内联折叠样式
+ *     （width/max-width/min-width:0; overflow:hidden; opacity:0），并给其右侧兄弟元素设
+ *     flex:1 1 auto; min-width:480px，使其填满剩余空间。窗口变宽时自动恢复。
+ *  3) 监听 window.resize 重新判定；找不到侧边栏则什么都不做（避免误伤）。
+ *
+ * 注意：用 lastSidebar 记录已折叠元素，保证「折叠后窗口再次变宽」能正确恢复（否则宽度归 0 后
+ * 探测会失败、再也找不到该栏而无法还原）。
+ */
+function installSidebarLayoutFix(): void {
+  try {
+    const STYLE_ID = 'ds-sidebar-fix';
+    if (!document.getElementById(STYLE_ID)) {
+      const style = document.createElement('style');
+      style.id = STYLE_ID;
+      style.textContent = `
+        html, body { overflow-x: hidden !important; min-width: 0 !important; }
+      `;
+      document.head.appendChild(style);
+    }
+
+    const MIN_CONTENT_WIDTH = 480;
+    const SIDEBAR_MIN_WIDTH = 200;
+    const SIDEBAR_MAX_WIDTH = 400;
+    let lastSidebar: HTMLElement | null = null;
+
+    /** 查找「贴近左侧、宽度达标」的侧边栏候选（优先复用已记录的元素，便于还原）。 */
+    function findSidebar(): HTMLElement | null {
+      if (lastSidebar && document.contains(lastSidebar)) return lastSidebar;
+      let best: HTMLElement | null = null;
+      let bestWidth = 0;
+      const candidates = document.querySelectorAll<HTMLElement>('div, aside, nav');
+      candidates.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        if (
+          rect.width >= SIDEBAR_MIN_WIDTH &&
+          rect.width <= SIDEBAR_MAX_WIDTH &&
+          rect.left >= -1 &&
+          rect.left <= 4 &&
+          rect.height > 200
+        ) {
+          if (rect.width > bestWidth) {
+            bestWidth = rect.width;
+            best = el;
+          }
+        }
+      });
+      lastSidebar = best;
+      return best;
+    }
+
+    /** 依当前窗口宽度决定是否折叠/还原侧边栏（不改动 DOM 结构，仅改内联样式）。 */
+    function collapseSidebarIfNeeded(): void {
+      const sidebar = findSidebar();
+      if (!sidebar) return; // 找不到侧边栏则不误伤
+      const rect = sidebar.getBoundingClientRect();
+      const available = window.innerWidth - rect.width;
+      const sibling = sidebar.nextElementSibling as HTMLElement | null;
+      if (available < MIN_CONTENT_WIDTH) {
+        sidebar.style.setProperty('width', '0', 'important');
+        sidebar.style.setProperty('max-width', '0', 'important');
+        sidebar.style.setProperty('min-width', '0', 'important');
+        sidebar.style.setProperty('overflow', 'hidden', 'important');
+        sidebar.style.setProperty('opacity', '0', 'important');
+        if (sibling) {
+          sibling.style.setProperty('flex', '1 1 auto', 'important');
+          sibling.style.setProperty('min-width', `${MIN_CONTENT_WIDTH}px`, 'important');
+          sibling.style.setProperty('margin-left', '0', 'important');
+        }
+      } else {
+        // 窗口足够宽：移除折叠样式，恢复官网默认布局
+        sidebar.style.removeProperty('width');
+        sidebar.style.removeProperty('max-width');
+        sidebar.style.removeProperty('min-width');
+        sidebar.style.removeProperty('overflow');
+        sidebar.style.removeProperty('opacity');
+        if (sibling) {
+          sibling.style.removeProperty('flex');
+          sibling.style.removeProperty('min-width');
+          sibling.style.removeProperty('margin-left');
+        }
+      }
+    }
+
+    const run = (): void => {
+      try {
+        collapseSidebarIfNeeded();
+      } catch {
+        // 单次判定异常不影响整体注入
+      }
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', run, { once: true });
+    } else {
+      run();
+    }
+    // 窗口尺寸变化（拖拽缩放、显示/隐藏）时重新判定
+    window.addEventListener('resize', run);
+    // 初次延迟补判：DeepSeek 为 SPA，侧边栏可能稍后才挂载
+    setTimeout(run, 500);
+    setTimeout(run, 1500);
+  } catch {
+    // 极端环境忽略，不影响注入
+  }
+}
+installSidebarLayoutFix();
+
 // 定时探测并回报登录态（仅在页面加载完成后）
 let lastState = false;
 setInterval(() => {
