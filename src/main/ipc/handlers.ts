@@ -189,9 +189,10 @@ export function registerHandlers(ctx: HandlerCtx): void {
             // Bug4 修复：截图「发送到新对话」强制图片兼容模式。
             // 该窗口已标 skipDefaultModel（applyDefaultModelMode / 新建对话监听均不会动它），
             // 故专家模式截图时不应切到 expert（expert 不支持图片）；若默认模型为 expert，
-            // 则映射到简单模式（图片兼容模式），删除图片后也保持此模式、不会被切回 expert。
+            // 则映射到识图模式 vision（图片兼容模式，参考 B 窗口截图即切 vision），
+            // 删除图片后也保持此模式、不会被切回 expert。
             if (config.get('defaultModelMode') === 'expert') {
-              await injector.switchModelMode(wc, 'simple').catch(() => {});
+              await injector.switchModelMode(wc, 'vision').catch(() => {});
             }
             // 同步「深度思考」开关到当前设置（只读默认，不强行开启）
             await injector.setDeepThink(wc, config.get('deepThinkEnabled') === true).catch(() => {});
