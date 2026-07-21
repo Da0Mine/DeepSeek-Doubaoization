@@ -117,77 +117,12 @@ function bindScissorsTrigger(): void {
 }
 bindScissorsTrigger();
 
-/**
- * 修复主窗口侧边栏异常展开（用户反馈：窗口偏窄时左侧历史会话栏被展开、挤压主内容区，
- * 并出现超长滚动条）。
- *
- * 策略（只改样式、不破坏 DeepSeek 官网 DOM 结构）：
- *  1) 注入兜底 CSS（<style id="ds-sidebar-fix">）：给 html/body 设 overflow-x:hidden; min-width:0，
- *     从根本上杜绝横向溢出导致的超长滚动条。
- *  2) JS 动态探测页面中「贴近左侧、宽度达标」的侧边栏元素（getBoundingClientRect），
- *     当窗口可用宽度不足（innerWidth - 侧边栏宽度 < 主内容最小宽度）时，给侧边栏加内联折叠样式
- *     （width/max-width/min-width:0; overflow:hidden; opacity:0），并给其右侧兄弟元素设
- *     flex:1 1 auto; min-width:480px，使其填满剩余空间。窗口变宽时自动恢复。
- *  3) 监听 window.resize 重新判定；找不到侧边栏则什么都不做（避免误伤）。
- *
- * 注意：用 lastSidebar 记录已折叠元素，保证「折叠后窗口再次变宽」能正确恢复（否则宽度归 0 后
- * 探测会失败、再也找不到该栏而无法还原）。
- */
-function installSidebarLayoutFix(): void {
-      /** 实际的安装逻辑：必须等 document.head 存在后再执行。 */
-  function doInstall(): void {
-    try {
-      const STYLE_ID = 'ds-sidebar-fix';
-      if (!document.getElementById(STYLE_ID)) {
-        const style = document.createElement('style');
-        style.id = STYLE_ID;
-        style.textContent = `
-          /* 根因修复：DeepSeek 整个页面渲染为 12000+ 像素高，导致 WebContentsView 显示超长滚动条。
-             解决思路：
-             1) 把 html/body 锁死在视口尺寸内（position: fixed; inset: 0; overflow: hidden），
-                让 body 不再出现"整个页面"的整体滚动条。
-             2) DeepSeek 内部已有的滚动容器（class 含 ds-scroll-area）继续负责自身滚动。
-             3) 兜底：若某些容器没有自带 overflow，给其设 overflow: auto + max-height: 100%
-                强制内部滚动，避免内容被遮挡。 */
-          html, body {
-            position: fixed !important;
-            inset: 0 !important;
-            width: 100% !important;
-            height: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
-          }
-          /* 兜底：让 DeepSeek 内层主要容器自带滚动条（防被 body 裁剪后无法访问） */
-          .ds-scroll-area,
-          [class*="scroll-area"] {
-            overflow: auto !important;
-            max-height: 100% !important;
-          }
-        `;
-        (document.head || document.documentElement).appendChild(style);
-      }
-
-      // 占位：保留诊断 hook，不进行 sidebar 折叠（用户已确认左侧 sidebar 没问题）
-      const report = (msg: string, extra?: unknown): void => {
-        const line = `[sidebar-fix] ${msg}` + (extra !== undefined ? ' ' + JSON.stringify(extra) : '');
-        try { console.log(line); } catch { /* 忽略 */ }
-        try { ipcRenderer.send('ds:debug', line); } catch { /* 忽略 */ }
-      };
-      report('installed (viewport-lock + scroll-area)', { vh: window.innerHeight, vw: window.innerWidth });
-    } catch (e) {
-      console.error('[sidebar-fix] FATAL:', e);
-    }
-  }
-
-  // 必须在 document.head 存在后再执行；preload 在 head 之前就跑了
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', doInstall, { once: true });
-  } else {
-    doInstall();
-  }
-}
-installSidebarLayoutFix();
+// 之前的 layout-fix 注入已全部移除（重构方案）：
+//   - 旧方案通过在 preload 注入 CSS 锁死 html/body，但破坏了 DeepSeek 内部 fixed/absolute
+//     定位元素的布局，导致主内容区消失、消息区卡死等副作用。
+//   - 新方案改在主进程 WindowManager 里通过 view.webContents.insertCSS 隐藏 webContents
+//     自身的滚动条（::-webkit-scrollbar { display: none }），不修改 DeepSeek 内部布局。
+//   - 此处不再注入任何 style 或修改 DOM 元素。
 
 // 定时探测并回报登录态（仅在页面加载完成后）
 let lastState = false;

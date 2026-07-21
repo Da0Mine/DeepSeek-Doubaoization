@@ -282,6 +282,27 @@ export class WindowManager {
       // 网页内日志（含注入脚本的 [PAGE-NEWCONV*] 诊断）一并落盘，便于主理人自检
       logf(`web:${tag}`, message);
     });
+
+    // 隐藏 webContents 自带的所有滚动条：DeepSeek 整个 SPA 页面渲染为 12000+ 像素高，
+    // 会让外壳 window 出现超长滚动条。直接隐藏 webkit 滚动条即可消除视觉干扰，不修改
+    // DeepSeek 内部布局（之前在 preload 注入 html/body overflow:hidden 的方案会破坏
+    // fixed/absolute 定位元素，导致主内容区消失、消息区卡死）。
+    const HIDE_SCROLLBAR_CSS = `
+      /* 隐藏 webContents 主滚动条（垂直+水平） */
+      ::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+      /* 内部容器的滚动条也隐藏（DeepSeek 内部各 ds-scroll-area 仍可滚动，只是不显示滚动条） */
+      ::-webkit-scrollbar-thumb { background: transparent !important; }
+      ::-webkit-scrollbar-track { background: transparent !important; }
+    `;
+    // 每次页面加载完成后重新注入（DeepSeek 是 SPA，路由切换可能丢失样式）
+    const injectHideScrollbar = (): void => {
+      if (view.webContents.isDestroyed()) return;
+      view.webContents.insertCSS(HIDE_SCROLLBAR_CSS).catch(() => {
+        /* 忽略注入失败 */
+      });
+    };
+    injectHideScrollbar();
+    view.webContents.on('did-finish-load', injectHideScrollbar);
   }
 
   /**
