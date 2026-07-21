@@ -287,12 +287,34 @@ export class WindowManager {
     // 会让外壳 window 出现超长滚动条。直接隐藏 webkit 滚动条即可消除视觉干扰，不修改
     // DeepSeek 内部布局（之前在 preload 注入 html/body overflow:hidden 的方案会破坏
     // fixed/absolute 定位元素，导致主内容区消失、消息区卡死）。
+    // 根因 CSS 修复 + 滚动条隐藏。
+    //
+    // 根因：DeepSeek 主页加载 1.5s 后，sidebar 容器（class c3ecdb44 / dc04ec1d / b8812f16）
+    // 会被内部历史列表（多个 _3098d02 分组）撑到 17000+ 像素高，进而把整页（html 元素）撑到 17452
+    // 像素。但主内容（_7780f2e）使用 absolute 定位在 y=204，结果被推到 y=8565。视口（0-731）只能
+    // 看到中间空 + 底部 fixed 输入框，看起来就像"渲染到下面去了"。
+    //
+    // 修复：让 sidebar 容器锁死在视口高度内，内部 .ds-scroll-area 保持 overflow-y:auto 自己滚动。
+    // 这样 html 高度被限制在 ~731 视口高度，主内容保持在 y=204。
+    // 同时隐藏 webkit 滚动条避免窗口上出现超长滚动条。
     const HIDE_SCROLLBAR_CSS = `
       /* 隐藏 webContents 主滚动条（垂直+水平） */
       ::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
-      /* 内部容器的滚动条也隐藏（DeepSeek 内部各 ds-scroll-area 仍可滚动，只是不显示滚动条） */
       ::-webkit-scrollbar-thumb { background: transparent !important; }
       ::-webkit-scrollbar-track { background: transparent !important; }
+      /* 根因修复：限制 sidebar 容器在视口高度内（DeepSeek 主页 sidebar 内部 17000+ px 历史列表会撑高整页） */
+      .c3ecdb44,
+      .dc04ec1d,
+      .b8812f16.a2f3d50e {
+        max-height: 100vh !important;
+        overflow: hidden !important;
+      }
+      /* sidebar 内部滚动区域允许 vertical 滚动（高度不超过视口） */
+      .ds-scroll-area,
+      [class*="ds-scroll-area"] {
+        max-height: calc(100vh - 134px) !important;
+        overflow-y: auto !important;
+      }
     `;
     // 每次页面加载完成后重新注入（DeepSeek 是 SPA，路由切换可能丢失样式）
     const injectHideScrollbar = (): void => {
