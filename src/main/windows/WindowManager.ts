@@ -306,6 +306,7 @@ export class WindowManager {
 
     // 完整 DOM 探测脚本：把页面布局关键信息打到主进程日志，便于诊断"主内容区不显示"问题。
     // 列出 viewport、所有 left=0..1300 范围内、width>=100 的 div，含 position / fixed 标志。
+    // 同时列出所有 overflow:auto/scroll 容器（DeepSeek 的真正滚动容器可能嵌套在这里）。
     const DOM_PROBE = `
       (() => {
         try {
@@ -314,7 +315,8 @@ export class WindowManager {
             scrollY: window.scrollY,
             bodyHeight: document.body ? document.body.scrollHeight : 0,
             htmlHeight: document.documentElement ? document.documentElement.scrollHeight : 0,
-            candidates: []
+            candidates: [],
+            scrollContainers: []
           };
           const all = document.querySelectorAll('div, aside, main, section, header, footer');
           for (const el of all) {
@@ -336,6 +338,28 @@ export class WindowManager {
                 disp: cs.display
               });
             } catch (e) { /* 单个元素出错不影响整体 */ }
+          }
+          // 找所有 overflow:auto/scroll 的容器（真正滚动的元素）
+          for (const el of all) {
+            try {
+              const cs = window.getComputedStyle(el);
+              const ovX = cs.overflowX;
+              const ovY = cs.overflowY;
+              if (!/(auto|scroll|overlay)/.test(ovY) && !/(auto|scroll|overlay)/.test(ovX)) continue;
+              if (el.scrollHeight <= el.clientHeight + 10 && el.scrollWidth <= el.clientWidth + 10) continue;
+              out.scrollContainers.push({
+                tag: el.tagName,
+                cls: (el.className || '').slice(0, 40),
+                ovX, ovY,
+                scrollTop: el.scrollTop,
+                scrollHeight: el.scrollHeight,
+                clientHeight: el.clientHeight,
+                scrollLeft: el.scrollLeft,
+                scrollWidth: el.scrollWidth,
+                clientWidth: el.clientWidth,
+                canScroll: el.scrollHeight > el.clientHeight + 5 ? 'vert' : (el.scrollWidth > el.clientWidth + 5 ? 'horz' : 'none')
+              });
+            } catch (e) { /* ignore */ }
           }
           out.bodyChildren = [];
           if (document.body) {
@@ -367,13 +391,18 @@ export class WindowManager {
         wc.executeJavaScript(DOM_PROBE, true)
           .then((res) => {
             try {
-              const r = res as { vw?: number; vh?: number; scrollY?: number; bodyHeight?: number; htmlHeight?: number; candidates?: Array<Record<string, unknown>>; bodyChildren?: Array<Record<string, unknown>>; error?: string };
+              const r = res as { vw?: number; vh?: number; scrollY?: number; bodyHeight?: number; htmlHeight?: number; candidates?: Array<Record<string, unknown>>; bodyChildren?: Array<Record<string, unknown>>; scrollContainers?: Array<Record<string, unknown>>; error?: string };
               if (r.error) {
                 logf('dom-probe', 'error', r.error);
                 return;
               }
               logf('dom-probe', 'viewport/scroll', { vw: r.vw, vh: r.vh, scrollY: r.scrollY, bodyH: r.bodyHeight, htmlH: r.htmlHeight });
               if (r.bodyChildren) logf('dom-probe', 'bodyChildren', r.bodyChildren);
+              if (r.scrollContainers && r.scrollContainers.length) {
+                logf('dom-probe', 'scrollContainers', r.scrollContainers);
+              } else {
+                logf('dom-probe', 'scrollContainers', 'NONE');
+              }
               const cands = r.candidates || [];
               const chunks: Array<Record<string, unknown>[]> = [];
               for (let i = 0; i < cands.length; i += 8) chunks.push(cands.slice(i, i + 8));
