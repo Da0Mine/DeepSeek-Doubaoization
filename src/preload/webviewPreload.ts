@@ -145,12 +145,12 @@ function installSidebarLayoutFix(): void {
       document.head.appendChild(style);
     }
 
-    const MIN_CONTENT_WIDTH = 480;
     const SIDEBAR_MIN_WIDTH = 200;
     const SIDEBAR_MAX_WIDTH = 400;
     let lastSidebar: HTMLElement | null = null;
+    let alreadyCollapsed = false;
 
-    /** 查找「贴近左侧、宽度达标」的侧边栏候选（优先复用已记录的元素，便于还原）。 */
+    /** 查找「贴近左侧、宽度达标」的侧边栏候选（优先复用已记录的元素）。 */
     function findSidebar(): HTMLElement | null {
       if (lastSidebar && document.contains(lastSidebar)) return lastSidebar;
       let best: HTMLElement | null = null;
@@ -175,57 +175,36 @@ function installSidebarLayoutFix(): void {
       return best;
     }
 
-    /** 依当前窗口宽度决定是否折叠/还原侧边栏（不改动 DOM 结构，仅改内联样式）。 */
-    function collapseSidebarIfNeeded(): void {
+    /** 折叠侧边栏（仅首次执行，不改 DOM 结构，仅改内联样式）。 */
+    function collapseSidebarOnce(): void {
+      if (alreadyCollapsed) return;
       const sidebar = findSidebar();
-      if (!sidebar) return; // 找不到侧边栏则不误伤
+      if (!sidebar) return;
       const rect = sidebar.getBoundingClientRect();
-      const available = window.innerWidth - rect.width;
+      if (rect.width < SIDEBAR_MIN_WIDTH * 0.5) return;
+      alreadyCollapsed = true;
       const sibling = sidebar.nextElementSibling as HTMLElement | null;
-      if (available < MIN_CONTENT_WIDTH) {
-        sidebar.style.setProperty('width', '0', 'important');
-        sidebar.style.setProperty('max-width', '0', 'important');
-        sidebar.style.setProperty('min-width', '0', 'important');
-        sidebar.style.setProperty('overflow', 'hidden', 'important');
-        sidebar.style.setProperty('opacity', '0', 'important');
-        if (sibling) {
-          sibling.style.setProperty('flex', '1 1 auto', 'important');
-          sibling.style.setProperty('min-width', `${MIN_CONTENT_WIDTH}px`, 'important');
-          sibling.style.setProperty('margin-left', '0', 'important');
-        }
-      } else {
-        // 窗口足够宽：移除折叠样式，恢复官网默认布局
-        sidebar.style.removeProperty('width');
-        sidebar.style.removeProperty('max-width');
-        sidebar.style.removeProperty('min-width');
-        sidebar.style.removeProperty('overflow');
-        sidebar.style.removeProperty('opacity');
-        if (sibling) {
-          sibling.style.removeProperty('flex');
-          sibling.style.removeProperty('min-width');
-          sibling.style.removeProperty('margin-left');
-        }
+      sidebar.style.setProperty('width', '0', 'important');
+      sidebar.style.setProperty('max-width', '0', 'important');
+      sidebar.style.setProperty('min-width', '0', 'important');
+      sidebar.style.setProperty('overflow', 'hidden', 'important');
+      sidebar.style.setProperty('opacity', '0', 'important');
+      if (sibling) {
+        sibling.style.setProperty('flex', '1 1 auto', 'important');
+        sibling.style.setProperty('min-width', '480px', 'important');
+        sibling.style.setProperty('margin-left', '0', 'important');
       }
     }
 
-    const run = (): void => {
-      try {
-        collapseSidebarIfNeeded();
-      } catch {
-        // 单次判定异常不影响整体注入
-      }
-    };
-
+    // 页面首次加载时折叠侧边栏（仅一次，不绑定 resize，用户手动展开后可保持）
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', run, { once: true });
+      document.addEventListener('DOMContentLoaded', collapseSidebarOnce, { once: true });
     } else {
-      run();
+      collapseSidebarOnce();
     }
-    // 窗口尺寸变化（拖拽缩放、显示/隐藏）时重新判定
-    window.addEventListener('resize', run);
-    // 初次延迟补判：DeepSeek 为 SPA，侧边栏可能稍后才挂载
-    setTimeout(run, 500);
-    setTimeout(run, 1500);
+    // SPA 路由变化后延迟补判：DeepSeek 为 SPA，侧边栏可能稍后才挂载
+    setTimeout(collapseSidebarOnce, 500);
+    setTimeout(collapseSidebarOnce, 1500);
   } catch {
     // 极端环境忽略，不影响注入
   }
