@@ -303,6 +303,23 @@ export class WindowManager {
     };
     injectHideScrollbar();
     view.webContents.on('did-finish-load', injectHideScrollbar);
+
+    // 强制把页面滚到顶部：DeepSeek 整个 body 高度 12000+，浏览器记忆的滚动位置可能在中间，
+    // 导致用户看到的是"中间的空内容 + 底部的输入框"而不是页面顶部。每次 did-finish-load
+    // 把页面滚到 0，且禁用 history 的滚动记忆。
+    const scrollToTop = (): void => {
+      if (view.webContents.isDestroyed()) return;
+      view.webContents
+        .executeJavaScript(
+          'try { window.scrollTo(0, 0); if (history.scrollRestoration) history.scrollRestoration = "manual"; } catch (e) {}',
+          true
+        )
+        .catch(() => {
+          /* 忽略执行失败 */
+        });
+    };
+    scrollToTop();
+    view.webContents.on('did-finish-load', scrollToTop);
   }
 
   /**
