@@ -82,15 +82,16 @@ export const SUB_WINDOW_TYPES: WindowType[] = [
   'extract',
 ];
 
-/** 常驻副窗口尺寸：固定 820:1168 比例（用户授权：比 9:16 更方，聊天体验更舒展；接近 iPad mini 竖屏）。 */
-export const SUB_WINDOW_RATIO = 820 / 1168;
-export const SUB_WINDOW_WIDTH = 820;
-export const SUB_WINDOW_HEIGHT = 1168;
+/** 常驻副窗口尺寸：固定 9:16 比例（宽:高 = 9:16），保持原大小不变。
+ *  用户反馈"只让我改比例不是改大小"——本轮仅改比例不动尺寸。 */
+export const SUB_WINDOW_RATIO = 9 / 16;
+export const SUB_WINDOW_WIDTH = 360;
+export const SUB_WINDOW_HEIGHT = Math.round(SUB_WINDOW_WIDTH / SUB_WINDOW_RATIO); // 640
 
-/** B 类临时窗口：与副窗口同尺寸 820×1168（用户授权：截图后弹出的聊天窗口够宽，
- *  DeepSeek 也能渲染左侧历史侧栏 + 聊天区）。 */
-export const B_WINDOW_WIDTH = 820;
-export const B_WINDOW_HEIGHT = 1168;
+/** B 类临时窗口：保持原 7/29 稳定版自带大小（304×540），比例仍是 9:16。
+ *  比副窗口略小（304<360），适合截图后选区旁的窄弹窗定位。 */
+export const B_WINDOW_WIDTH = 304; // 9:16 比例
+export const B_WINDOW_HEIGHT = Math.round(B_WINDOW_WIDTH / SUB_WINDOW_RATIO); // 540
 
 /** 各窗口类型对应的标题。 */
 export const WINDOW_TITLES: Record<WindowType, string> = {

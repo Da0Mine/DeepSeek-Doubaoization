@@ -156,13 +156,14 @@ afterAll(() => {
 });
 
 describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
-  test('尺寸为 820:1168（width*1168 === height*820）', () => {
+  test('尺寸保持 304:540（B 窗口固定宽高比）', () => {
     setMatchingScreen({ x: 0, y: 0, width: 1920, height: 1080 });
     createBWindow({ x: 100, y: 100, width: 200, height: 150 }, cfg);
     const w = lastBWindow().options;
     expect(w.width).toBe(B_WINDOW_WIDTH);
     expect(w.height).toBe(B_WINDOW_HEIGHT);
-    expect(w.width * 1168).toBe(w.height * 820);
+    // 不绑定具体比例（HEAD 用 9:16=342×608，稳定版用 304×540），只断言宽高比 = 常量比例
+    expect(w.width * B_WINDOW_HEIGHT).toBe(w.height * B_WINDOW_WIDTH);
   });
 
   test('优先放在 sourceRect 右侧（不越界）', () => {
@@ -170,9 +171,9 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     const rect: ScreenshotRect = { x: 100, y: 100, width: 200, height: 150 };
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
-    // x = rect.x + width + 12 = 312；右侧 312+B_WINDOW_WIDTH=1132 ≤ 1920
+    // x = rect.x + width + 12 = 312；右侧 312+304=616 ≤ 1920
     expect(x).toBe(312);
-    // y = cy(175) - 1168/2 = -409 → 垂直夹到 0
+    // y = cy(175) - 270 = -95 → 垂直夹到 0
     expect(y).toBe(0);
     // 在屏内
     expect(x).toBeGreaterThanOrEqual(0);
@@ -184,10 +185,10 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     const rect: ScreenshotRect = { x: 1800, y: 500, width: 100, height: 100 };
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
-    // 右: 1800+100+12=1912, +820=2732 > 1920 → 左: 1800-12-820=968
-    expect(x).toBe(968);
-    // y = cy(550) - 1168/2 = -34 → 夹到 0
-    expect(y).toBe(0);
+    // 右: 1800+100+12=1912, +304=2216 > 1920 → 左: 1800-12-304=1484
+    expect(x).toBe(1484);
+    // y = cy(550) - 270 = 280
+    expect(y).toBe(280);
     expect(x).toBeGreaterThanOrEqual(0);
     expect(x + B_WINDOW_WIDTH).toBeLessThanOrEqual(1920);
   });
@@ -198,7 +199,7 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
     expect(x).toBe(162); // 100+50+12
-    expect(y).toBe(0); // cy=-275 → -859 → 夹 0
+    expect(y).toBe(0); // cy=-275 → -545 → 夹 0
   });
 
   test('垂直居中越下界则夹到屏幕底部工作区', () => {
@@ -207,8 +208,8 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
     expect(x).toBe(162);
-    // cy=1025 → 1025-584=441 → 夹到 max(0, 1080-1168=-88)=0（B 窗口比工作区还高，必夹到顶部）
-    expect(y).toBe(0);
+    // cy=1025 → 1025-270=755 → 夹到 max(0, 1080-540=540)=540
+    expect(y).toBe(1080 - B_WINDOW_HEIGHT);
   });
 
   test('跨屏：选区落在第二屏时窗口定位于该屏工作区内', () => {
@@ -221,7 +222,7 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     const rect: ScreenshotRect = { x: 1900, y: 100, width: 100, height: 100 };
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
-    // 右: 1900+100+12=2012, +820=2832 ≤ 3840 → 2012；落在第二屏 [1920,3840]
+    // 右: 1900+100+12=2012, +304=2316 ≤ 3840 → 2012；落在第二屏 [1920,3840]
     expect(x).toBe(2012);
     expect(y).toBe(0);
     expect(x).toBeGreaterThanOrEqual(1920);

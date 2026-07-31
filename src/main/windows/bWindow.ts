@@ -75,8 +75,15 @@ export function injectBWindowScrollFix(wc: Electron.WebContents): void {
  */
 export function scheduleBWindowAutoSize(win: BrowserWindow, view: WebContentsView): void {
   const measureAndTighten = (): void => {
-    if (win.isDestroyed() || view.webContents.isDestroyed()) return;
-    view.webContents
+    try {
+      // Bug 修复：用户反馈"setTimeout 回调里 view.webContents.isDestroyed() 抛 TypeError"。
+      // 场景：副窗口 swapMainSub 时 entry.view 被替换为新 view，旧 view 通过闭包被引用；
+      // 或者 win 在 setTimeout 排队期间被关闭；访问已销毁/替换的 webContents 会抛 TypeError。
+      // 用 try/catch 兜底，且每步都做存在性检查，宁可错过一次测量也不崩主进程。
+      if (!win || win.isDestroyed()) return;
+      const wc = view && view.webContents;
+      if (!wc || wc.isDestroyed()) return;
+      wc
       .executeJavaScript(`(() => {
         try {
           // 输入框容器：含发送按钮组 + 上传按钮 + 输入框的最小祖先，svg 数最多者通常就是它
@@ -119,6 +126,10 @@ export function scheduleBWindowAutoSize(win: BrowserWindow, view: WebContentsVie
         }
       })
       .catch(() => {});
+    } catch (e) {
+      // 窗口被销毁/替换/异常等任意情况：错过本次测量即可，绝不让主进程崩
+      return;
+    }
   };
   [1500, 3000, 6000, 12000, 20000, 30000].forEach((ms) =>
     setTimeout(measureAndTighten, ms)
