@@ -540,10 +540,11 @@ export class WindowManager {
 
   /** 呼出 / 聚焦常驻副窗口（Alt+Q 或标题栏按钮）。无则创建，有则聚焦。 */
   public summonSubWindow(): string {
+    const keepOnTop = this.config.get('alwaysOnTop') === true;
     if (this.currentSubId) {
       const e = this.entries.get(this.currentSubId);
       if (e && !e.win.isDestroyed()) {
-        e.win.setAlwaysOnTop(true);
+        e.win.setAlwaysOnTop(keepOnTop);
         e.win.show();
         e.win.focus();
         return this.currentSubId;
@@ -556,7 +557,7 @@ export class WindowManager {
     const sub = this.entries.get(id);
     if (main && sub && !main.win.isDestroyed() && !sub.win.isDestroyed()) {
       this.placeSubWindowRight(sub.win, main.win);
-      sub.win.setAlwaysOnTop(true);
+      sub.win.setAlwaysOnTop(keepOnTop);
     }
     return id;
   }
@@ -569,6 +570,7 @@ export class WindowManager {
    * 用于替代原 summonSubWindow（仅显示/新建、无隐藏）。
    */
   public toggleSubWindow(): string | null {
+    const keepOnTop = this.config.get('alwaysOnTop') === true;
     if (this.currentSubId) {
       const e = this.entries.get(this.currentSubId);
       if (e && !e.win.isDestroyed()) {
@@ -578,7 +580,7 @@ export class WindowManager {
         }
         // 不可见：重新定位到右侧再显示（避免停留上次被移走的异常位置）
         this.placeSubWindowRight(e.win);
-        e.win.setAlwaysOnTop(true);
+        e.win.setAlwaysOnTop(keepOnTop);
         e.win.show();
         e.win.focus();
         return this.currentSubId;
@@ -590,7 +592,7 @@ export class WindowManager {
     const sub = this.entries.get(id);
     if (sub && !sub.win.isDestroyed()) {
       this.placeSubWindowRight(sub.win);
-      sub.win.setAlwaysOnTop(true);
+      sub.win.setAlwaysOnTop(keepOnTop);
     }
     return id;
   }

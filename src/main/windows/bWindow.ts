@@ -38,26 +38,31 @@ export interface BWindowResult {
  */
 export function injectBWindowScrollFix(wc: Electron.WebContents): void {
   if (wc.isDestroyed()) return;
-  // 强制 chat 页面内容整体下移紧贴视口底部（用户反馈"不能强制整体往下平移吗"）。
-  // 方案：把 body 转为 flex column，chat 滚动区自动填满，输入框 + disclaimer 自然贴底。
+  // 强制 chat 页面输入框 + disclaimer 紧贴视口底部（用户反馈"不能强制整体往下平移吗"）。
+  // 方案：position:fixed bottom:0 把 composer footer（含输入框 + disclaimer）钉死在视口底，
+  // chat 滚动区加 padding-bottom 避免被遮挡。比 flex column 更可靠（DeepSeek 用 hash class，
+  // flex 作用在不确定的容器上会破坏布局）。
   wc.insertCSS(`
     html, body { overflow: auto !important; overflow-y: auto !important; }
-    /* flex 下压：让输入框 toolbar + disclaimer 自动贴 viewport 底部 */
-    html { min-height: 100vh !important; }
-    body {
-      display: flex !important;
-      flex-direction: column !important;
-      min-height: 100vh !important;
-    }
-    /* 主内容区: 弹性填满，让 chat 滚动区自动占据剩余空间 */
-    body > div { display: flex !important; flex-direction: column !important; flex: 1 !important; min-height: 0 !important; }
-    /* chat 滚动区: 撑满剩余空间，输入框自然贴底 */
-    [class*="ds-scroll-area"], .b13855df, .aaff8b8f { flex: 1 !important; min-height: 0 !important; }
-    /* 输入框容器 + disclaimer: 不收缩，自然贴在 chat 区下面 */
-    .ec4f5d61, [class*="disclaimer"], [class*="footer"]:not(button):not(a), footer:not(button):not(a) {
-      flex-shrink: 0 !important;
+    /* composer footer（输入框工具栏 + disclaimer）钉死视口底 */
+    .ec4f5d61, [class*="composer"], [class*="chat-input"], [class*="input-area"] {
+      position: fixed !important;
+      bottom: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      z-index: 100 !important;
+      background: var(--ds-bg, #1e1e1e) !important;
       padding-bottom: 0 !important;
       margin-bottom: 0 !important;
+    }
+    /* chat 滚动区加 padding-bottom 给 composer 留空间，避免内容被遮挡 */
+    .b13855df, [class*="scroll-area"]:not([class*="gutter"]) {
+      padding-bottom: 80px !important;
+    }
+    /* 兜底：disclaimer / footer 类元素无 padding/margin */
+    [class*="disclaimer"], footer:not(button):not(a) {
+      padding: 0 !important;
+      margin: 0 !important;
     }
   `).catch(() => {});
   wc.executeJavaScript(`(() => {

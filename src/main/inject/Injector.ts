@@ -711,15 +711,9 @@ export class Injector {
           const r = btn.getBoundingClientRect();
           if (r.width > 0 && r.height > 0) return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: r.width, height: r.height };
         }
-        const allButtons = Array.from(document.querySelectorAll('[role="button"]'));
-        const topRight = allButtons.filter(b => {
-          const r = b.getBoundingClientRect();
-          return r.width > 30 && r.height > 30 && r.x > window.innerWidth * 0.7 && r.y < 80;
-        }).sort((a, b) => b.getBoundingClientRect().x - a.getBoundingClientRect().x)[0];
-        if (topRight) {
-          const r = topRight.getBoundingClientRect();
-          return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: r.width, height: r.height };
-        }
+        // 去掉「右上角任意按钮」fallback（用户反馈"自动点分享"根因）：
+        // 该 fallback 会命中右上角的分享对话按钮（弯曲箭头），触发分享侧栏/弹窗。
+        // 只保留：① 带加号图标的 iconLabelPrimary 按钮 ② ds-button--xl 最右一个 ③ 文字匹配。
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
         let node;
         while ((node = walker.nextNode())) {
