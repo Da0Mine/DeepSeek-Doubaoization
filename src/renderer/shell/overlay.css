@@ -38,15 +38,24 @@ html, body {
   user-select: none;
 }
 
-/* 半透明暗化层：盖在背景图之上、选区与冻结图之下，营造截图蒙版观感（z-index 1）。 */
+/* 暗化蒙版（兼作选区「挖洞」聚光层）：
+ * - 初始选择态：全屏暗化（position 由 JS 设为 0/0/100vw/100vh，无 box-shadow）。
+ * - 选区确定/拖动态：JS 把本层定位到选区矩形并写入 box-shadow 聚光，
+ *   使选区内部透出 #bg 亮图、外部保持暗化。
+ * z-index 1：位于 #bg(z0) 之上、#anno(z7)/#frozen(z6)/#selection(z8) 之下，
+ * 保证标注与蓝色边框绘制在暗化层之上。 */
 #shade {
   position: fixed;
-  inset: 0;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
   max-width: 100vw;
   max-height: 100vh;
   background: rgba(0, 0, 0, 0.35);
   z-index: 1;
   pointer-events: none;
+  box-shadow: none;
 }
 
 .hidden { display: none !important; }
@@ -72,6 +81,8 @@ html, body {
 .tb-title { font-size: 13px; opacity: 0.85; }
 
 .palette { display: inline-flex; gap: 4px; align-items: center; margin-right: 4px; }
+.tb-palette-label { font-size: 12px; color: rgba(255, 255, 255, 0.6); margin-right: 2px; }
+.tb-divider { display: inline-block; width: 1px; height: 18px; background: rgba(255, 255, 255, 0.15); margin: 0 4px; vertical-align: middle; }
 .swatch {
   width: 18px; height: 18px;
   border-radius: 50%;

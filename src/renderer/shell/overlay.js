@@ -47,6 +47,7 @@
     var palette = document.getElementById('palette');
 
     // ---- 色板（取自 config.annotationColors，失败回退默认） ----
+    // 默认隐藏：仅当选中画笔/矩形/椭圆时才出现，避免工具栏杂乱。
     var defaultColors = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#ffffff'];
     function buildPalette(colors) {
       palette.innerHTML = '';
@@ -59,6 +60,14 @@
         palette.appendChild(s);
       });
       currentColor = (colors && colors[0]) || defaultColors[0];
+      // 仅当当前工具需要选色（画笔/矩形/椭圆）才显示；默认 move 模式保持隐藏
+      palette.classList.toggle('hidden', !isDrawingTool(currentTool));
+    }
+    function isDrawingTool(t) {
+      return t === 'pen' || t === 'rect' || t === 'ellipse';
+    }
+    function updatePaletteVisibility() {
+      palette.classList.toggle('hidden', !isDrawingTool(currentTool));
     }
     try {
       shell.getConfig('annotationColors').then(buildPalette).catch(function () { buildPalette(null); });
@@ -146,6 +155,8 @@
       for (var k = 0; k < btns.length; k++) {
         btns[k].classList.toggle('active', btns[k].dataset.tool === tool);
       }
+      // 联动：颜色选择器只在画笔/矩形/椭圆模式下出现，避免 move 模式下空占地
+      updatePaletteVisibility();
     });
     shell.onUndo(function () { annotations.pop(); redraw(); });
     shell.onClear(function () { annotations = []; redraw(); });
@@ -162,6 +173,29 @@
       }
     }
 
+    // 暗化蒙版：null=全屏暗化（初始选择态）；rect=聚光挖洞（选区态，内部透出 #bg 亮图）。
+    // 关键修复（截图拖动 bug）：选区框移动时，仅「蒙版挖洞 + 蓝色边框 + 标注层」跟随 rect，
+    // 底层 #bg 全屏亮图固定不动，因此拖动表现为「框在动、内容不动」，符合预期。
+    function applyShade(r) {
+      var shade = document.getElementById('shade');
+      if (!shade) return;
+      if (!r) {
+        shade.style.left = '0px';
+        shade.style.top = '0px';
+        shade.style.width = '100vw';
+        shade.style.height = '100vh';
+        shade.style.boxShadow = 'none';
+        shade.style.display = 'block';
+        return;
+      }
+      shade.style.left = r.x + 'px';
+      shade.style.top = r.y + 'px';
+      shade.style.width = r.width + 'px';
+      shade.style.height = r.height + 'px';
+      shade.style.boxShadow = '0 0 0 100vmax rgba(0, 0, 0, 0.35)';
+      shade.style.display = 'block';
+    }
+
     function positionLayers() {
       if (!rect) return;
       // 可交互框本体跟随 rect
@@ -170,11 +204,9 @@
       sel.style.width = rect.width + 'px';
       sel.style.height = rect.height + 'px';
 
-      frozen.style.left = rect.x + 'px';
-      frozen.style.top = rect.y + 'px';
-      frozen.style.width = rect.width + 'px';
-      frozen.style.height = rect.height + 'px';
-      frozen.style.display = 'block';
+      // 冻结裁剪图不再随框移动：预览阶段隐藏之，改由固定全屏 #bg 透出洞口显示真实内容。
+      // #frozen 仍保留 src，供最终合成 compose() 使用（标注导出走主进程精确裁剪）。
+      frozen.style.display = 'none';
 
       anno.style.left = rect.x + 'px';
       anno.style.top = rect.y + 'px';
@@ -183,6 +215,7 @@
       anno.width = rect.width;
       anno.height = rect.height;
       anno.style.display = 'block';
+      applyShade(rect);
       layoutChrome();
       redraw();
     }
@@ -320,6 +353,7 @@
       actionbar.classList.add('hidden');
       hint.classList.remove('hidden');
       hint.textContent = '请在屏幕上拖拽选择区域';
+      applyShade(null); // 回到全屏暗化初始态
       state = 'selecting';
     }
 
@@ -332,6 +366,8 @@
       sel.style.top = y + 'px';
       sel.style.width = w + 'px';
       sel.style.height = h + 'px';
+      // 初次拖选实时挖洞：框内立即透出 #bg 亮图（避免拖拽过程中框内仍为暗化）
+      applyShade({ x: x, y: y, width: w, height: h });
     }
 
     function finishSelection() {

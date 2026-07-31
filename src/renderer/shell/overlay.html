@@ -11,13 +11,15 @@
     <!-- 半透明暗化层（盖在背景之上，选区之下）（z-index 1） -->
     <div id="shade"></div>
 
-    <!-- 标注工具栏（选区完成后显示） -->
+    <!-- 标注工具栏（选区完成后显示）。颜色选择器默认隐藏，仅在选中画笔/矩形/椭圆工具时出现。 -->
     <div id="toolbar" class="hidden">
       <span class="tb-title">标注：</span>
-      <span id="palette" class="palette"></span>
       <button class="tool-btn" data-tool="pen" title="画笔"><svg class="ico" viewBox="0 0 24 24"><path d="M3 21l3-1 13-13-2-2L4 18z"/><path d="M14 7l2 2"/></svg></button>
       <button class="tool-btn" data-tool="rect" title="矩形"><svg class="ico" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="2"/></svg></button>
       <button class="tool-btn" data-tool="ellipse" title="椭圆"><svg class="ico" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg></button>
+      <span class="tb-divider"></span>
+      <span id="palette" class="palette hidden"><span class="tb-palette-label">颜色</span></span>
+      <span class="tb-divider"></span>
       <button id="btn-undo" class="tool-btn" title="撤销"><svg class="ico" viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/></svg></button>
       <button id="btn-clear" class="tool-btn" title="清空"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button>
     </div>
