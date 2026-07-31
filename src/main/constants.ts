@@ -87,9 +87,11 @@ export const SUB_WINDOW_RATIO = 9 / 16;
 export const SUB_WINDOW_WIDTH = 360;
 export const SUB_WINDOW_HEIGHT = Math.round(SUB_WINDOW_WIDTH / SUB_WINDOW_RATIO); // 640
 
-/** B 类临时窗口：比副窗口略小，同为 9:16。 */
-export const B_WINDOW_WIDTH = 342; // 9:16 比例，width 能被 9 整除
-export const B_WINDOW_HEIGHT = (B_WINDOW_WIDTH / 9) * 16; // 608
+/** B 类临时窗口：比副窗口略小，同为 9:16。默认高度由 608 收到 540，对应宽度 304，
+ *  显著减少窗口底部留白（chat 页面在 540 高度下排版更贴底）。
+ *  用户仍可手动拖大；保留 minHeight 兜底防压扁。 */
+export const B_WINDOW_WIDTH = 304; // 9:16 比例，width 能被 9 整除
+export const B_WINDOW_HEIGHT = (B_WINDOW_WIDTH / 9) * 16; // 540
 
 /** 各窗口类型对应的标题。 */
 export const WINDOW_TITLES: Record<WindowType, string> = {
