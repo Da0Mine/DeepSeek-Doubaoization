@@ -13,6 +13,8 @@ export const IPC = {
   WIN_CLOSE: 'win:close',
   /** 渲染 -> 主：切换当前窗口置顶。 */
   WIN_ALWAYS_ON_TOP: 'win:alwaysOnTop',
+  /** 渲染 -> 主：切换主窗口内嵌 DeepSeek 的侧栏（标题栏侧栏按钮触发）。 */
+  WIN_SIDEBAR_TOGGLE: 'win:sidebarToggle',
 
   /** 渲染 -> 主：开始截图（弹出遮罩）。 */
   SCREENSHOT_START: 'screenshot:start',

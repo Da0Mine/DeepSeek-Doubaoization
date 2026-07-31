@@ -72,6 +72,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
 
   // ---------------- 窗口控制 ----------------
   ipcMain.on(IPC.WIN_TOGGLE, () => windows.toggleMainWindow());
+  ipcMain.on(IPC.WIN_SIDEBAR_TOGGLE, () => windows.toggleMainSidebar());
 
   ipcMain.on(IPC.WIN_MIN, (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);

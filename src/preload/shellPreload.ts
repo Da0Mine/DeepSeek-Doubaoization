@@ -30,6 +30,7 @@ const shellApi = {
   toggleMax: (): void => ipcRenderer.send(IPC.WIN_MAX),
   close: (): void => ipcRenderer.send(IPC.WIN_CLOSE),
   toggleMainWindow: (): void => ipcRenderer.send(IPC.WIN_TOGGLE),
+  toggleSidebar: (): void => ipcRenderer.send(IPC.WIN_SIDEBAR_TOGGLE),
 
   getConfig: <K extends ConfigKey>(key: K): Promise<ConfigShape[K]> =>
     ipcRenderer.invoke(IPC.CONFIG_GET, { key }),

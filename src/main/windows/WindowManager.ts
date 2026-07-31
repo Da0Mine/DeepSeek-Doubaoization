@@ -2,7 +2,9 @@
  * 窗口注册表 + 主/副窗口创建、复制、置顶、显隐切换。
  * 维护 Map<id, WindowEntry>，提供 getActiveWebContents 供注入使用。
  */
-import { BrowserWindow, WebContents, WebContentsView, screen } from 'electron';
+import { BrowserWindow, WebContents, WebContentsView, screen, app } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
 import type { ConfigStore } from '../config/ConfigStore';
 import type { DefaultModelMode, ScreenshotRect, SubWindowRole, WindowType } from '../../shared/types';
 import { WEBVIEW_PRELOAD, DEEPSEEK_URL } from '../constants';
@@ -12,6 +14,20 @@ import { createBWindow as createBWindowFactory } from './bWindow';
 import { applyThinkCollapse } from '../inject/thinkCollapse';
 import type { Injector } from '../inject/Injector';
 import { logf } from '../logger';
+
+/** 调试日志开关：项目根目录存在 .debug-autolog 时，终端才打印注入脚本的诊断 dump
+ * （[Injector-DUMP] / [ThinkCollapse] / [Injector] 等）。默认静默，避免刷屏
+ * （用户偏好：日志自读不给用户看）。 */
+const DEBUG_AUTOLOG = (() => {
+  try {
+    return (
+      fs.existsSync(path.join(app.getAppPath(), '.debug-autolog')) ||
+      fs.existsSync(path.join(process.cwd(), '.debug-autolog'))
+    );
+  } catch {
+    return false;
+  }
+})();
 
 interface WindowEntry {
   id: string;
@@ -47,6 +63,8 @@ export class WindowManager {
   private injector: Injector | null = null;
   /** 正在退出标志：置 true 后所有窗口的 close 拦截放行，使 app.quit() 能真正关闭窗口。 */
   private quitting = false;
+  /** 已接线 webContents 集合：防止 attachWebViewReady 被重复调用时叠加事件监听器（内存泄漏）。 */
+  private wiredWebContents = new WeakSet<WebContents>();
 
   constructor(private readonly config: ConfigStore) {}
 
@@ -113,6 +131,11 @@ export class WindowManager {
     skipDefaultModel = false
   ): void {
     if (!view) return;
+    // 幂等守卫：同一 webContents 只接线一次，避免「主副切换 / 迁移重接 / 反复创建副窗口」
+    // 反复调用时叠加 did-finish-load / console-message 等监听器，触发
+    // MaxListenersExceededWarning（潜在的 EventEmitter 内存泄漏）。
+    if (view.webContents && this.wiredWebContents.has(view.webContents)) return;
+    if (view.webContents) this.wiredWebContents.add(view.webContents);
     const fire = () => this.onWebViewReady?.(view.webContents);
     const applyDefaultMode = (): Promise<void> => this.applyDefaultModelMode(view.webContents);
     /**
@@ -277,6 +300,14 @@ export class WindowManager {
   private attachWebConsole(view: WebContentsView | null): void {
     if (!view) return;
     view.webContents.on('console-message', (_e, level, message) => {
+      // 注入脚本的诊断 dump（[Injector-DUMP]/[ThinkCollapse]/[Injector]/[Page-NewConv]/[Tray-] 等）
+      // 默认静默，仅在项目根存在 .debug-autolog 调试标记时才打印到终端，避免刷屏
+      // （用户偏好：日志自读不给用户看）。仍照常落盘供主理人自检。
+      const isInjectorDiag = /^\[(Injector-DUMP|ThinkCollapse|Injector|Page-NewConv|Tray-)/.test(message);
+      if (isInjectorDiag && !DEBUG_AUTOLOG) {
+        logf('web:dbg', message);
+        return;
+      }
       const tag = level === 2 ? 'ERR' : level === 1 ? 'WARN' : 'LOG';
       console.log(`[web:${tag}] ${message}`);
       // 网页内日志（含注入脚本的 [PAGE-NEWCONV*] 诊断）一并落盘，便于主理人自检
@@ -844,6 +875,95 @@ export class WindowManager {
   public hideMainWindow(): void {
     const entry = this.entries.get('main');
     if (entry && !entry.win.isDestroyed()) entry.win.hide();
+  }
+
+  /**
+   * 切换主窗口内嵌 DeepSeek 的侧栏（展开/收起）。
+   * 背景：回退到 7/29 稳定版后，主窗口标题栏里没有侧栏按钮，完全依赖 DeepSeek 页面
+   * 自带的原生开关；而 DeepSeek 改 UI + 我们注入的 HIDE_SCROLLBAR_CSS（哈希类名 + !important
+   * 焊死侧栏容器）使那个原生开关失效/失踪（官网正常、我们这没有）。
+   * 解决：在标题栏加一个永远可见的自定义侧栏按钮，点击时由本方法在网页里定位 DeepSeek
+   * 原生侧栏开关并点击（优先按 aria-label/title 命中 menu/sidebar/侧栏/面板，否则退化为
+   * 顶栏最左侧小图标按钮）。点击结果连同几何诊断一并落盘，便于自检根因。
+   */
+  public toggleMainSidebar(): void {
+    const entry = this.entries.get('main');
+    if (!entry || entry.win.isDestroyed()) return;
+    const view = entry.view;
+    if (!view || view.webContents.isDestroyed()) return;
+    const expr = `(() => {
+      return new Promise(function (resolve) {
+        try {
+          function collectTopBtns() {
+            var els = Array.from(document.querySelectorAll('button, [role="button"], div[class*="ds-button"]'));
+            // 排除纯背景包裹层（如 ds-button__background），只保留可点击的开关按钮
+            els = els.filter(function (b) { return (b.className || '').indexOf('__background') < 0; });
+            return els.filter(function (b) {
+              var r = b.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && r.top < 80 && r.height >= 12 && r.height <= 64 && r.width >= 12 && r.width <= 72;
+            }).sort(function (a, b) { return (a.getBoundingClientRect().left - b.getBoundingClientRect().left); });
+          }
+          function findPanel() {
+            return Array.from(document.querySelectorAll('div, aside, nav')).find(function (d) {
+              var r = d.getBoundingClientRect();
+              return r.left <= 6 && r.width >= 120 && r.width <= 480 && r.height >= window.innerHeight * 0.4;
+            }) || null;
+          }
+          function leftPanelOpen() { return !!findPanel(); }
+          // 按「当前开合状态」挑真实侧栏开关：开 -> 侧栏头部最右的收起图标；关 -> 主内容区最左的展开图标(iconLabelPrimary)
+          function pickToggleBtn() {
+            var open = leftPanelOpen();
+            var btns = collectTopBtns();
+            if (!btns.length) return null;
+            if (open) {
+              var sb = btns.filter(function (b) { var r = b.getBoundingClientRect(); return r.left < 270 && r.top < 80; });
+              return sb.length ? sb[sb.length - 1] : btns[btns.length - 1];
+            }
+            var primary = btns.filter(function (b) { return (b.className || '').indexOf('iconLabelPrimary') >= 0; });
+            return primary.length ? primary[0] : btns[0];
+          }
+          var before = leftPanelOpen();
+          var topBtns = collectTopBtns();
+          // 全量诊断：整个文档所有交互元素（不限区域），含完整 class/aria/title/text/data-*，定位真实开关
+          function attrs(el) {
+            var r = el.getBoundingClientRect();
+            var ds = {};
+            for (var i = 0; i < el.attributes.length; i++) {
+              var a = el.attributes[i];
+              if (a.name === 'aria-label' || a.name === 'title' || a.name === 'role' || a.name === 'aria-expanded' || a.name === 'aria-pressed' || a.name.indexOf('data-') === 0) ds[a.name] = a.value.slice(0, 40);
+            }
+            return { tag: el.tagName, cls: (el.className || '').toString().slice(0, 60), left: Math.round(r.left), top: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), aria: (el.getAttribute('aria-label') || '').slice(0, 30), title: (el.getAttribute('title') || '').slice(0, 30), role: (el.getAttribute('role') || '').slice(0, 20), text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 24), data: ds };
+          }
+          var rawDump = Array.from(document.querySelectorAll('button, [role="button"], div[class*="ds-button"], div[class*="button"], a[class*="button"]'))
+            .filter(function (b) { var r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.width <= 260 && r.height <= 260; })
+            .sort(function (a, b) { return (a.getBoundingClientRect().top - b.getBoundingClientRect().top) || (a.getBoundingClientRect().left - b.getBoundingClientRect().left); })
+            .map(attrs).slice(0, 60);
+          var panelInfo = (function () { var p = findPanel(); if (!p) return null; var r = p.getBoundingClientRect(); return { cls: (p.className || '').toString().slice(0, 80), style: (p.getAttribute('style') || '').slice(0, 80), left: Math.round(r.left), w: Math.round(r.width) }; })();
+          var labeled = topBtns.filter(function (el) {
+            var t = (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '').toLowerCase();
+            return /sidebar|menu|侧栏|菜单|展开|收起|面板|panel|drawer|目录/.test(t);
+          });
+          var target = labeled[0] || pickToggleBtn() || null;
+          var info = { before: before, topBtnCount: topBtns.length, labeledCount: labeled.length, clicked: false, dump: rawDump, panelInfo: panelInfo };
+          if (target) {
+            var r = target.getBoundingClientRect();
+            info.targetLeft = Math.round(r.left); info.targetTop = Math.round(r.top);
+            info.targetW = Math.round(r.width); info.targetH = Math.round(r.height);
+            info.targetClass = (target.className || '').toString().slice(0, 60);
+            // 点真实按钮：背景层/图标层可能不是事件挂载点，向上找最近的 <button>/[role=button]
+            var clickEl = (target.closest && target.closest('button, [role="button"]')) ? target.closest('button, [role="button"]') : target;
+            if (!clickEl) clickEl = target;
+            clickEl.click();
+            info.clicked = true;
+          }
+          setTimeout(function () { info.after = leftPanelOpen(); resolve(info); }, 900);
+        } catch (e) { resolve({ error: String(e) }); }
+      });
+    })()`;
+    view.webContents
+      .executeJavaScript(expr, true)
+      .then((r) => logf('sidebar-toggle', 'toggleMainSidebar', r))
+      .catch(() => {});
   }
 
   /** 显示主窗口。 */

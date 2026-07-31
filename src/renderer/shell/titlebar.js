@@ -14,6 +14,16 @@
       return;
     }
 
+    var btnSidebar = document.getElementById('btn-sidebar');
+    if (btnSidebar) {
+      // 侧栏按钮仅主窗口需要（副窗口/B 类内嵌页无 DeepSeek 侧栏）；主窗口点击 -> 主进程点原生开关。
+      if (shell.windowType === 'main') {
+        btnSidebar.onclick = function () { shell.toggleSidebar(); };
+      } else {
+        btnSidebar.style.display = 'none';
+      }
+    }
+
     var btnSettings = document.getElementById('btn-settings');
     var btnPin = document.getElementById('btn-pin');
     var btnSwap = document.getElementById('btn-swap');
