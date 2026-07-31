@@ -9,6 +9,7 @@ import {
   BWINDOW_HTML,
   DEEPSEEK_URL,
   SHELL_PRELOAD,
+  SUB_WINDOW_RATIO,
   TITLEBAR_HEIGHT,
   WEBVIEW_PRELOAD,
   iconIfExists,
@@ -31,9 +32,11 @@ export interface BWindowResult {
  *   - insertCSS 注入 `html,body{overflow:auto!important}` 兜底；
  *   - executeJavaScript 递归遍历所有元素，把 overflow:hidden / overflowY:hidden 改回 auto
  *     （页面 JS 可能延迟执行重新设 hidden，故 1s/3s 重试）。
- * 关键：B 窗口显示「完整聊天页面」，输入框位于底部自然贴底，而不是删输入框/改布局。
+ * 关键：聊天类副窗口（B/常驻 sub）显示「完整聊天页面」，输入框位于底部自然贴底，
+ * 而不是删输入框/改布局。
+ * export 出来供副窗口（subWindow）复用。
  */
-function injectBWindowScrollFix(wc: Electron.WebContents): void {
+export function injectBWindowScrollFix(wc: Electron.WebContents): void {
   if (wc.isDestroyed()) return;
   wc.insertCSS(
     'html, body { overflow: auto !important; overflow-y: auto !important; }'
@@ -68,8 +71,9 @@ function injectBWindowScrollFix(wc: Electron.WebContents): void {
  * 按「输入框容器底部 y」多次测量并 win.setSize 收紧窗口高度，使窗口高度 = 输入框底部 + 边距，
  * 消除输入框下方的空白。1.5/3/6/12/20/30s 多次测量（SPA 渲染、AI 回复流式输出都可能改变高度）。
  * 只收紧不放大：窗口初始高度（B_WINDOW_HEIGHT）就是上限，用户仍可手动拖大。
+ * export 出来供副窗口（subWindow）复用。
  */
-function scheduleBWindowAutoSize(win: BrowserWindow, view: WebContentsView): void {
+export function scheduleBWindowAutoSize(win: BrowserWindow, view: WebContentsView): void {
   const measureAndTighten = (): void => {
     if (win.isDestroyed() || view.webContents.isDestroyed()) return;
     view.webContents
@@ -148,7 +152,7 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
     width: B_WINDOW_WIDTH,
     height: B_WINDOW_HEIGHT,
     minWidth: 240,
-    minHeight: Math.round(240 / (9 / 16)),
+    minHeight: Math.round(240 / SUB_WINDOW_RATIO),
     x,
     y,
     frame: false,

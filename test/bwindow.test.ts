@@ -70,6 +70,9 @@ jest.mock('electron', () => {
     public getContentSize(): number[] {
       return [Number(this.options.width) || 360, Number(this.options.height) || 640];
     }
+    public getContentBounds(): Record<string, unknown> {
+      return this.getBounds();
+    }
     public setBackgroundColor(): void {}
   }
 
@@ -82,6 +85,9 @@ jest.mock('electron', () => {
         loadURL: jest.fn(),
         isDestroyed: () => false,
         close: jest.fn(),
+        // 新引入的修复（bWindow 去留白）依赖 insertCSS / executeJavaScript，jest mock 必须补齐
+        insertCSS: jest.fn(() => Promise.resolve()),
+        executeJavaScript: jest.fn(() => Promise.resolve(null)),
       };
     }
     public setBounds(): void {}
@@ -150,13 +156,13 @@ afterAll(() => {
 });
 
 describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
-  test('尺寸为 9:16（width*16 === height*9）', () => {
+  test('尺寸为 820:1168（width*1168 === height*820）', () => {
     setMatchingScreen({ x: 0, y: 0, width: 1920, height: 1080 });
     createBWindow({ x: 100, y: 100, width: 200, height: 150 }, cfg);
     const w = lastBWindow().options;
     expect(w.width).toBe(B_WINDOW_WIDTH);
     expect(w.height).toBe(B_WINDOW_HEIGHT);
-    expect(w.width * 16).toBe(w.height * 9);
+    expect(w.width * 1168).toBe(w.height * 820);
   });
 
   test('优先放在 sourceRect 右侧（不越界）', () => {
@@ -164,9 +170,9 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     const rect: ScreenshotRect = { x: 100, y: 100, width: 200, height: 150 };
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
-    // x = rect.x + width + 12 = 312；右侧 312+342=654 ≤ 1920
+    // x = rect.x + width + 12 = 312；右侧 312+B_WINDOW_WIDTH=1132 ≤ 1920
     expect(x).toBe(312);
-    // y = cy(175) - 304 = -129 → 垂直夹到 0
+    // y = cy(175) - 1168/2 = -409 → 垂直夹到 0
     expect(y).toBe(0);
     // 在屏内
     expect(x).toBeGreaterThanOrEqual(0);
@@ -178,10 +184,10 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     const rect: ScreenshotRect = { x: 1800, y: 500, width: 100, height: 100 };
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
-    // 右: 1800+100+12=1912, +342=2254 > 1920 → 左: 1800-12-342=1446
-    expect(x).toBe(1446);
-    // y = cy(550) - 304 = 246
-    expect(y).toBe(246);
+    // 右: 1800+100+12=1912, +820=2732 > 1920 → 左: 1800-12-820=968
+    expect(x).toBe(968);
+    // y = cy(550) - 1168/2 = -34 → 夹到 0
+    expect(y).toBe(0);
     expect(x).toBeGreaterThanOrEqual(0);
     expect(x + B_WINDOW_WIDTH).toBeLessThanOrEqual(1920);
   });
@@ -192,7 +198,7 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
     expect(x).toBe(162); // 100+50+12
-    expect(y).toBe(0); // cy=-275 → -577 → 夹 0
+    expect(y).toBe(0); // cy=-275 → -859 → 夹 0
   });
 
   test('垂直居中越下界则夹到屏幕底部工作区', () => {
@@ -201,8 +207,8 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
     expect(x).toBe(162);
-    // cy=1025 → 1025-304=721 → 夹到 1080-608=472
-    expect(y).toBe(1080 - B_WINDOW_HEIGHT);
+    // cy=1025 → 1025-584=441 → 夹到 max(0, 1080-1168=-88)=0（B 窗口比工作区还高，必夹到顶部）
+    expect(y).toBe(0);
   });
 
   test('跨屏：选区落在第二屏时窗口定位于该屏工作区内', () => {
@@ -215,7 +221,7 @@ describe('B 窗口定位 - 经由 createBWindow 读取构造参数', () => {
     const rect: ScreenshotRect = { x: 1900, y: 100, width: 100, height: 100 };
     createBWindow(rect, cfg);
     const { x, y } = lastBWindow().options;
-    // 右: 1900+100+12=2012, +342=2354 ≤ 3840 → 2012；落在第二屏 [1920,3840]
+    // 右: 1900+100+12=2012, +820=2832 ≤ 3840 → 2012；落在第二屏 [1920,3840]
     expect(x).toBe(2012);
     expect(y).toBe(0);
     expect(x).toBeGreaterThanOrEqual(1920);

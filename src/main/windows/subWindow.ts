@@ -12,6 +12,7 @@ import {
   WINDOW_TITLES,
   SUB_WINDOW_WIDTH,
   SUB_WINDOW_HEIGHT,
+  SUB_WINDOW_RATIO,
   iconIfExists,
 } from '../constants';
 import { IPC } from '../ipc/channels';
@@ -19,6 +20,7 @@ import { ThemeManager } from '../theme/ThemeManager';
 import type { ConfigStore } from '../config/ConfigStore';
 import type { WindowType } from '../../shared/types';
 import { layoutView, createChatView } from './mainWindow';
+import { injectBWindowScrollFix, scheduleBWindowAutoSize } from './bWindow';
 
 export interface SubWindowResult {
   win: BrowserWindow;
@@ -51,7 +53,7 @@ export function createSubWindow(
     width: isTranslate ? 720 : SUB_WINDOW_WIDTH,
     height: isTranslate ? 560 : SUB_WINDOW_HEIGHT,
     minWidth: isTranslate ? 420 : 300,
-    minHeight: isTranslate ? 320 : Math.round(300 / (9 / 16)),
+    minHeight: isTranslate ? 320 : Math.round(300 / SUB_WINDOW_RATIO),
     frame: false,
     title: WINDOW_TITLES[type],
     backgroundColor: resolveBackgroundColor(config),
@@ -77,6 +79,19 @@ export function createSubWindow(
     view = createChatView(win, getView ?? (() => null));
     // 备注：B/vision 窗口的视觉切换由 Injector 在页面注入时完成（switchToVisionModel），
     // 此处不再根据 autoStartVisionModel 配置做判断（该配置项已移除）。
+
+    // 副窗口去留白（复用 B 窗口的两层修复）：层1 完整页面滚动 + 层2 按输入框底部收紧窗口高度
+    // 解决"副窗口底部留白"问题（用户反馈：输入框下方有灰色 AI 提示 + 空白未消除）。
+    const injectScrollFix = (): void => {
+      if (view && !view.webContents.isDestroyed()) injectBWindowScrollFix(view.webContents);
+    };
+    injectScrollFix();
+    view.webContents.on('did-finish-load', injectScrollFix);
+    view.webContents.on('did-navigate-in-page', () => {
+      // SPA 内部路由可能重建布局，延迟一点再修（等 DOM 稳定）
+      setTimeout(injectScrollFix, 500);
+    });
+    scheduleBWindowAutoSize(win, view);
   }
 
   // 关闭行为：closeToTray 且非真正退出时隐藏；正在退出则放行 close。

@@ -1159,7 +1159,11 @@ export class Injector {
             var footer=getFooter();
             if(footer){
               var btns=Array.from(footer.querySelectorAll('button, [role="button"], div[onclick], span[onclick]')).filter(function(c){ return c.id!=='ds-scissors-btn'; });
-              for(var m=btns.length-1;m>=0;m--){ if(btns[m]!==getUploadButton() && !isToggle(btns[m]) && !disabledOf(btns[m])) return {b:btns[m],via:'rightmost'}; }
+              // Bug 修复（用户反馈"副窗口老是自动点分享按钮"）：
+              // findSend 的 rightmost fallback 在发送按钮 disabled 时会落到左侧的分享按钮
+              // （DeepSeek 工具栏 share 紧邻 send），触发「分享对话」弹窗/侧栏。
+              // 显式排除 aria-label/title/textContent 含 share/分享 的按钮。
+              for(var m=btns.length-1;m>=0;m--){ if(btns[m]!==getUploadButton() && !isToggle(btns[m]) && !disabledOf(btns[m]) && !/share|分享/.test((btns[m].getAttribute('aria-label')||'')+(btns[m].getAttribute('title')||'')+(btns[m].textContent||''))) return {b:btns[m],via:'rightmost'}; }
             }
             return null;
           }
