@@ -38,19 +38,28 @@ export interface BWindowResult {
  */
 export function injectBWindowScrollFix(wc: Electron.WebContents): void {
   if (wc.isDestroyed()) return;
-  wc.insertCSS(
-    'html, body { overflow: auto !important; overflow-y: auto !important; }'
-  ).catch(() => {});
-  // CSS 兜底：让 DeepSeek chat 页面底部 disclaimer/padding 不挤占多余视口高度，
-  // 配合 scheduleBWindowAutoSize 收紧窗口到刚好容纳输入框+disclaimer。
-  // 注意：注入 `body { padding-bottom: 0 }` 会破坏 chat 滚动区，改为只压缩底部装饰元素。
-  wc.insertCSS(
-    ':root { --ds-bb-fix: 0; } ' +
-    // DeepSeek chat 页面最外层容器（cb86951c）有内边距，去掉让 disclaimer 贴底
-    'body > div, .cb86951c, .dc04ec1d, .c3ecdb44 { padding-bottom: 0 !important; margin-bottom: 0 !important; } ' +
-    // 兜底：disclaimer / footer 类元素无 padding
-    '[class*="disclaimer"], [class*="footer"]:not(button):not(a), footer:not(button):not(a) { padding: 0 !important; margin: 0 !important; } '
-  ).catch(() => {});
+  // 强制 chat 页面内容整体下移紧贴视口底部（用户反馈"不能强制整体往下平移吗"）。
+  // 方案：把 body 转为 flex column，chat 滚动区自动填满，输入框 + disclaimer 自然贴底。
+  wc.insertCSS(`
+    html, body { overflow: auto !important; overflow-y: auto !important; }
+    /* flex 下压：让输入框 toolbar + disclaimer 自动贴 viewport 底部 */
+    html { min-height: 100vh !important; }
+    body {
+      display: flex !important;
+      flex-direction: column !important;
+      min-height: 100vh !important;
+    }
+    /* 主内容区: 弹性填满，让 chat 滚动区自动占据剩余空间 */
+    body > div { display: flex !important; flex-direction: column !important; flex: 1 !important; min-height: 0 !important; }
+    /* chat 滚动区: 撑满剩余空间，输入框自然贴底 */
+    [class*="ds-scroll-area"], .b13855df, .aaff8b8f { flex: 1 !important; min-height: 0 !important; }
+    /* 输入框容器 + disclaimer: 不收缩，自然贴在 chat 区下面 */
+    .ec4f5d61, [class*="disclaimer"], [class*="footer"]:not(button):not(a), footer:not(button):not(a) {
+      flex-shrink: 0 !important;
+      padding-bottom: 0 !important;
+      margin-bottom: 0 !important;
+    }
+  `).catch(() => {});
   wc.executeJavaScript(`(() => {
     function fixScrolling() {
       try {

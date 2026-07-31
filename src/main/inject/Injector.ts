@@ -1156,15 +1156,11 @@ export class Injector {
             if(primary && !disabledOf(primary)) return {b:primary, via:'primary'};
             var all=Array.from(document.querySelectorAll('button, [role="button"], .ds-button'));
             for(var i=0;i<all.length;i++){ var a=(all[i].getAttribute('aria-label')||'').toLowerCase(); if((a.indexOf('发送')>=0||a.indexOf('send')>=0)&&!disabledOf(all[i])) return {b:all[i],via:'label'}; }
-            var footer=getFooter();
-            if(footer){
-              var btns=Array.from(footer.querySelectorAll('button, [role="button"], div[onclick], span[onclick]')).filter(function(c){ return c.id!=='ds-scissors-btn'; });
-              // Bug 修复（用户反馈"副窗口老是自动点分享按钮"）：
-              // findSend 的 rightmost fallback 在发送按钮 disabled 时会落到左侧的分享按钮
-              // （DeepSeek 工具栏 share 紧邻 send），触发「分享对话」弹窗/侧栏。
-              // 显式排除 aria-label/title/textContent 含 share/分享 的按钮。
-              for(var m=btns.length-1;m>=0;m--){ if(btns[m]!==getUploadButton() && !isToggle(btns[m]) && !disabledOf(btns[m]) && !/share|分享/.test((btns[m].getAttribute('aria-label')||'')+(btns[m].getAttribute('title')||'')+(btns[m].textContent||''))) return {b:btns[m],via:'rightmost'}; }
-            }
+            // Bug 修复（用户反馈"点一下边栏、副窗口老自动点分享按钮"）：
+            // 之前 rightmost fallback「footer 从右往左找非上传/非 toggle/非禁用/非 share 的按钮」
+            // 在分享按钮没有 aria-label/title/textContent 含"share/分享"（纯 SVG 图标）时仍会命中。
+            // 根除：去掉 fallback，只按 primary class 或 aria-label 精确找发送按钮。
+            // 找不到就不发（宁可漏发，不点分享）。
             return null;
           }
           function fireClick(el){
