@@ -41,6 +41,16 @@ export function injectBWindowScrollFix(wc: Electron.WebContents): void {
   wc.insertCSS(
     'html, body { overflow: auto !important; overflow-y: auto !important; }'
   ).catch(() => {});
+  // CSS 兜底：让 DeepSeek chat 页面底部 disclaimer/padding 不挤占多余视口高度，
+  // 配合 scheduleBWindowAutoSize 收紧窗口到刚好容纳输入框+disclaimer。
+  // 注意：注入 `body { padding-bottom: 0 }` 会破坏 chat 滚动区，改为只压缩底部装饰元素。
+  wc.insertCSS(
+    ':root { --ds-bb-fix: 0; } ' +
+    // DeepSeek chat 页面最外层容器（cb86951c）有内边距，去掉让 disclaimer 贴底
+    'body > div, .cb86951c, .dc04ec1d, .c3ecdb44 { padding-bottom: 0 !important; margin-bottom: 0 !important; } ' +
+    // 兜底：disclaimer / footer 类元素无 padding
+    '[class*="disclaimer"], [class*="footer"]:not(button):not(a), footer:not(button):not(a) { padding: 0 !important; margin: 0 !important; } '
+  ).catch(() => {});
   wc.executeJavaScript(`(() => {
     function fixScrolling() {
       try {
@@ -86,30 +96,83 @@ export function scheduleBWindowAutoSize(win: BrowserWindow, view: WebContentsVie
       wc
       .executeJavaScript(`(() => {
         try {
-          // 输入框容器：含发送按钮组 + 上传按钮 + 输入框的最小祖先，svg 数最多者通常就是它
-          var fi = document.querySelector('input[type="file"]');
-          var best = null, bestSvg = -1;
-          var el = fi ? fi.parentElement : null;
-          for (var i = 0; i < 8 && el; i++) {
-            var svgs = el.querySelectorAll ? el.querySelectorAll('svg').length : 0;
-            if (svgs > bestSvg) { bestSvg = svgs; best = el; }
-            el = el.parentElement;
+          // 找 DeepSeek chat 页面底部最深的元素 bottom（消除「输入框贴底但 disclaimer/footer
+          // 还在外层导致下方留白」的问题）。候选：
+          //   1. 输入框容器（getComposerFooter：含 file input 的最近 svg 数最多祖先）
+          //   2. disclaimer / footer 元素（"内容由 AI 生成，请仔细甄别"等）
+          //   3. [class*="disclaimer" / "footer" / "bottom"]
+          // 取所有候选 bottom 最大值 + 边距作为目标视口高度。
+          function getComposerBottom() {
+            var max = 0;
+            // 1) 输入框 toolbar 底部
+            var fi = document.querySelector('input[type="file"]');
+            var el = fi ? fi.parentElement : null;
+            var best = null, bestSvg = -1;
+            for (var i = 0; i < 8 && el; i++) {
+              var svgs = el.querySelectorAll ? el.querySelectorAll('svg').length : 0;
+              if (svgs > bestSvg) { bestSvg = svgs; best = el; }
+              el = el.parentElement;
+            }
+            if (best) {
+              var r = best.getBoundingClientRect();
+              if (r.bottom > max) max = r.bottom;
+            }
+            // 2) 文字匹配 disclaimer 叶节点（DeepSeek 用"内容由 AI 生成，请仔细甄别"作为底部提示）
+            var textNodes = document.querySelectorAll('div, span, p');
+            for (var t = 0; t < textNodes.length; t++) {
+              var tn = textNodes[t];
+              if (tn.children.length > 0) continue;
+              var txt = (tn.textContent || '').trim();
+              if (txt.indexOf('AI 生成') >= 0 || txt.indexOf('请仔细甄别') >= 0) {
+                var tr = tn.getBoundingClientRect();
+                if (tr.bottom > max) max = tr.bottom;
+              }
+            }
+            // 3) disclaimer / footer / [class*="disclaimer"/"footer"/"bottom"]
+            var sels = [
+              '[class*="disclaimer"]',
+              '[class*="footer"]',
+              'footer',
+              '[class*="bottom"]',
+            ];
+            for (var k = 0; k < sels.length; k++) {
+              var nodes = document.querySelectorAll(sels[k]);
+              for (var j = 0; j < nodes.length; j++) {
+                var rr = nodes[j].getBoundingClientRect();
+                if (rr.bottom > max) max = rr.bottom;
+              }
+            }
+            // 4) documentElement.scrollHeight 兜底（chat 区有内容时也能覆盖）
+            var docH = document.documentElement.scrollHeight;
+            if (docH > max) max = docH;
+            // 6) 兜底找视口内最深的可视元素（disclaimer 未渲染时也能 tight）
+            try {
+              var fallback = document.querySelectorAll('*');
+              for (var z = 0; z < fallback.length; z++) {
+                var r = fallback[z].getBoundingClientRect();
+                if (r.bottom > 0 && r.bottom <= window.innerHeight && r.height > 0) {
+                  if (r.bottom > max) max = r.bottom;
+                }
+              }
+            } catch (e) {}
+            return max;
+            return max;
           }
-          if (!best) return null;
-          var r = best.getBoundingClientRect();
-          if (r.bottom <= 0 || r.bottom > window.innerHeight + 200) return null;
-          return { bottom: Math.round(r.bottom), vh: window.innerHeight };
+          var bottom = getComposerBottom();
+          if (bottom <= 0 || bottom > window.innerHeight + 200) return null;
+          return { bottom: Math.round(bottom), vh: window.innerHeight };
         } catch (e) { return null; }
       })()`)
       .then((res: unknown) => {
         if (win.isDestroyed()) return;
         const r = res as { bottom: number; vh: number } | null;
         if (!r || typeof r.bottom !== 'number' || r.bottom <= 0) return;
-        // 目标高度 = 标题栏 + 输入框容器底部(相对 view 视口) + 边距(8px)。
-        // 只在「比当前小 6px 以上」时收紧，避免抖动；不放大（初始 B_WINDOW_HEIGHT 即上限）。
-        const target = Math.max(280, TITLEBAR_HEIGHT + r.bottom + 8);
+        // 目标高度 = 标题栏 + 内容最底元素 bottom（紧贴，不留 padding）。
+        // 收紧阈值放宽：target 比当前小 0 以上即收紧（不要用 target<cur-6，否则 disclaimer
+        // 边缘情况 target ≈ cur 时永远 skip）。
+        const target = Math.max(280, TITLEBAR_HEIGHT + r.bottom);
         const cur = win.getContentBounds().height;
-        if (target < cur - 6) {
+        if (target < cur - 1) {
           win.setContentSize(B_WINDOW_WIDTH, Math.round(target));
           logf('bwin-size', 'auto-resize', {
             from: cur,

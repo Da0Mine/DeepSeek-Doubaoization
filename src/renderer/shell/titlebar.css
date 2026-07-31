@@ -70,16 +70,16 @@ body {
   border: none;
   background: transparent;
   color: var(--ds-tb-fg, #333);
-  height: 32px;
+  /* 占满整个标题栏高度（40px），用户可点击区域更大；图标在 flex 中心对齐 */
+  height: 100%;
   min-width: 36px;
   padding: 0 12px;
-  border-radius: 7px;
   cursor: pointer;
   font-size: 13px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  align-self: center;
+  align-self: stretch;
 }
 
 .tb-btn:hover {
