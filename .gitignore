@@ -3,6 +3,7 @@ node_modules/
 dist/
 release/
 release-build/
+release-v2/
 out/
 
 # 日志与缓存
