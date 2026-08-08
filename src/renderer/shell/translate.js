@@ -20,7 +20,6 @@
     var btnMin = document.getElementById('btn-min');
     var btnMax = document.getElementById('btn-max');
     var btnClose = document.getElementById('btn-close');
-    var loginStatus = document.getElementById('login-status');
     if (btnSettings) btnSettings.onclick = function () { shell.openSettings(); };
     if (btnPin) btnPin.onclick = function () { shell.alwaysOnTop(); };
     if (btnSwap) btnSwap.onclick = function () { shell.swapMainSub(); };
@@ -38,11 +37,7 @@
       var dark = getComputedStyle(document.documentElement).getPropertyValue('--ds-bg').trim() === '#1e1e1e';
       document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     });
-    shell.onLoginStatus(function (p) {
-      if (!loginStatus) return;
-      loginStatus.textContent = p.loggedIn ? '已登录' : '未登录，请登录';
-      loginStatus.className = 'tb-status ' + (p.loggedIn ? 'ok' : 'warn');
-    });
+    // 登录态显示已移除：不再在窗口上常驻检测（登录状态请到 设置 → 个人中心 → 账号 中查看）。
 
     // ---- 语言下拉 ----
     var srcSel = document.getElementById('src-lang');

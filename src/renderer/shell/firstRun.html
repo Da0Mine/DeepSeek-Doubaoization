@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>欢迎使用</title>
+    <link rel="stylesheet" href="firstRun.css" />
+  </head>
+  <body>
+    <!-- 半透明遮罩：视觉压暗主窗口 -->
+    <div id="fr-mask"></div>
+
+    <!-- 弹窗一：登录引导 -->
+    <div id="fr-login" class="fr-card">
+      <div class="fr-head"><span class="fr-badge">欢迎使用</span></div>
+      <div class="fr-title">欢迎使用 DeepSeek 桌面版</div>
+      <div class="fr-body">本应用为网页版客户端，请在窗口中登录您的 DeepSeek 账号后使用。</div>
+      <div class="fr-footer">
+        <button id="fr-login-ok" class="fr-btn fr-btn-primary">确定</button>
+      </div>
+    </div>
+
+    <!-- 弹窗二：用户须知 -->
+    <div id="fr-notice" class="fr-card" style="display: none">
+      <div class="fr-head"><span class="fr-badge">用户须知</span></div>
+      <div class="fr-notice-scroll">
+        <p>欢迎使用 DeepSeek 桌面版（以下简称“本应用”）。</p>
+        <p><b>1. 应用性质：</b>本应用是 DeepSeek 网页版（chat.deepseek.com）的桌面封装，基于 Electron 构建，仅运行于您本地设备，不提供任何云端服务。</p>
+        <p><b>2. 隐私说明：</b>本应用不收集、不存储、不上传您的个人数据、聊天记录或使用行为；对话数据保存在本地，并直接与 DeepSeek 官方服务器交互。</p>
+        <p><b>3. 数据由 DeepSeek 官方处理：</b>聊天内容、账号信息等均由 DeepSeek 官方服务处理，请知悉并遵守 DeepSeek 官方的服务条款与隐私政策。</p>
+        <p><b>4. 免责声明：</b>本应用为开源项目，与 DeepSeek 官方无任何关联或背书。因使用本应用或依赖其运行环境导致的任何直接或间接损失，开发者不承担责任。</p>
+        <p><b>5. 开源许可：</b>本应用基于 MIT 许可证开源，可自由使用、修改与分发。</p>
+      </div>
+      <div class="fr-footer">
+        <button id="fr-notice-ok" class="fr-btn fr-btn-primary">我已知晓</button>
+      </div>
+    </div>
+
+    <script src="firstRun.js"></script>
+  </body>
+</html>

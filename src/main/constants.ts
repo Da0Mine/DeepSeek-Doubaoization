@@ -35,6 +35,7 @@ export const CONFIG_PATH: string = (() => {
 /** 编译后预加载脚本路径（__dirname = dist/main）。 */
 export const SHELL_PRELOAD = path.join(__dirname, '..', 'preload', 'shellPreload.js');
 export const WEBVIEW_PRELOAD = path.join(__dirname, '..', 'preload', 'webviewPreload.js');
+export const SCREEN_SHARE_TASKBAR_PRELOAD = path.join(__dirname, '..', 'preload', 'screenShareTaskbarPreload.js');
 
 /** 外壳渲染资源目录（__dirname = dist/main => dist/renderer/shell）。 */
 export const SHELL_DIR = path.join(__dirname, '..', 'renderer', 'shell');
@@ -43,6 +44,14 @@ export const OVERLAY_HTML = path.join(SHELL_DIR, 'overlay.html');
 export const TRANSLATE_HTML = path.join(SHELL_DIR, 'translate.html');
 export const SETTINGS_HTML = path.join(SHELL_DIR, 'settings.html');
 export const BWINDOW_HTML = path.join(SHELL_DIR, 'bwindow.html');
+/** 使用说明引导视图（内嵌于主窗口的 WebContentsView）。 */
+export const ONBOARDING_HTML = path.join(SHELL_DIR, 'onboarding.html');
+/** 更新提醒弹框（覆盖主窗口的透明窗口，发现新版本时弹出）。 */
+export const UPDATE_PROMPT_HTML = path.join(SHELL_DIR, 'updatePrompt.html');
+/** 共享屏幕模式提示弹框（覆盖主窗口的透明窗口，专家/快速模式限制时弹出）。 */
+export const MODE_REMINDER_HTML = path.join(SHELL_DIR, 'modeReminder.html');
+/** 首次运行登录引导 / 用户须知（覆盖主窗口的透明窗口，仅首次运行时弹出）。 */
+export const FIRST_RUN_HTML = path.join(SHELL_DIR, 'firstRun.html');
 
 /** 图标目录。 */
 export const ICON_DIR = path.join(__dirname, '..', 'renderer', 'assets', 'icons');

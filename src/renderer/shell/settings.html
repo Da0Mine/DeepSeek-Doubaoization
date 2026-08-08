@@ -5,10 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>设置</title>
     <link rel="stylesheet" href="settings.css" />
+    <script>
+      /* 防闪白：主进程在 loadFile 时通过 query 传入当前主题背景色，
+         在首帧绘制前就把 --ds-bg 变量设好，避免深色主题下先渲染浅色兜底背景。 */
+      (function () {
+        try {
+          var bg = new URLSearchParams(window.location.search).get('bg');
+          if (bg) document.documentElement.style.setProperty('--ds-bg', bg);
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="titlebar">
-      <div class="tb-left"><span class="tb-logo">设置</span></div>
+      <div class="tb-left">
+        <button id="btn-back" class="tb-btn" title="返回主界面">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="tb-logo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          设置
+        </span>
+      </div>
       <div class="tb-right">
         <button id="btn-min" class="tb-btn" title="最小化">—</button>
         <button id="btn-close" class="tb-btn" title="关闭">✕</button>
@@ -17,14 +37,27 @@
     <div id="app">
       <nav id="sidebar"></nav>
       <main id="panel">
-        <div id="panel-header"></div>
+        <div class="panel-glow"></div>
+        <div id="panel-header">
+          <div class="panel-header-content">
+            <span class="panel-header-icon"></span>
+            <span class="panel-header-text"></span>
+          </div>
+          <div class="panel-header-line"></div>
+        </div>
         <div id="panel-body"></div>
       </main>
     </div>
     <div id="actions">
-      <button id="btn-reset">重置默认</button>
       <span id="status"></span>
+      <button id="btn-reset">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        重置默认
+      </button>
     </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
     <script src="settings.js"></script>
   </body>
 </html>

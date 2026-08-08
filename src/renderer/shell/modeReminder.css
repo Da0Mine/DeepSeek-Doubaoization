@@ -1,0 +1,149 @@
+/* 模式提示弹框：半透明遮罩 + 居中卡片（提示信息 / 我知道了 / 右下角不再提醒），适配深色模式。 */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+:root {
+  --mr-card-bg: rgba(255, 255, 255, 0.96);
+  --mr-card-border: rgba(255, 255, 255, 0.6);
+  --mr-title-fg: #1f2329;
+  --mr-body-fg: #4a505c;
+  --mr-muted: #8a8f9c;
+  --mr-btn-bg: #ffffff;
+  --mr-btn-fg: #444c57;
+  --mr-btn-border: rgba(0, 0, 0, 0.1);
+}
+html[data-theme='dark'] {
+  --mr-card-bg: rgba(32, 34, 42, 0.96);
+  --mr-card-border: rgba(255, 255, 255, 0.08);
+  --mr-title-fg: #e8eaed;
+  --mr-body-fg: #b3b8c2;
+  --mr-muted: #7c8290;
+  --mr-btn-bg: #3a3d47;
+  --mr-btn-fg: #d5d9e0;
+  --mr-btn-border: rgba(255, 255, 255, 0.1);
+}
+
+#mr-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 18, 0.38);
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#mr-card {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 400px;
+  max-width: calc(100vw - 48px);
+  transform: translate(-50%, -50%) scale(0.96);
+  background: var(--mr-card-bg);
+  border: 1px solid var(--mr-card-border);
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25), 0 4px 16px rgba(0, 0, 0, 0.1);
+  padding: 22px 24px 16px;
+  z-index: 2;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.35s ease, transform 0.35s ease, visibility 0s linear 0.35s;
+}
+#mr-card.mr-show {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%) scale(1);
+  transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), visibility 0s;
+}
+
+.mr-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.mr-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #3370ff;
+  border-radius: 6px;
+  padding: 3px 9px;
+  letter-spacing: 0.3px;
+}
+
+.mr-message {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--mr-title-fg);
+  margin-bottom: 8px;
+}
+.mr-detail {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--mr-body-fg);
+  margin-bottom: 18px;
+}
+
+.mr-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.mr-never {
+  font-size: 13px;
+  color: var(--mr-muted);
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(0, 0, 0, 0.15);
+  text-underline-offset: 3px;
+  transition: color 0.15s;
+}
+.mr-never:hover {
+  color: #3370ff;
+}
+.mr-btn {
+  padding: 8px 22px;
+  border-radius: 10px;
+  border: 1px solid var(--mr-btn-border);
+  background: var(--mr-btn-bg);
+  color: var(--mr-btn-fg);
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.08s ease;
+}
+.mr-btn:hover {
+  border-color: #3370ff;
+  color: #3370ff;
+}
+.mr-btn:active { transform: scale(0.96); }
+.mr-btn-primary {
+  background: #3370ff;
+  border-color: #3370ff;
+  color: #ffffff;
+  font-weight: 500;
+}
+.mr-btn-primary:hover {
+  opacity: 0.9;
+  color: #ffffff;
+  background: #3370ff;
+  border-color: #3370ff;
+}

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    /* 四角蓝色对角框 */
+    .corner {
+      position: fixed;
+      width: 60px;
+      height: 60px;
+      pointer-events: none;
+    }
+    .corner-tl { top: 0; left: 0; }
+    .corner-tr { top: 0; right: 0; }
+    .corner-bl { bottom: 0; left: 0; }
+    .corner-br { bottom: 0; right: 0; }
+
+    .corner::before,
+    .corner::after {
+      content: '';
+      position: absolute;
+      background: #4A90E2;
+      box-shadow: 0 0 8px rgba(74, 144, 226, 0.6);
+    }
+
+    /* 左上角 */
+    .corner-tl::before { top: 0; left: 0; width: 3px; height: 40px; }
+    .corner-tl::after { top: 0; left: 0; width: 40px; height: 3px; }
+
+    /* 右上角 */
+    .corner-tr::before { top: 0; right: 0; width: 3px; height: 40px; }
+    .corner-tr::after { top: 0; right: 0; width: 40px; height: 3px; }
+
+    /* 左下角 */
+    .corner-bl::before { bottom: 0; left: 0; width: 3px; height: 40px; }
+    .corner-bl::after { bottom: 0; left: 0; width: 40px; height: 3px; }
+
+    /* 右下角 */
+    .corner-br::before { bottom: 0; right: 0; width: 3px; height: 40px; }
+    .corner-br::after { bottom: 0; right: 0; width: 40px; height: 3px; }
+
+    /* 闪烁动画 */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .corner { animation: pulse 2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <!-- 四角指示器（纯视觉，无交互） -->
+  <div class="corner corner-tl"></div>
+  <div class="corner corner-tr"></div>
+  <div class="corner corner-bl"></div>
+  <div class="corner corner-br"></div>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+    .taskbar-btn {
+      position: fixed;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(74, 144, 226, 0.7);
+      color: white;
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      box-shadow: 0 2px 12px rgba(74, 144, 226, 0.4);
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+    .taskbar-btn:hover {
+      background: rgba(53, 122, 189, 0.9);
+    }
+    .taskbar-btn svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+    .taskbar-btn .hover-text {
+      display: none;
+    }
+    .taskbar-btn:hover .normal-text {
+      display: none;
+    }
+    .taskbar-btn:hover .hover-text {
+      display: inline;
+    }
+  </style>
+</head>
+<body>
+  <div class="taskbar-btn" id="stopBtn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+      <line x1="8" y1="21" x2="16" y2="21"/>
+      <line x1="12" y1="17" x2="12" y2="21"/>
+    </svg>
+    <span class="normal-text">正在共享屏幕</span>
+    <span class="hover-text">取消共享</span>
+  </div>
+
+  <script>
+    document.getElementById('stopBtn').addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.__dsScreenShare && window.__dsScreenShare.sendStop) {
+        window.__dsScreenShare.sendStop();
+      }
+    });
+  </script>
+</body>
+</html>

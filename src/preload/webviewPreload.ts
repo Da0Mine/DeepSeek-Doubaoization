@@ -8,6 +8,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import * as fs from 'fs';
+import * as path from 'path';
 import { IPC } from '../main/ipc/channels';
 import { LOGIN_BUTTON_TEXTS } from '../main/inject/deepseek-selectors';
 
@@ -44,7 +45,35 @@ const dsApi = {
     try {
       if (!fs.existsSync(filePath)) return false;
       const buf = fs.readFileSync(filePath);
-      const file = new File([buf], 'deepseek-screenshot.png', { type: 'image/png' });
+      const fileName = path.basename(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      // 根据文件扩展名推断 MIME 类型
+      const mimeMap: Record<string, string> = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.bmp': 'image/bmp',
+        '.svg': 'image/svg+xml',
+        '.pdf': 'application/pdf',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.zip': 'application/zip',
+        '.txt': 'text/plain',
+        '.json': 'application/json',
+        '.js': 'text/javascript',
+        '.ts': 'text/typescript',
+        '.html': 'text/html',
+        '.css': 'text/css',
+        '.md': 'text/markdown',
+        '.mp4': 'video/mp4',
+        '.mp3': 'audio/mpeg',
+      };
+      const mimeType = mimeMap[ext] || 'application/octet-stream';
+      const file = new File([buf], fileName, { type: mimeType });
       const dt = new DataTransfer();
       dt.items.add(file);
       const input = document.querySelector('input[type="file"]') as HTMLInputElement | null;
@@ -94,6 +123,46 @@ const dsApi = {
       console.log('[preload] reportNewConversation 异常 ' + e);
     }
   },
+
+  /**
+   * 网页内回答生成状态变化时由注入脚本调用（回答完成提醒功能）。
+   * started=true 表示开始生成（最后一条 AI 消息文本增长），false 表示回答完成/停止。
+   * switched=true 表示用户已切换到其他会话：主进程应取消当前跟踪且不提醒
+   * （SPA 切走后页面已看不到原会话的回答，无法再可靠判定其完成）。
+   */
+  reportAnswerStatus(started: boolean, switched = false): void {
+    try {
+      ipcRenderer.send(IPC.ANSWER_STATUS, { started: !!started, switched: !!switched });
+    } catch (e) {
+      console.log('[preload] reportAnswerStatus 异常 ' + e);
+    }
+  },
+
+  /**
+   * 通用 IPC 发送方法，供注入脚本使用。
+   * 用于共享屏幕 Enter 键拦截器、共享文档发送/刷新等场景。
+   */
+  send(channel: string, payload?: any): void {
+    try {
+      // 只允许白名单内的通道，防止注入脚本滥用
+      const allowedChannels = ['screenShare:enterPressed', 'docShare:send', 'docShare:stop', 'docShare:refresh'];
+      if (allowedChannels.includes(channel)) {
+        ipcRenderer.send(channel, payload);
+      }
+    } catch (e) {
+      console.error('[webviewPreload] send 失败:', e);
+    }
+  },
+  /** 主 -> webview：订阅共享文档列表刷新结果（payload: { mode, names }）。 */
+  onDocShareRefresh: (cb: (payload: { mode: string; names: string[] }) => void): void => {
+    ipcRenderer.on(IPC.DOC_SHARE_REFRESH_RESULT, (_e, payload: { mode?: string; names?: string[] }) =>
+      cb(
+        payload && typeof payload === 'object' && Array.isArray(payload.names)
+          ? { mode: String(payload.mode ?? ''), names: payload.names }
+          : { mode: '', names: [] }
+      )
+    );
+  },
 };
 
 contextBridge.exposeInMainWorld('__ds', dsApi);
@@ -117,6 +186,185 @@ function bindScissorsTrigger(): void {
 }
 bindScissorsTrigger();
 
+// 网页内「+」按钮菜单触发：截图提问（简化模式）
+function bindPlusEvents(): void {
+  const handler = (e: Event): void => {
+    try {
+      const type = (e as CustomEvent).detail?.type;
+      if (type === 'screenshotQ') {
+        ipcRenderer.send(IPC.PLUS_SCREENSHOT_Q);
+      } else if (type === 'uploadFile') {
+        ipcRenderer.send(IPC.PLUS_UPLOAD_FILE);
+      } else if (type === 'shareScreen') {
+        ipcRenderer.send(IPC.PLUS_SHARE_SCREEN);
+      } else if (type === 'shareDoc') {
+        ipcRenderer.send(IPC.PLUS_SHARE_DOC);
+      } else if (type === 'shareExcel') {
+        ipcRenderer.send(IPC.PLUS_SHARE_EXCEL);
+      } else if (type === 'sharePdf') {
+        ipcRenderer.send(IPC.PLUS_SHARE_PDF);
+      }
+    } catch (err) {
+      // 忽略
+    }
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () =>
+      document.addEventListener('ds-plus-trigger', handler)
+    );
+  } else {
+    document.addEventListener('ds-plus-trigger', handler);
+  }
+}
+bindPlusEvents();
+
+/**
+ * 屏蔽 DeepSeek 官方「使用环境异常」风险提示弹窗。
+ * 该弹窗（文案：使用环境异常 / 当前页面的使用环境可能存在数据和隐私泄露风险 / 建议您使用我们的官方产品）
+ * 由 chat.deepseek.com 的安全检测触发（Electron 环境可能被误判），会遮挡页面并影响使用。
+ * 通过 MutationObserver 监听 DOM，发现含特征文案的弹窗容器即整体隐藏；定时器兜底覆盖 SPA 重渲染。
+ */
+function blockEnvironmentRiskDialog(): void {
+  const RISK_KEY = '使用环境异常';
+  const RISK_HINTS = ['当前页面的使用环境可能存在数据和隐私泄露风险', '建议您使用我们的官方产品'];
+  const processed = new WeakSet<Element>();
+
+  function isRiskDialog(el: Element): boolean {
+    try {
+      const text = (el.textContent || '').replace(/\s+/g, '');
+      if (text.indexOf(RISK_KEY) < 0) return false;
+      // 命中标题后再要求命中至少一条特征句，避免误伤用户聊天内容
+      return RISK_HINTS.some((h) => text.indexOf(h) >= 0);
+    } catch {
+      return false;
+    }
+  }
+
+  /** 隐藏单个元素（去重保护，防止重复处理同一节点）。 */
+  function hideElement(el: HTMLElement): void {
+    if (processed.has(el)) return;
+    processed.add(el);
+    el.style.display = 'none';
+    el.style.visibility = 'hidden';
+  }
+
+  /**
+   * 检测是否为覆盖全屏的遮罩层。
+   * 特征：fixed/absolute + 覆盖视口大部分区域 + （backdrop-filter 模糊 或 半透明深色背景）。
+   * 用于找出与弹窗卡片同级/位于其上的灰蒙模糊遮罩。
+   */
+  function isMaskOverlay(el: Element): boolean {
+    try {
+      const cs = window.getComputedStyle(el);
+      if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
+      const b = el.getBoundingClientRect();
+      const vw = window.innerWidth || 1;
+      const vh = window.innerHeight || 1;
+      if (b.width < vw * 0.7 || b.height < vh * 0.7) return false;
+      const bf = (
+        cs.getPropertyValue('backdrop-filter') ||
+        cs.getPropertyValue('-webkit-backdrop-filter') ||
+        ''
+      ).toLowerCase();
+      if (bf && bf.indexOf('blur') !== -1) return true;
+      const m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/.exec(cs.backgroundColor);
+      if (m) {
+        const alpha = m[4] === undefined ? 1 : parseFloat(m[4]);
+        const lum = (Number(m[1]) + Number(m[2]) + Number(m[3])) / 3;
+        return alpha < 0.9 && lum < 200;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 找到包含特征文案的最外层弹窗容器（fixed/absolute 高层级）并整体隐藏。
+   *  弹窗的模糊遮罩层通常是弹窗卡片的兄弟节点（React portal 结构），卡片隐藏后遮罩仍残留，
+   *  因此沿祖先链逐级检查各层兄弟/自身，把全屏模糊遮罩一并隐藏。 */
+  function hideDialog(seed: Element): void {
+    let node: Element | null = seed;
+    let target: Element = seed;
+    let depth = 0;
+    while (node && node.parentElement && depth < 6) {
+      try {
+        const cs = window.getComputedStyle(node.parentElement);
+        if (cs.position === 'fixed' || cs.position === 'absolute') {
+          target = node.parentElement;
+        }
+      } catch {
+        /* 忽略 */
+      }
+      node = node.parentElement;
+      depth++;
+    }
+    hideElement(target as HTMLElement);
+    // 遮罩可能与卡片同级（body/portal 根的直接子节点），或位于更高层级：
+    // 从种子沿祖先链上溯 12 层，检查每一层自身及兄弟节点是否为全屏遮罩。
+    node = seed;
+    depth = 0;
+    while (node && depth < 12) {
+      const parent: Element | null = node.parentElement;
+      if (parent) {
+        if (isMaskOverlay(parent)) hideElement(parent as HTMLElement);
+        const kids = parent.children;
+        for (let i = 0; i < kids.length; i++) {
+          if (isMaskOverlay(kids[i])) hideElement(kids[i] as HTMLElement);
+        }
+      }
+      node = parent;
+      depth++;
+    }
+    console.log('[web:risk] 已屏蔽「使用环境异常」弹窗及其模糊遮罩');
+  }
+
+  function scanRoot(root: ParentNode): void {
+    try {
+      if (!root || typeof root.querySelectorAll !== 'function') return;
+      const nodes = root.querySelectorAll('div, section, article, main, aside');
+      for (let i = 0; i < nodes.length; i++) {
+        const el = nodes[i];
+        if (el.children.length > 12) continue; // 跳过大型容器，降低误伤与开销
+        if (isRiskDialog(el)) {
+          hideDialog(el);
+          return; // 每次命中一个即可，其余由监听器继续处理
+        }
+      }
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  function start(): void {
+    try {
+      if (document.body) scanRoot(document.body);
+      const mo = new MutationObserver((muts) => {
+        for (let m = 0; m < muts.length; m++) {
+          const added = muts[m].addedNodes;
+          for (let k = 0; k < added.length; k++) {
+            const n = added[k];
+            if (n && n.nodeType === 1) scanRoot(n as ParentNode);
+          }
+        }
+      });
+      mo.observe(document.body || document.documentElement, { childList: true, subtree: true });
+      // 兜底轮询：覆盖滚动懒加载 / React 重新挂载（低频，开销可忽略）
+      setInterval(() => {
+        if (document.body) scanRoot(document.body);
+      }, 4000);
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+}
+blockEnvironmentRiskDialog();
+
 // 之前的 layout-fix 注入已全部移除（重构方案）：
 //   - 旧方案通过在 preload 注入 CSS 锁死 html/body，但破坏了 DeepSeek 内部 fixed/absolute
 //     定位元素的布局，导致主内容区消失、消息区卡死等副作用。
@@ -124,19 +372,8 @@ bindScissorsTrigger();
 //     自身的滚动条（::-webkit-scrollbar { display: none }），不修改 DeepSeek 内部布局。
 //   - 此处不再注入任何 style 或修改 DOM 元素。
 
-// 定时探测并回报登录态（仅在页面加载完成后）
-let lastState = false;
-setInterval(() => {
-  try {
-    const loggedIn = dsApi.detectLogin();
-    if (loggedIn !== lastState) {
-      lastState = loggedIn;
-      ipcRenderer.send(IPC.LOGIN_DETECT, { loggedIn, url: location.href });
-    }
-  } catch (e) {
-    // 忽略探测异常
-  }
-}, 3000);
+// 登录态检测：已移除窗口常驻定时轮询（用户要求），仅在 设置 → 高级 → 账号 → 登录状态 中
+// 按需经 account:getStatus 主动查询（detectLogin 方法保留供主进程调用）。
 
 declare global {
   interface Window {

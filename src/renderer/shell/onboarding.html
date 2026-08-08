@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>使用说明</title>
+    <link rel="stylesheet" href="onboarding.css" />
+  </head>
+  <body>
+    <!-- 半透明遮罩：视觉压暗，不拦截点击（点击穿透由主进程 setIgnoreMouseEvents 控制） -->
+    <div id="ob-mask"></div>
+    <!-- 高亮框：聚焦到被讲解的 UI 元素 -->
+    <div id="ob-highlight"></div>
+
+    <!-- 演示：划词功能（模拟选中文字 + 弹出划词工具栏） -->
+    <div id="ob-demo-selection" class="ob-demo-selection">
+      <div id="ob-demo-toolbar" class="ob-demo-toolbar">
+        <span class="ob-demo-tbtn">复制</span>
+        <span class="ob-demo-tbtn">翻译</span>
+        <span class="ob-demo-tbtn">解释</span>
+      </div>
+      <p class="ob-demo-text">选中任意一段<mark id="ob-demo-mark">文字</mark>，划词工具栏会自动弹出。</p>
+    </div>
+
+    <!-- 演示：一键呼出副窗口（模拟副窗口从右侧滑入） -->
+    <div id="ob-demo-sub" class="ob-demo-sub">
+      <div class="ob-demo-sub-titlebar"><span>副窗口</span></div>
+      <div class="ob-demo-sub-body">
+        <div class="ob-demo-sub-line"></div>
+        <div class="ob-demo-sub-line"></div>
+        <div class="ob-demo-sub-line short"></div>
+      </div>
+    </div>
+
+    <!-- 说明卡片：毛玻璃，含进度 / 结束 / 上一步 / 下一步 -->
+    <div id="ob-card">
+      <div class="ob-progress"><div id="ob-progress-fill" class="ob-progress-fill"></div></div>
+      <div class="ob-head">
+        <span id="ob-step" class="ob-step">第 1 步</span>
+        <button id="ob-end" class="ob-end" title="结束使用说明">结束</button>
+      </div>
+      <div id="ob-title" class="ob-title"></div>
+      <div id="ob-body" class="ob-body"></div>
+      <div class="ob-actions">
+        <button id="ob-prev" class="ob-btn">上一步</button>
+        <button id="ob-next" class="ob-btn ob-btn-primary">下一步</button>
+      </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script src="onboarding.js"></script>
+  </body>
+</html>

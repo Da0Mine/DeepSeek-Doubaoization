@@ -14,8 +14,8 @@ export function onOverlayClosed(cb: () => void): void {
   closeListeners.push(cb);
 }
 
-/** 显示截图遮罩（已显示则聚焦）。 */
-export function showOverlay(): void {
+/** 显示截图遮罩（已显示则聚焦）。mode: 'normal'=标准动作条, 'question'=简化仅发送到当前对话。 */
+export function showOverlay(mode: 'normal' | 'question' = 'normal'): void {
   if (overlayWin && !overlayWin.isDestroyed()) {
     overlayWin.focus();
     return;
@@ -43,7 +43,10 @@ export function showOverlay(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      additionalArguments: ['--window-type=overlay'],
+      additionalArguments: [
+        '--window-type=overlay',
+        `--screenshot-mode=${mode}`,
+      ],
     },
   });
   overlayWin.loadFile(OVERLAY_HTML);

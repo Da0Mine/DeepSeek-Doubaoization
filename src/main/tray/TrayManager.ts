@@ -11,6 +11,8 @@ import type { ConfigStore } from '../config/ConfigStore';
 export interface TrayCallbacks {
   /** 单击托盘图标：显隐主窗口。 */
   onToggle: () => void;
+  /** 打开设置面板。 */
+  onOpenSettings: () => void;
   /** 退出应用。 */
   onQuit: () => void;
 }
@@ -20,9 +22,13 @@ export class TrayManager {
 
   constructor(private readonly config: ConfigStore, private readonly cb: TrayCallbacks) {}
 
-  /** 构建托盘右键菜单（仅「退出」）。 */
+  /** 构建托盘右键菜单（设置 / 退出）。 */
   public buildMenu(): Menu {
-    return Menu.buildFromTemplate([{ label: '退出', click: () => this.cb.onQuit() }]);
+    return Menu.buildFromTemplate([
+      { label: '设置', click: () => this.cb.onOpenSettings() },
+      { type: 'separator' },
+      { label: '退出', click: () => this.cb.onQuit() },
+    ]);
   }
 
   /** 创建并显示托盘。 */

@@ -1,0 +1,178 @@
+/* 首次运行登录引导 / 用户须知：半透明遮罩 + 居中卡片（与模式提示弹框同风格），适配深色模式。 */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+:root {
+  --fr-card-bg: #ffffff;
+  --fr-card-border: rgba(255, 255, 255, 0.6);
+  --fr-title-fg: #1f2329;
+  --fr-body-fg: #4a505c;
+  --fr-btn-bg: #ffffff;
+  --fr-btn-fg: #444c57;
+  --fr-btn-border: rgba(0, 0, 0, 0.1);
+  --fr-divider: rgba(0, 0, 0, 0.08);
+}
+html[data-theme='dark'] {
+  --fr-card-bg: #20222a;
+  --fr-card-border: rgba(255, 255, 255, 0.08);
+  --fr-title-fg: #e8eaed;
+  --fr-body-fg: #b3b8c2;
+  --fr-btn-bg: #3a3d47;
+  --fr-btn-fg: #d5d9e0;
+  --fr-btn-border: rgba(255, 255, 255, 0.1);
+  --fr-divider: rgba(255, 255, 255, 0.08);
+}
+
+#fr-mask {
+  position: fixed;
+  inset: 0;
+  /* 均匀深色遮罩：透明度 30%（即不透明度 70%），整体压暗突出中间弹窗 */
+  background: rgba(8, 10, 18, 0.7);
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.fr-card {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 430px;
+  max-width: calc(100vw - 48px);
+  transform: translate(-50%, -50%) scale(0.96);
+  background: var(--fr-card-bg);
+  border: 1px solid var(--fr-card-border);
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28), 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 22px 24px 16px;
+  z-index: 2;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.35s ease, transform 0.35s ease, visibility 0s linear 0.35s;
+}
+.fr-card.fr-show {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%) scale(1);
+  transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), visibility 0s;
+}
+
+.fr-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.fr-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #3370ff;
+  border-radius: 6px;
+  padding: 3px 9px;
+  letter-spacing: 0.3px;
+}
+
+.fr-title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--fr-title-fg);
+  margin-bottom: 10px;
+  letter-spacing: 0.2px;
+}
+.fr-body {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--fr-body-fg);
+  margin-bottom: 18px;
+}
+
+/* 用户须知正文：可滚动区域 */
+.fr-notice-scroll {
+  max-height: 46vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--fr-body-fg);
+  padding-right: 8px;
+  margin-bottom: 8px;
+  border-top: 1px solid var(--fr-divider);
+  padding-top: 12px;
+}
+/* 细窄圆润、自然融入卡片的滚动条 */
+.fr-notice-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.fr-notice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.fr-notice-scroll::-webkit-scrollbar-thumb {
+  background: rgba(128, 134, 148, 0.32);
+  border-radius: 999px;
+  transition: background 0.25s ease;
+}
+.fr-notice-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 134, 148, 0.58);
+}
+html[data-theme='dark'] .fr-notice-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+}
+html[data-theme='dark'] .fr-notice-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+.fr-notice-scroll p {
+  margin: 0 0 10px;
+}
+.fr-notice-scroll b {
+  color: var(--fr-title-fg);
+  font-weight: 600;
+}
+
+.fr-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+.fr-btn {
+  padding: 8px 24px;
+  border-radius: 10px;
+  border: 1px solid var(--fr-btn-border);
+  background: var(--fr-btn-bg);
+  color: var(--fr-btn-fg);
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.08s ease;
+}
+.fr-btn:hover {
+  border-color: #3370ff;
+  color: #3370ff;
+}
+.fr-btn:active { transform: scale(0.96); }
+.fr-btn-primary {
+  background: #3370ff;
+  border-color: #3370ff;
+  color: #ffffff;
+  font-weight: 500;
+}
+.fr-btn-primary:hover {
+  opacity: 0.9;
+  color: #ffffff;
+  background: #3370ff;
+  border-color: #3370ff;
+}

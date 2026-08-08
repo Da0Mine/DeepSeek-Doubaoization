@@ -1,19 +1,19 @@
 @echo off
-REM ä¸€é”®å¯åŠ¨ deepseek-desktopï¼ˆå¼€å‘æ¨¡å¼ï¼‰ã€‚
+REM Ò»¼üÆô¶¯ deepseek-desktop£¨¿ª·¢Ä£Ê½£©¡£
 REM
-REM å…³é”®ç‚¹ï¼šé˜²å¾¡æ€§ `set ELECTRON_RUN_AS_NODE=` å¸æ‰æœ¬æœº/æ²™ç®±ç¯å¢ƒå¯èƒ½æ³¨å…¥çš„å˜é‡ï¼Œ
-REM å¦åˆ™ Electron ä¼šé€€åŒ–æˆçº¯ Nodeï¼Œapp.setName() å³å´©ï¼ˆè¯¦è§ MEMORY / "è°ƒè¯•/åä½œçº¦å®š"ï¼‰ã€‚
+REM ¹Ø¼üµã£º·ÀÓùĞÔ `set ELECTRON_RUN_AS_NODE=` Ğ¶µô±¾»ú/É³Ïä»·¾³¿ÉÄÜ×¢ÈëµÄ±äÁ¿£¬
+REM ·ñÔò Electron »áÍË»¯³É´¿ Node£¬app.setName() ¼´±À£¨Ïê¼û MEMORY / "µ÷ÊÔ/Ğ­×÷Ô¼¶¨"£©¡£
 REM
-REM ç”¨æ³•ï¼šåŒå‡»æœ¬æ–‡ä»¶å³å¯ï¼Œæˆ–åœ¨ cmd ä¸­ `start`ã€‚
-REM è°ƒè¯•æ¨¡å¼ï¼ˆå¦‚æƒ³çœ‹ autofix æ—¥å¿—ï¼‰è¯·ç”¨ start-debug.batï¼ˆåŒ npm startï¼‰ï¼Œæ—¥å¿—å¼€å…³é  .debug-autolog æ ‡è®°æ–‡ä»¶æˆ– DS_DEBUG=1ã€‚
+REM ÓÃ·¨£ºË«»÷±¾ÎÄ¼ş¼´¿É£¬»òÔÚ cmd ÖĞ `start`¡£
+REM µ÷ÊÔÄ£Ê½£¨ÈçÏë¿´ autofix ÈÕÖ¾£©ÇëÓÃ start-debug.bat£¨Í¬ npm start£©£¬ÈÕÖ¾¿ª¹Ø¿¿ .debug-autolog ±ê¼ÇÎÄ¼ş»ò DS_DEBUG=1¡£
 
-REM å¸æ‰ ELECTRON_RUN_AS_NODEï¼ˆå¦‚æœå½“å‰ shell å·²è®¾ï¼‰
+REM Ğ¶µô ELECTRON_RUN_AS_NODE£¨Èç¹ûµ±Ç° shell ÒÑÉè£©
 set ELECTRON_RUN_AS_NODE=
 
-REM åˆ‡åˆ° bat æ‰€åœ¨ç›®å½•ï¼Œé¿å…åŒå‡»æ—¶ cwd ä¸å¯¹
+REM ÇĞµ½ bat ËùÔÚÄ¿Â¼£¬±ÜÃâË«»÷Ê± cwd ²»¶Ô
 pushd "%~dp0"
 
-REM npm start = tsc + copy-assets + electron .ï¼ˆè§ package.json scriptsï¼‰
+REM npm start = tsc + copy-assets + electron .£¨¼û package.json scripts£©
 call npm start
 
 popd

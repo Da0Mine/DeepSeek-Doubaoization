@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>划词工具栏</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      :root {
+        --tb-bg: rgba(255,255,255,0.94);
+        --tb-shadow: 0 4px 16px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04);
+        --tb-divider: rgba(0,0,0,0.08);
+        --tb-btn-fg: #333;
+        --tb-btn-hover-bg: #3370ff;
+        --tb-btn-hover-fg: #fff;
+        --tb-btn-active-bg: #2a5fd9;
+        --tb-copy-icon: 0.6;
+        --tb-copy-icon-hover: 1;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --tb-bg: rgba(40,40,45,0.94);
+          --tb-shadow: 0 4px 16px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.06);
+          --tb-divider: rgba(255,255,255,0.12);
+          --tb-btn-fg: #e0e0e0;
+          --tb-btn-hover-bg: #4a8aff;
+          --tb-btn-hover-fg: #fff;
+          --tb-btn-active-bg: #3a7aef;
+          --tb-copy-icon: 0.7;
+          --tb-copy-icon-hover: 1;
+        }
+      }
+      html, body {
+        height: 100%;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        font-size: 13px;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        background: transparent;
+        padding: 0;
+      }
+      #toolbar {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        background: var(--tb-bg);
+        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px);
+        border-radius: 8px;
+        padding: 4px 5px;
+        box-shadow: var(--tb-shadow);
+        width: fit-content;
+        height: fit-content;
+      }
+      .toolbar-btn {
+        border: none;
+        background: transparent;
+        color: var(--tb-btn-fg);
+        font-size: 15px;
+        padding: 4px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease;
+        white-space: nowrap;
+        font-family: inherit;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 26px;
+        line-height: 1;
+      }
+      .toolbar-btn:hover {
+        background: var(--tb-btn-hover-bg);
+        color: var(--tb-btn-hover-fg);
+      }
+      .toolbar-btn:active {
+        background: var(--tb-btn-active-bg);
+        transform: scale(0.95);
+      }
+      .toolbar-divider {
+        width: 1px;
+        height: 18px;
+        background: var(--tb-divider);
+        flex-shrink: 0;
+      }
+      .toolbar-btn svg {
+        opacity: 0.7;
+        flex-shrink: 0;
+      }
+      .toolbar-btn:hover svg {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="toolbar"></div>
+    <script src="toolbar.js"></script>
+  </body>
+</html>

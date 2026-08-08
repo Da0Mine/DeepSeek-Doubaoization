@@ -99,6 +99,23 @@
       };
     }
 
+    // 截图提问模式：仅保留「发送到当前对话」按钮，隐藏其他动作按钮
+    if (shell.screenshotMode === 'question') {
+      for (var k = 0; k < actBtns.length; k++) {
+        var a = actBtns[k].dataset.action;
+        if (a !== 'sendCurrent') {
+          actBtns[k].style.display = 'none';
+        }
+      }
+      // 隐藏分割线
+      var dividers = document.querySelectorAll('.act-divider');
+      for (var d = 0; d < dividers.length; d++) {
+        dividers[d].style.display = 'none';
+      }
+      // 隐藏工具栏（标注工具在截图提问模式下不需要）
+      toolbar.classList.add('hidden');
+    }
+
     // ---- 框调整：缩放手柄（8 个）+ 移动边带（4 条）----
     var handles = document.querySelectorAll('#selection .sel-handle');
     for (var h = 0; h < handles.length; h++) {

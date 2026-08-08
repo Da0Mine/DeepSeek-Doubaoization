@@ -14,31 +14,31 @@
       return;
     }
 
-    var btnSidebar = document.getElementById('btn-sidebar');
-    if (btnSidebar) {
-      // 侧栏按钮仅主窗口需要（副窗口/B 类内嵌页无 DeepSeek 侧栏）；主窗口点击 -> 主进程点原生开关。
-      if (shell.windowType === 'main') {
-        btnSidebar.onclick = function () { shell.toggleSidebar(); };
-      } else {
-        btnSidebar.style.display = 'none';
-      }
-    }
-
     var btnSettings = document.getElementById('btn-settings');
     var btnPin = document.getElementById('btn-pin');
     var btnSwap = document.getElementById('btn-swap');
     var btnMin = document.getElementById('btn-min');
     var btnMax = document.getElementById('btn-max');
     var btnClose = document.getElementById('btn-close');
-    var loginStatus = document.getElementById('login-status');
 
     if (btnSettings) btnSettings.onclick = function () { shell.openSettings(); };
+    function setPinIcon(pinned) {
+      if (!btnPin) return;
+      if (pinned) btnPin.classList.add('pinned');
+      else btnPin.classList.remove('pinned');
+      btnPin.setAttribute('aria-pressed', String(!!pinned));
+    }
     if (btnPin) {
       // 置顶按钮仅副窗口需要；主窗口去掉（见需求）。
       if (shell.windowType === 'main') {
         btnPin.style.display = 'none';
       } else {
         btnPin.onclick = function () { shell.alwaysOnTop(); };
+        // 初始化图标状态 + 监听主进程同步
+        if (shell.isAlwaysOnTop) {
+          shell.isAlwaysOnTop().then(setPinIcon).catch(function () {});
+        }
+        if (shell.onAlwaysOnTop) shell.onAlwaysOnTop(setPinIcon);
       }
     }
     // 设置按钮仅主窗口需要；副窗口（sub / B 类）去掉（见需求）。
@@ -62,17 +62,6 @@
       var dark = getComputedStyle(document.documentElement).getPropertyValue('--ds-bg').trim() === '#1e1e1e';
       document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     });
-
-    // 登录态回报
-    shell.onLoginStatus(function (p) {
-      if (!loginStatus) return;
-      if (p.loggedIn) {
-        loginStatus.textContent = '已登录';
-        loginStatus.className = 'tb-status ok';
-      } else {
-        loginStatus.textContent = '未登录，请登录';
-        loginStatus.className = 'tb-status warn';
-      }
-    });
+    // 登录态显示已移除：不再在窗口上常驻检测（登录状态请到 设置 → 个人中心 → 账号 中查看）。
   });
 })();

@@ -8,8 +8,10 @@ import type { ConfigShape } from '../../shared/types';
 
 export class ShortcutManager {
   private readonly registered: Set<string> = new Set();
+  private readonly failed: string[] = [];
   public onScreenshot: (() => void) | null = null;
   public onSummonSub: (() => void) | null = null;
+  public onToggleTextSelection: (() => void) | null = null;
   /** 注册失败回调（非法 / OS 占用）：由主进程弹通知。 */
   public onError: ((msg: string) => void) | null = null;
 
@@ -25,8 +27,15 @@ export class ShortcutManager {
       this.registered.add(accel);
       return true;
     }
+    // 记录占用失败的快捷键，供启动时弹覆盖窗提示
+    if (!this.failed.includes(accel)) this.failed.push(accel);
     this.onError?.(`快捷键注册失败：${accel}（可能已被系统/其他软件占用）`);
     return false;
+  }
+
+  /** 返回最近一次 applyFromConfig 中注册失败的快捷键（供启动时检测提示）。 */
+  public getFailedShortcuts(): string[] {
+    return [...this.failed];
   }
 
   /** 注销单个快捷键。 */
@@ -41,13 +50,14 @@ export class ShortcutManager {
     this.registered.clear();
   }
 
-  /** 依据配置重新注册全部快捷键（副窗口呼出键 + 截图键）。注册失败保留已成功的集合并通知。
-   *  注：主窗口「显隐主窗键」已移除（主窗口不需要一键呼出，改由托盘显隐）。 */
+  /** 依据配置重新注册全部快捷键（副窗口呼出键 + 截图键 + 划词开关）。注册失败保留已成功的集合并通知。 */
   public applyFromConfig(cfg: ConfigShape): void {
+    this.failed.length = 0;
     this.unregisterAll();
     const map: Array<[string, (() => void) | null]> = [
       [cfg.screenshotShortcut, this.onScreenshot],
       [cfg.subWindowShortcut, this.onSummonSub],
+      [cfg.textSelectionShortcut, this.onToggleTextSelection],
     ];
     for (const [accel, cb] of map) {
       if (accel && cb) this.register(accel, cb);

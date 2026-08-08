@@ -22,6 +22,8 @@ export class ScreenshotManager {
   private lastImage: Electron.NativeImage | null = null;
   private counter = 0;
   private composeResolver: ((dataUrl: string) => void) | null = null;
+  /** 截图模式：'normal'=标准带动作条，'question'=简化仅发送到当前对话。 */
+  private screenshotMode: 'normal' | 'question' = 'normal';
 
   private windows?: WindowManager;
 
@@ -35,15 +37,26 @@ export class ScreenshotManager {
     this.windows = w;
   }
 
+  /** 设置截图模式。 */
+  public setMode(mode: 'normal' | 'question'): void {
+    this.screenshotMode = mode;
+  }
+
+  /** 获取当前截图模式。 */
+  public getMode(): 'normal' | 'question' {
+    return this.screenshotMode;
+  }
+
   /** 开始截图流程：先隐藏应用窗口，再采集屏幕，最后弹出遮罩。 */
-  public async startCapture(): Promise<void> {
+  public async startCapture(mode?: 'normal' | 'question'): Promise<void> {
+    if (mode) this.screenshotMode = mode;
     // 先隐藏应用自身窗口，避免它们被截进图里；给 Windows 合成器一帧时间确保生效
     this.windows?.hideChatWindowsForScreenshot();
     await new Promise((resolve) => setTimeout(resolve, 100));
     await this.captureSources();
     // 仅弹出遮罩；背景图不在此时发送——overlay 渲染进程就绪后会发 overlay:ready，
     // 主进程收到后才下发背景图，避免 webContents.send 早于监听器注册被丢弃（竞态会导致黑屏修复失效）。
-    showOverlay();
+    showOverlay(this.screenshotMode);
   }
 
   /**

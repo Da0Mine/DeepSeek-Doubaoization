@@ -1,0 +1,284 @@
+/* 使用说明引导（Onboarding）：半透明遮罩 + 高亮框 + 说明卡片 + 功能演示动画。
+ * 注意：透明窗口上 backdrop-filter 性能差（Windows 卡顿），一律不使用，用高不透明度背景+阴影模拟毛玻璃。
+ */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ---- 主题变量（由 JS 根据主进程主题下发设置） ---- */
+:root {
+  --ob-card-bg: rgba(255, 255, 255, 0.96);
+  --ob-card-border: rgba(255, 255, 255, 0.6);
+  --ob-title-fg: #1f2329;
+  --ob-body-fg: #555b66;
+  --ob-step-fg: #8a8f9c;
+  --ob-end-fg: #9aa0ac;
+  --ob-btn-bg: #ffffff;
+  --ob-btn-fg: #444c57;
+  --ob-btn-border: rgba(0, 0, 0, 0.1);
+  --ob-progress-bg: rgba(0, 0, 0, 0.07);
+  --ob-mask-bg: rgba(8, 10, 18, 0.45);
+  --ob-text-fg: #444c57;
+  --ob-mark-bg: rgba(51, 112, 255, 0.35);
+  --ob-sub-border: rgba(51, 112, 255, 0.35);
+  --ob-sub-title-bg: rgba(51, 112, 255, 0.12);
+}
+html[data-theme='dark'] {
+  --ob-card-bg: rgba(32, 34, 42, 0.96);
+  --ob-card-border: rgba(255, 255, 255, 0.08);
+  --ob-title-fg: #e8eaed;
+  --ob-body-fg: #b3b8c2;
+  --ob-step-fg: #7c8290;
+  --ob-end-fg: #7c8290;
+  --ob-btn-bg: #3a3d47;
+  --ob-btn-fg: #d5d9e0;
+  --ob-btn-border: rgba(255, 255, 255, 0.1);
+  --ob-progress-bg: rgba(255, 255, 255, 0.1);
+  --ob-mask-bg: rgba(0, 0, 0, 0.55);
+  --ob-text-fg: #b3b8c2;
+  --ob-mark-bg: rgba(64, 132, 255, 0.45);
+  --ob-sub-border: rgba(80, 145, 255, 0.4);
+  --ob-sub-title-bg: rgba(80, 145, 255, 0.16);
+}
+
+/* 半透明遮罩：视觉压暗主界面，不拦截点击 */
+#ob-mask {
+  position: fixed;
+  inset: 0;
+  background: var(--ob-mask-bg);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 高亮框：聚焦到被讲解的元素。
+ * 首个超大 box-shadow 用遮罩色向外铺开，形成「挖洞聚焦」效果：
+ * 框内保持明亮（不被黑色遮罩覆盖），框外大面积压暗，蓝色光晕叠加在暗色上。
+ * 注意：此阴影需置于列表首位，后续蓝色光晕才会绘制在暗色之上。 */
+#ob-highlight {
+  position: fixed;
+  display: none;
+  border: 2px solid rgba(51, 112, 255, 0.95);
+  border-radius: 12px;
+  background: rgba(51, 112, 255, 0.06);
+  box-shadow:
+    0 0 0 9999px var(--ob-mask-bg),
+    0 0 0 4px rgba(51, 112, 255, 0.22),
+    0 0 28px rgba(51, 112, 255, 0.5),
+    inset 0 0 20px rgba(51, 112, 255, 0.08);
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* ---- 演示：划词功能 ---- */
+.ob-demo-selection {
+  position: fixed;
+  left: 50%;
+  top: 24%;
+  transform: translateX(-50%);
+  display: none;
+  text-align: center;
+  z-index: 2;
+  pointer-events: none;
+  /* 背景板：与背后内容区分，保证文字/工具栏清晰可见 */
+  background: var(--ob-card-bg);
+  border: 1px solid var(--ob-card-border);
+  border-radius: 16px;
+  padding: 18px 24px 14px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.2);
+}
+.ob-demo-toolbar {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: var(--ob-card-bg);
+  border: 1px solid var(--ob-card-border);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.18);
+  width: max-content;
+  margin: 0 auto 12px;
+}
+.ob-demo-tbtn {
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ob-body-fg);
+  background: rgba(51, 112, 255, 0.1);
+}
+.ob-demo-text {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--ob-text-fg);
+}
+.ob-demo-text mark {
+  background: transparent;
+  color: inherit;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+/* ---- 演示：副窗口呼出 ---- */
+.ob-demo-sub {
+  position: fixed;
+  right: 56px;
+  top: 15%;
+  width: 208px;
+  height: 300px;
+  display: none;
+  border-radius: 14px;
+  border: 1px solid var(--ob-sub-border);
+  background: var(--ob-card-bg);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  z-index: 2;
+  pointer-events: none;
+}
+.ob-demo-sub-titlebar {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3370ff;
+  background: var(--ob-sub-title-bg);
+  border-bottom: 1px solid var(--ob-sub-border);
+}
+.ob-demo-sub-body {
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ob-demo-sub-line {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--ob-progress-bg);
+}
+.ob-demo-sub-line.short {
+  width: 60%;
+}
+
+/* ---- 说明卡片 ---- */
+#ob-card {
+  position: fixed;
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  padding: 16px 20px 14px;
+  background: var(--ob-card-bg);
+  border: 1px solid var(--ob-card-border);
+  border-radius: 18px;
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.22), 0 4px 16px rgba(0, 0, 0, 0.1);
+  z-index: 3;
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* 顶部进度条 */
+.ob-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ob-progress-bg);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.ob-progress-fill {
+  height: 100%;
+  width: 14%;
+  border-radius: 2px;
+  background: #3370ff;
+  transition: width 0.35s ease;
+}
+
+/* 卡片头部：步骤指示 + 结束 */
+.ob-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.ob-step {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: var(--ob-step-fg);
+}
+.ob-end {
+  border: none;
+  background: transparent;
+  color: var(--ob-end-fg);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 8px;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+.ob-end:hover {
+  background: rgba(232, 17, 35, 0.08);
+  color: #e81123;
+}
+
+/* 标题 / 正文 */
+.ob-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ob-title-fg);
+  margin-bottom: 8px;
+  letter-spacing: 0.2px;
+}
+.ob-body {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ob-body-fg);
+  margin-bottom: 16px;
+}
+
+/* 底部按钮 */
+.ob-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.ob-btn {
+  padding: 7px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--ob-btn-border);
+  background: var(--ob-btn-bg);
+  color: var(--ob-btn-fg);
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.08s ease;
+}
+.ob-btn:hover {
+  border-color: #3370ff;
+  color: #3370ff;
+  background: rgba(51, 112, 255, 0.08);
+}
+.ob-btn:active { transform: scale(0.96); }
+.ob-btn-primary {
+  background: #3370ff;
+  border-color: #3370ff;
+  color: #ffffff;
+  font-weight: 500;
+}
+.ob-btn-primary:hover {
+  opacity: 0.9;
+  color: #ffffff;
+  background: #3370ff;
+  border-color: #3370ff;
+}

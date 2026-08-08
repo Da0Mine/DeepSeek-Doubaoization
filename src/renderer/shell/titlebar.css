@@ -30,8 +30,15 @@ body {
 .tb-left {
   display: flex;
   align-items: center;
+  height: 100%;
   gap: 10px;
   min-width: 0;
+}
+
+/* 左侧非按钮元素（logo / 登录状态）保持垂直居中 */
+.tb-left > .tb-logo,
+.tb-left > .tb-status {
+  align-self: center;
 }
 
 .tb-logo {
@@ -40,7 +47,7 @@ body {
 }
 
 .tb-status {
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 6px;
   border-radius: 8px;
   background: var(--ds-border, #e0e0e0);
@@ -75,7 +82,7 @@ body {
   min-width: 36px;
   padding: 0 12px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -101,4 +108,9 @@ body {
 
 .tb-btn:active {
   transform: translateY(1px);
+}
+
+/* 置顶按钮状态：置顶时图标实心填充 */
+.tb-btn-pin.pinned svg {
+  fill: currentColor;
 }

@@ -38,17 +38,17 @@ let displayMetricsListenerAdded = false;
  * 实际设置 WebContentsView 边界（同步核心）。
  * 含防零/防负与销毁守卫：窗口或视图已销毁、或尺寸非法时直接返回，不设置错误 bounds。
  */
-function applyViewBounds(win: BrowserWindow, view: WebContentsView): void {
+function applyViewBounds(win: BrowserWindow, view: WebContentsView, titlebarHeight = TITLEBAR_HEIGHT): void {
   if (win.isDestroyed() || view.webContents.isDestroyed()) return;
   const { width, height } = win.getContentBounds();
   if (width <= 0 || height <= 0) return;
   // 诊断用：仅当项目根目录存在 .debug-autolog（或 DS_DEBUG=1）时才落盘/打印，生产环境无感。
-  logf('layout', 'applyViewBounds', { width, height, titlebar: TITLEBAR_HEIGHT });
+  logf('layout', 'applyViewBounds', { width, height, titlebar: titlebarHeight });
   view.setBounds({
     x: 0,
-    y: TITLEBAR_HEIGHT,
+    y: titlebarHeight,
     width,
-    height: Math.max(0, height - TITLEBAR_HEIGHT),
+    height: Math.max(0, height - titlebarHeight),
   });
 }
 
@@ -60,20 +60,20 @@ const layoutTimers = new WeakMap<BrowserWindow, ReturnType<typeof setTimeout>>()
  * unmaximize 等事件完成、尺寸稳定后再布局，避免网页拿到错误的 viewport 做响应式布局。
  * 用 WeakMap 保存每个窗口的 timer，多个事件快速触发时只保留最后一次（防抖）。
  */
-export function scheduleLayoutView(win: BrowserWindow, view: WebContentsView): void {
+export function scheduleLayoutView(win: BrowserWindow, view: WebContentsView, titlebarHeight = TITLEBAR_HEIGHT): void {
   if (win.isDestroyed() || view.webContents.isDestroyed()) return;
   const prev = layoutTimers.get(win);
   if (prev !== undefined) clearTimeout(prev);
   const timer = setTimeout(() => {
     layoutTimers.delete(win);
-    applyViewBounds(win, view);
+    applyViewBounds(win, view, titlebarHeight);
   }, 0);
   layoutTimers.set(win, timer);
 }
 
 /** 将 WebContentsView 布局到标题栏下方，铺满剩余区域（防零/防负 + 延迟防抖）。 */
-export function layoutView(win: BrowserWindow, view: WebContentsView): void {
-  scheduleLayoutView(win, view);
+export function layoutView(win: BrowserWindow, view: WebContentsView, titlebarHeight = TITLEBAR_HEIGHT): void {
+  scheduleLayoutView(win, view, titlebarHeight);
 }
 
 /** 监听显示器 / DPI 变化，统一重新布局所有已注册窗口的 chat 视图（全局仅注册一次）。 */
@@ -185,10 +185,6 @@ export function createMainWindow(
     }
   });
 
-  if (config.get('alwaysOnTop')) {
-    win.setAlwaysOnTop(true);
-  }
-
   // 首次加载完成后显示，并以主屏居中。
   win.once('ready-to-show', () => {
     const { width: pw, height: ph } = screen.getPrimaryDisplay().workAreaSize;
@@ -197,7 +193,7 @@ export function createMainWindow(
     try {
       const theme = new ThemeManager();
       const vars = theme.getCssVars();
-      vars['--ds-font-size'] = `${config.get('fontSize')}px`;
+      vars['--ds-font-size'] = `${15 + (config.get('fontSize') || 0)}px`;
       win.webContents.send(IPC.THEME_VARS, vars);
     } catch (e) {
       console.error('[mainWindow] 补发主题变量失败:', e);

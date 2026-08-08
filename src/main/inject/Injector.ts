@@ -5,7 +5,7 @@
  *
  * ⚠️ 待实机验证：选择器与 React 受控组件赋值方式均基于推测，需在目标站点核对修正。
  */
-import type { WebContents } from 'electron';
+import { app, type WebContents } from 'electron';
 import type { PromptTemplates } from '../prompts/promptTemplates';
 import type { WindowType } from '../../shared/types';
 import {
@@ -22,6 +22,28 @@ import { logf } from '../logger';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** WPS 启动程序路径（用于提取程序图标）。 */
+const WPS_LAUNCH_EXE = 'D:\\wps\\wps64位\\WPS Office\\ksolaunch.exe';
+
+let wpsIconDataUrlCache: string | null = null;
+
+/**
+ * 提取 WPS 程序图标（ksolaunch.exe）为 16×16 PNG data URL，供「+」菜单共享项使用。
+ * 提取失败（如文件不存在）返回 null，调用方回退到原 SVG 图标；结果模块级缓存。
+ */
+async function getWpsIconDataUrl(): Promise<string | null> {
+  if (wpsIconDataUrlCache) return wpsIconDataUrlCache;
+  try {
+    const img = await app.getFileIcon(WPS_LAUNCH_EXE, { size: 'normal' });
+    if (img.isEmpty()) return null;
+    const resized = img.resize({ width: 16, height: 16 });
+    wpsIconDataUrlCache = resized.toDataURL();
+    return wpsIconDataUrlCache;
+  } catch (e) {
+    return null;
+  }
+}
+
 export class Injector {
   constructor(private readonly templates: PromptTemplates) {}
 
@@ -35,19 +57,117 @@ export class Injector {
 
   /**
    * 统一提交入口（I-06）：上传图(可选) → 填文 → 轮询等待发送按钮可用并点击。
+   * @param maxWaitLoops 等待发送按钮可用的轮询次数（×100ms，默认 30≈3s；大附件上传时调大）。
    * @returns 是否成功触发发送。
    */
-  public async submitToChat(wc: WebContents, text: string, img?: string): Promise<boolean> {
+  public async submitToChat(wc: WebContents, text: string, img?: string, maxWaitLoops = 30): Promise<boolean> {
+    console.time('submitToChat:total');
     if (img) {
+      console.time('submitToChat:uploadImage');
       const ok = await this.uploadImage(wc, img);
+      console.timeEnd('submitToChat:uploadImage');
       if (!ok) return false;
-      // 不再固定等待 2s：轮询等待附件预览出现在输入框（即上传完成），通常远快于 2s，最多 3s 兜底。
+      console.time('submitToChat:waitForUploadSettle');
       await this.waitForUploadSettle(wc);
+      console.timeEnd('submitToChat:waitForUploadSettle');
     }
-    const setOk = await this.fillText(wc, text);
-    if (!setOk) return false;
-    await sleep(200);
-    return this.clickSend(wc);
+    // 合并 fillText + clickSend 为单个 executeJavaScript 调用，消除 IPC 开销
+    console.time('submitToChat:fillTextAndSend');
+    const ret = await this.fillTextAndSend(wc, text, maxWaitLoops);
+    console.timeEnd('submitToChat:fillTextAndSend');
+    console.timeEnd('submitToChat:total');
+    return ret;
+  }
+
+  /** 合并 fillText + clickSend 为单个 executeJavaScript 调用，消除 IPC 开销 */
+  public async fillTextAndSend(wc: WebContents, text: string, maxWaitLoops = 30): Promise<boolean> {
+    const t = JSON.stringify(text);
+    const loops = Math.max(3, Math.floor(maxWaitLoops));
+    const res = await wc.executeJavaScript(`(async () => {
+      try {
+        function disabledOf(b){ return b.disabled===true || b.getAttribute('aria-disabled')==='true' || (b.classList && b.classList.contains('disabled')); }
+        function getComposerFooter(input){
+          if(!input) return null;
+          var chain=[]; var p=input.parentElement;
+          for(var i=0;i<8 && p;i++){ chain.push(p); p=p.parentElement; }
+          var best=null,bestN=-1;
+          for(var j=0;j<chain.length;j++){ var n=chain[j].querySelectorAll('button').length; if(n>bestN){bestN=n;best=chain[j];} }
+          return best;
+        }
+        function findChatInput() {
+          var sp = document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], [contenteditable][aria-label*="发送消息"]');
+          if (sp) return sp;
+          var cands = document.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]');
+          var best = null, bestN = -1;
+          for (var ci = 0; ci < cands.length; ci++) {
+            var f = getComposerFooter(cands[ci]);
+            if (!f) continue;
+            var n = f.querySelectorAll('button').length;
+            if (n > bestN) { bestN = n; best = cands[ci]; }
+          }
+          return best;
+        }
+        function findSend(){
+          var primary=document.querySelector('.ds-button--primary, [class*="--primary"]');
+          if(primary && !disabledOf(primary)) return {b:primary, via:'primary'};
+          var all=Array.from(document.querySelectorAll('button, [role="button"], .ds-button'));
+          for(var i=0;i<all.length;i++){ var a=(all[i].getAttribute('aria-label')||'').toLowerCase(); if((a.indexOf('发送')>=0||a.indexOf('send')>=0)&&!disabledOf(all[i])) return {b:all[i],via:'label'}; }
+          return null;
+        }
+        function fireClick(el){
+          var types=['pointerdown','mousedown','mouseup'];
+          for(var i=0;i<types.length;i++){ try{ el.dispatchEvent(new MouseEvent(types[i],{bubbles:true,cancelable:true,view:window})); }catch(e){} }
+          try{ el.click(); }catch(e){}
+        }
+        // 1. 填入文本
+        var el = findChatInput();
+        if (!el) return JSON.stringify({ok: false, reason: 'no-input'});
+        var value = ${t};
+        el.focus();
+        if (el.getAttribute && el.getAttribute('contenteditable') === 'true') {
+          el.textContent = value;
+        } else {
+          try {
+            var proto = Object.getPrototypeOf(el);
+            var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+            if (desc && desc.set) { desc.set.call(el, value); }
+            else { el.value = value; }
+          } catch (e) { try { el.value = value; } catch (e2) {} }
+        }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        try { el.dispatchEvent(new InputEvent('input', { bubbles: true, data: value, inputType: 'insertText' })); } catch (e) {}
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        // 2. 在页面事件循环中轮询等待发送按钮可用（最多 ${loops} × 100ms，自动等待 React 重渲染/附件上传）
+        // 立即在页面异步任务中运行，自动等待 React 重渲染完成
+        for (var wait = 0; wait < ${loops}; wait++) {
+          await new Promise(function(r){ setTimeout(r, 100); });
+          var s = findSend();
+          if (!s) continue;
+          var ta = document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], textarea');
+          var preVal = ta ? (ta.value || '') : '';
+          fireClick(s.b);
+          var sent = false;
+          for (var k = 0; k < 2; k++) {
+            await new Promise(function(r){ setTimeout(r, 100); });
+            var ta2 = document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], textarea');
+            var nowVal = ta2 ? (ta2.value || '') : '';
+            if (preVal && preVal.length > 0 && nowVal.length === 0) { sent = true; break; }
+            var sb = document.querySelector('.ds-button--primary, [class*="--primary"]');
+            if (sb && disabledOf(sb)) { sent = true; break; }
+            if (document.querySelector('[class*="stop" i], button[aria-label*="停止"], [class*="abort" i]')) { sent = true; break; }
+          }
+          if (sent) { console.log('[Injector] fillTextAndSend -> ' + s.via + ' sent=' + sent + ' wait=' + wait); return JSON.stringify({ok:true}); }
+        }
+        console.log('[Injector] fillTextAndSend: timeout');
+        return JSON.stringify({ok: false, reason: 'timeout'});
+      } catch(e){ return JSON.stringify({ok: false, reason: 'err:' + String(e)}); }
+    })()`);
+    let obj: any;
+    try { obj = JSON.parse(res); } catch { obj = res; }
+    if (typeof obj === 'boolean') return obj;
+    if (obj && obj.ok) return true;
+    console.log('[Injector] fillTextAndSend 失败:', res);
+    return false;
   }
 
   /**
@@ -60,6 +180,396 @@ export class Injector {
     // 轮询等待附件预览出现在输入框（即上传完成），通常远快于固定等待
     await this.waitForUploadSettle(wc);
     return true;
+  }
+
+  /**
+   * 注入「共享文档」选择浮层：在输入框上方显示 WPS 文档下拉框（默认选中最后打开的文档），
+   * 并安装 Enter / 发送按钮拦截器——发送时通知主进程读取所选文档最新内容，组合后发送。
+   * 取消按钮移除浮层并失效拦截器。
+   */
+  public async injectDocSharePicker(wc: WebContents, docs: { name: string; full: string }[], mode: 'word' | 'excel' | 'pdf' = 'word'): Promise<boolean> {
+    const docsJson = JSON.stringify(docs.map((d) => d.name));
+    const modeJson = JSON.stringify(mode);
+    const labelText = mode === 'excel' ? '共享WPS Excel' : mode === 'pdf' ? '共享WPS PDF' : '共享WPS Word';
+    const code = `(() => {
+      try {
+        var shareMode = ${modeJson};
+        // 映射为「+」菜单项的 type（shareDoc/shareExcel/sharePdf），用于菜单蓝色高亮与再点取消
+        var shareItemType = shareMode === 'excel' ? 'shareExcel' : shareMode === 'pdf' ? 'sharePdf' : 'shareDoc';
+        // 清理上一次注入的浮层（版本号机制让旧拦截器失效）
+        window.__dsDocShareVersion = (window.__dsDocShareVersion || 0) + 1;
+        var ver = window.__dsDocShareVersion;
+        // 清除上一次注入的刷新定时器：旧格式的定时器残留会持续请求刷新，
+        // 且刷新结果广播给所有已注册回调，造成其他格式的悬浮框被反复改选中项（抢控制权）
+        if (window.__dsDocShareRefreshTimer) {
+          clearInterval(window.__dsDocShareRefreshTimer);
+          window.__dsDocShareRefreshTimer = null;
+        }
+        var old = document.getElementById('ds-doc-picker');
+        if (old) old.remove();
+        if (window.__dsDocClickHide) {
+          document.removeEventListener('click', window.__dsDocClickHide);
+          window.__dsDocClickHide = null;
+        }
+        var oldDropdown = document.getElementById('ds-doc-dropdown');
+        if (oldDropdown) oldDropdown.remove();
+
+        function findInput() {
+          return document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], textarea, [contenteditable="true"], [role="textbox"]');
+        }
+        function currentText() {
+          var inp = findInput();
+          if (!inp) return '';
+          if (inp.tagName === 'TEXTAREA') return inp.value || '';
+          return inp.textContent || '';
+        }
+
+        // 1. 创建浮层（标题 + 自定义下拉 + 取消）——半透明毛玻璃 + 圆角卡片
+        var names = ${docsJson};
+        var selectedName = names.length ? names[0] : '';
+        var picker = document.createElement('div');
+        picker.id = 'ds-doc-picker';
+        picker.style.cssText = 'position:fixed;display:flex;align-items:center;gap:6px;padding:5px 8px 5px 12px;background:rgba(28,30,38,0.55);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);border:1px solid rgba(255,255,255,0.18);border-radius:10px;z-index:2147483646;box-shadow:0 8px 28px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;';
+        var label = document.createElement('span');
+        label.style.cssText = 'display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#c8cdd6;white-space:nowrap;font-weight:500;';
+        label.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>' + ${JSON.stringify(labelText)} + '</span>';
+
+        // 显示框（点击展开下拉，替代原生 select）——宽度收窄，展开的下拉列表宽度不受其限制
+        var current = document.createElement('div');
+        current.id = 'ds-doc-current';
+        current.style.cssText = 'display:inline-flex;align-items:center;gap:4px;max-width:150px;height:24px;padding:0 8px;background:rgba(255,255,255,0.07);color:#e8eaed;border:1px solid rgba(255,255,255,0.14);border-radius:7px;font-size:12px;cursor:pointer;transition:border-color 0.15s,background 0.15s;user-select:none;-webkit-user-select:none;';
+        var curText = document.createElement('span');
+        curText.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px;';
+        curText.textContent = names.length ? names[0] : '暂无打开的文档';
+        var caret = document.createElement('span');
+        caret.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.6;display:block;"><polyline points="6 9 12 15 18 9"/></svg>';
+        current.appendChild(curText);
+        current.appendChild(caret);
+        if (names.length > 0) {
+          current.onmouseenter = function () { this.style.borderColor = 'rgba(90,140,255,0.55)'; this.style.background = 'rgba(255,255,255,0.12)'; };
+          current.onmouseleave = function () { this.style.borderColor = 'rgba(255,255,255,0.14)'; this.style.background = 'rgba(255,255,255,0.07)'; };
+        } else {
+          current.style.cursor = 'default';
+          current.style.opacity = '0.6';
+        }
+
+        var cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = '取消';
+        cancel.style.cssText = 'display:inline-flex;align-items:center;background:transparent;border:none;color:#9aa0ad;font-size:12px;cursor:pointer;padding:4px 8px;border-radius:7px;font-family:inherit;transition:color 0.15s,background 0.15s;';
+        cancel.onmouseenter = function () { this.style.color = '#fff'; this.style.background = 'rgba(255,255,255,0.1)'; };
+        cancel.onmouseleave = function () { this.style.color = '#9aa0ad'; this.style.background = 'transparent'; };
+        picker.appendChild(label);
+        picker.appendChild(current);
+        picker.appendChild(cancel);
+        document.body.appendChild(picker);
+
+        // 展开的下拉列表（自定义 div，半透明毛玻璃 + 圆角 + hover 高亮）
+        var dropdown = document.createElement('div');
+        dropdown.id = 'ds-doc-dropdown';
+        dropdown.style.cssText = 'position:fixed;display:none;min-width:200px;max-width:250px;max-height:220px;overflow-y:auto;padding:4px;background:rgba(30,32,42,0.68);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);border:1px solid rgba(255,255,255,0.18);border-radius:10px;z-index:2147483646;box-shadow:0 12px 36px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;';
+        // 构建下拉列表选项（初始与实时刷新共用）
+        function buildDropdownItems(list) {
+          dropdown.innerHTML = '';
+          if (!list || list.length === 0) {
+            var emptyItem = document.createElement('div');
+            emptyItem.textContent = '暂无打开的文档';
+            emptyItem.style.cssText = 'padding:8px 12px;font-size:12px;color:#8a8f9c;border-radius:6px;';
+            dropdown.appendChild(emptyItem);
+            return;
+          }
+          for (var i = 0; i < list.length; i++) {
+            (function (n) {
+              var item = document.createElement('div');
+              item.textContent = n;
+              item.title = n; // 文件名过长被截断时，悬浮显示完整名字
+              item.style.cssText = 'padding:7px 12px;font-size:12px;color:#d5d9e0;cursor:pointer;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background 0.12s,color 0.12s;';
+              item.onmouseenter = function () { this.style.background = 'rgba(90,140,255,0.22)'; this.style.color = '#fff'; };
+              item.onmouseleave = function () { this.style.background = 'transparent'; this.style.color = '#d5d9e0'; };
+              item.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                selectedName = n;
+                curText.textContent = n;
+                hideDropdown();
+              });
+              dropdown.appendChild(item);
+            })(list[i]);
+          }
+        }
+        buildDropdownItems(names);
+        document.body.appendChild(dropdown);
+
+        function showDropdown() {
+          if (!selectedName) return;
+          dropdown.style.display = 'block';
+          var r = current.getBoundingClientRect();
+          var dw = dropdown.offsetWidth || 220;
+          var dh = dropdown.offsetHeight || 200;
+          var left = Math.max(8, r.left);
+          if (left + dw > window.innerWidth - 8) left = window.innerWidth - dw - 8;
+          // 优先向下展开，空间不足向上
+          var top = r.bottom + 6;
+          if (top + dh > window.innerHeight - 8) top = r.top - dh - 6;
+          dropdown.style.left = left + 'px';
+          dropdown.style.top = Math.max(8, top) + 'px';
+        }
+        function hideDropdown() { dropdown.style.display = 'none'; }
+        current.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (dropdown.style.display === 'block') hideDropdown();
+          else showDropdown();
+        });
+        // 点击浮层/列表外部关闭下拉
+        function docClickHide() { hideDropdown(); }
+        window.__dsDocClickHide = docClickHide;
+        document.addEventListener('click', window.__dsDocClickHide);
+
+        // 共享期间实时检测新打开的文档：每 5s 请求主进程刷新列表，新文档即时出现在下拉框。
+        // 注意：刷新结果会广播给所有已注册回调（含旧注入/其他格式的残留），
+        // 必须按「版本号 + 模式」双重过滤，其他格式的刷新结果一律忽略，
+        // 否则会出现「打开其他格式时，该格式一直抢着改本格式悬浮框的选中项」的反复切换。
+        if (window.__ds && window.__ds.onDocShareRefresh) {
+          window.__ds.onDocShareRefresh(function (payload) {
+            if (window.__dsDocShareVersion !== ver) return; // 旧注入的回调作废
+            var newNames = payload && payload.mode === shareMode && Array.isArray(payload.names) ? payload.names : null;
+            if (!newNames) return; // 模式不匹配（其他格式的刷新结果）忽略
+            var sel = selectedName;
+            var exists = sel && newNames.indexOf(sel) !== -1;
+            buildDropdownItems(newNames);
+            if (!exists && newNames.length) {
+              selectedName = newNames[0];
+              curText.textContent = newNames[0];
+            } else if (newNames.length === 0) {
+              selectedName = '';
+              curText.textContent = '暂无打开的文档';
+            }
+            // 有文档时恢复显示框可交互样式（此前可能处于「暂无文档」的置灰状态）
+            current.style.cursor = newNames.length > 0 ? 'pointer' : 'default';
+            current.style.opacity = newNames.length > 0 ? '' : '0.6';
+          });
+        }
+        window.__dsDocShareRefreshTimer = setInterval(function () {
+          if (window.__ds && window.__ds.send) window.__ds.send('docShare:refresh', { mode: shareMode });
+        }, 5000);
+
+        // 2. 定位：浮层始终贴到「输入框区域最顶端元素」（含上传附件后新出现的附件条）的上边界，
+        //    附件条出现时浮层自动上移，不再遮挡附件框；滚动/缩放/尺寸变化实时跟随
+        var posTimer = null;
+        function position() {
+          var inp = findInput();
+          if (!inp) return;
+          // 向上找「同时含文件输入与文本输入」的 composer 容器
+          var composer = inp.parentElement;
+          for (var i = 0; i < 8 && composer; i++) {
+            if (composer.querySelector && composer.querySelector('input[type="file"]') && composer.querySelector('textarea, [contenteditable="true"]')) break;
+            composer = composer.parentElement;
+          }
+          if (!composer) composer = inp.parentElement;
+          var cRect = composer.getBoundingClientRect();
+          var inpRect = inp.getBoundingClientRect();
+          // 在 composer 内找「完全位于输入框上方、可见且高度足够的元素」：
+          // 取其中 bottom 最大（最贴近输入框顶部）的一个作为锚点（上传附件后出现的附件条即命中），
+          // 不再要求顶部必须对齐 composer 顶部，避免附件条未贴顶时锚点取错导致浮层压住附件。
+          var topEl = null;
+          var topElBottom = -1;
+          if (composer.querySelectorAll) {
+            var kids = composer.querySelectorAll('div, section');
+            for (var j = 0; j < kids.length; j++) {
+              var el = kids[j];
+              if (!el || el.id === 'ds-doc-picker' || el.id === 'ds-doc-dropdown') continue;
+              // 跳过不可见元素（DeepSeek 的附件容器平时 visibility:hidden 占位，上传后才可见）
+              var cs = null;
+              try { cs = window.getComputedStyle(el); } catch (e) {}
+              if (cs && (cs.visibility === 'hidden' || cs.display === 'none')) continue;
+              var br = el.getBoundingClientRect();
+              if (br.height < 8 || br.width < 8) continue;
+              // 底部不越过输入框顶部，视为输入框上方的附件条/块
+              if (br.bottom <= inpRect.top + 2 && br.bottom > topElBottom) {
+                topEl = el; topElBottom = br.bottom;
+              }
+            }
+          }
+          var anchor = topElBottom > 0 && topEl ? topEl.getBoundingClientRect() : cRect;
+          var h = picker.offsetHeight || 40;
+          var top = anchor.top - h - 6;
+          if (top < 8) top = anchor.bottom + 6;
+          picker.style.left = Math.max(8, anchor.left) + 'px';
+          picker.style.top = top + 'px';
+          if (dropdown.style.display === 'block') {
+            var rr = current.getBoundingClientRect();
+            dropdown.style.left = Math.max(8, rr.left) + 'px';
+          }
+        }
+        position();
+        window.addEventListener('scroll', position, true);
+        window.addEventListener('resize', position);
+        // 输入框文字增多高度变化时，ResizeObserver 实时重新定位，避免浮层遮挡
+        try {
+          var inpTarget = findInput();
+          if (inpTarget && typeof ResizeObserver === 'function') {
+            var ro = new ResizeObserver(function () { position(); });
+            ro.observe(inpTarget);
+            picker.__dsRo = ro;
+          }
+        } catch (e) {}
+        // 兜底轮询（极低频率，开销可忽略），保证任何布局变化后位置最终正确
+        posTimer = setInterval(function () { position(); }, 500);
+
+        // 3. 激活共享文档模式（无文档时 selectedName 为空，不拦截发送）。
+        //    若注入完成前用户已再次点击取消/切换（__dsRequestedShare 与本次类型不符），
+        //    则不激活本次共享，仅清理本次注入产生的 UI（不触碰最新请求的全局状态）。
+        if (window.__dsRequestedShare !== shareItemType) {
+          window.__dsDocShareVersion++;
+          cleanupShareUi();
+          return false;
+        }
+        window.__dsDocShareActive = true;
+        window.__dsDocShareProcessing = false;
+        // 同步「+」菜单共享选项的蓝色高亮状态（类型与菜单项 type 一致）
+        window.__dsShareActiveMode = shareItemType;
+        window.__dsRequestedShare = shareItemType;
+        if (window.__dsSyncShareMenu) window.__dsSyncShareMenu();
+
+        // 提交期间隐藏浮层/下拉列表；发送完成后由主进程调用 __dsDocPickerShow() 恢复显示
+        // 注意：恢复时下拉列表必须保持收起（不恢复展开状态），避免发送后自动展开/位置错乱到左上角
+        function hidePickerForSubmit() {
+          var p = document.getElementById('ds-doc-picker');
+          if (p) { p.__dsPrevDisplay = p.style.display; p.style.display = 'none'; }
+          var dd = document.getElementById('ds-doc-dropdown');
+          if (dd && dd.style.display !== 'none') dd.style.display = 'none';
+        }
+        window.__dsDocPickerShow = function () {
+          var p = document.getElementById('ds-doc-picker');
+          if (p) {
+            p.style.display = p.__dsPrevDisplay || 'flex';
+            try { position(); } catch (e) {}
+          }
+          // 下拉列表保持收起，避免发送后自动展开或残留在左上角
+          var dd = document.getElementById('ds-doc-dropdown');
+          if (dd) dd.style.display = 'none';
+        };
+
+        // 检测 AI 是否正在输出：存在「停止/终止」按钮即视为生成中
+        function isGenerating() {
+          try {
+            if (document.querySelector('[class*="stop" i], [class*="abort" i], [class*="stopgenerate" i], button[aria-label*="停止"], button[aria-label*="终止"]')) return true;
+            var primary = document.querySelector('.ds-button--primary, [class*="--primary"]');
+            if (primary) {
+              var t = (primary.textContent || '') + ' ' + (primary.getAttribute('aria-label') || '');
+              if (/停止|终止|abort|stop/i.test(t)) return true;
+            }
+            return false;
+          } catch (e) { return false; }
+        }
+
+        function trySend() {
+          if (!window.__ds || !window.__ds.send) return false;
+          if (window.__dsDocShareProcessing) return false;
+          var docName = selectedName || '';
+          if (!docName) return false; // 未选择有效文档（如「暂无打开的文档」）则不拦截
+          var text = currentText();
+          window.__dsDocShareProcessing = true;
+          hidePickerForSubmit(); // 提交期间隐藏共享文档悬浮窗，发送完成后由主进程恢复
+          window.__ds.send('docShare:send', { text: text, docName: docName, mode: shareMode });
+          // 立即清空输入框并恢复可写（主进程读取文档后重新填文并发送）
+          var inp = findInput();
+          if (inp) {
+            if (inp.tagName === 'TEXTAREA') { inp.value = ''; }
+            else { inp.textContent = ''; }
+            try { inp.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+          }
+          // 30s 超时兜底解锁（正常发送完成后主进程会主动解锁），同时恢复浮层显示
+          setTimeout(function () {
+            window.__dsDocShareProcessing = false;
+            if (window.__dsDocPickerShow) window.__dsDocPickerShow();
+          }, 30000);
+          return true;
+        }
+
+        // 4. Enter 拦截（仅当 AI 已输出结束且输入框有内容时拦截；fillTextAndSend 不派发 keydown）
+        document.addEventListener('keydown', function (e) {
+          if (!window.__dsDocShareActive || window.__dsDocShareVersion !== ver) return;
+          if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.isTrusted !== true) return;
+          if (isGenerating()) return; // AI 输出中不拦截（终止对话等放行）
+          if (!findInput()) return;
+          if (!currentText().trim()) return; // 输入框为空不拦截
+          if (trySend()) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+
+        // 5. 发送按钮点击拦截（isTrusted 区分真实点击 vs 合成点击，避免与 fillTextAndSend 冲突）
+        document.addEventListener('click', function (e) {
+          if (!window.__dsDocShareActive || window.__dsDocShareVersion !== ver) return;
+          if (e.isTrusted !== true) return;
+          var t = e.target;
+          if (!t || !t.closest) return;
+          var btn = t.closest('.ds-button--primary, [class*="--primary"], button[aria-label*="发送"], [role="button"][aria-label*="发送"]');
+          if (!btn) return;
+          if (btn.disabled === true || btn.getAttribute('aria-disabled') === 'true') return;
+          // AI 输出中（停止/终止按钮与主按钮同样式）一律放行，不拦截
+          if (isGenerating()) return;
+          // 输入框为空时不拦截（空输入状态点主按钮无发送意图）
+          if (!currentText().trim()) return;
+          // 再排除含「停止/终止」字样的按钮（双保险）
+          var bt = (btn.textContent || '') + ' ' + (btn.getAttribute('aria-label') || '');
+          if (/停止|终止|abort|stop/i.test(bt)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          trySend();
+        }, true);
+
+        // 6. 取消：移除浮层/下拉列表 + 失效拦截器 + 通知主进程。
+        //    cleanupShareUi()：仅清理本次注入产生的 UI/定时器（供注入被新请求取代时自取消用，
+        //    不触碰全局状态 __dsShareActiveMode/__dsRequestedShare）；
+        //    stopShare()：完整取消共享（用户点「取消」/「+」菜单再次点击），并清空全局状态。
+        function cleanupShareUi() {
+          var p = document.getElementById('ds-doc-picker');
+          if (p) {
+            if (p.__dsRo) { try { p.__dsRo.disconnect(); } catch (er) {} }
+            p.remove();
+          }
+          var dd = document.getElementById('ds-doc-dropdown');
+          if (dd) dd.remove();
+          if (window.__dsDocClickHide) { document.removeEventListener('click', window.__dsDocClickHide); window.__dsDocClickHide = null; }
+          if (window.__dsDocShareRefreshTimer) { clearInterval(window.__dsDocShareRefreshTimer); window.__dsDocShareRefreshTimer = null; }
+          if (posTimer) { clearInterval(posTimer); posTimer = null; }
+          window.removeEventListener('scroll', position, true);
+          window.removeEventListener('resize', position);
+          if (window.__ds && window.__ds.send) window.__ds.send('docShare:stop', { mode: shareMode });
+        }
+        function stopShare() {
+          window.__dsDocShareActive = false;
+          window.__dsDocShareVersion++;
+          window.__dsShareActiveMode = null;
+          window.__dsRequestedShare = null;
+          if (window.__dsSyncShareMenu) window.__dsSyncShareMenu();
+          cleanupShareUi();
+        }
+        window.__dsDocShareStop = stopShare;
+        cancel.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          stopShare();
+        });
+
+        return true;
+      } catch (e) {
+        console.error('[Injector] 注入共享文档浮层失败:', e);
+        return false;
+      }
+    })()`;
+    try {
+      return Boolean(await wc.executeJavaScript(code));
+    } catch (e) {
+      console.error('[Injector] injectDocSharePicker 失败:', e);
+      return false;
+    }
   }
 
   /**
@@ -93,10 +603,13 @@ export class Injector {
       try {
         const done = await wc.executeJavaScript(`(() => {
           try {
+            // 文件已挂到 input[type=file]（图片/任意附件都适用）
+            var fi = document.querySelector('input[type="file"]');
+            if (fi && fi.files && fi.files.length > 0) return true;
             function getComposerFooter() {
-              var fi = document.querySelector('input[type="file"]');
-              if (!fi) return null;
-              var el = fi.parentElement; var best = null, bestSvg = 0;
+              var fi2 = document.querySelector('input[type="file"]');
+              if (!fi2) return null;
+              var el = fi2.parentElement; var best = null, bestSvg = 0;
               for (var i = 0; i < 6 && el; i++) { var s = el.querySelectorAll('svg').length; if (s > bestSvg) { bestSvg = s; best = el; } el = el.parentElement; }
               return best;
             }
@@ -111,13 +624,13 @@ export class Injector {
       } catch (e) {
         /* 忽略，继续轮询 */
       }
-      await sleep(250);
+      await sleep(100);
     }
   }
 
   /** 上传图片到文件输入（依赖 webviewPreload 暴露的 window.__ds.uploadFile）。返回是否成功挂上文件。 */
   public async uploadImage(wc: WebContents, filePath: string): Promise<boolean> {
-    for (let attempt = 0; attempt < 8; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       const code = `(() => {
         try {
           if (!(window.__ds && typeof window.__ds.uploadFile === 'function')) {
@@ -147,7 +660,7 @@ export class Injector {
       } catch (e) {
         console.error('[Injector] uploadImage 异常', e);
       }
-      await sleep(250);
+      await sleep(100);
     }
     return false;
   }
@@ -160,15 +673,71 @@ export class Injector {
    * 序列（pointerdown→mousedown→mouseup→click）点击，并轮询重试直到找到入口。
    */
   /**
+   * 读取当前对话的模型模式（快速/专家/识图）。
+   * 新对话（模型选择器在 DOM 中）：读取 radio 的 aria-checked；
+   * 已有对话（radio 已被页面卸载）：读取 header 对话标题下方的模式文本标签
+   * （.the-header 内精确匹配「快速模式 / 专家模式 / 识图模式」，实测该标签随对话存在）。
+   * 均无法判定时返回 null。
+   */
+  public async getCurrentModelMode(wc: WebContents): Promise<'simple' | 'expert' | 'vision' | null> {
+    try {
+      const res: any = await wc.executeJavaScript(`(() => {
+        try {
+          var radios = Array.from(document.querySelectorAll('[data-model-type][role="radio"]'));
+          for (var i = 0; i < radios.length; i++) {
+            if (radios[i].getAttribute('aria-checked') === 'true') {
+              var t = radios[i].getAttribute('data-model-type');
+              if (t === 'expert') return 'expert';
+              if (t === 'vision') return 'vision';
+              return 'simple';
+            }
+          }
+          var header = document.querySelector('.the-header') || document.querySelector('header');
+          if (header) {
+            var spans = header.querySelectorAll('span');
+            for (var j = 0; j < spans.length; j++) {
+              var txt = (spans[j].textContent || '').trim();
+              if (txt === '\u5feb\u901f\u6a21\u5f0f') return 'simple';
+              if (txt === '\u4e13\u5bb6\u6a21\u5f0f') return 'expert';
+              if (txt === '\u8bc6\u56fe\u6a21\u5f0f') return 'vision';
+            }
+          }
+          return null;
+        } catch (e) { return null; }
+      })()`);
+      if (res === 'simple' || res === 'expert' || res === 'vision') return res;
+      return null;
+    } catch (e) {
+      console.error('[Injector] getCurrentModelMode 异常:', e);
+      return null;
+    }
+  }
+
+  /** 当前对话是否支持切换模型（模型选择器 radio 仍在 DOM；发送消息后会被页面卸载）。 */
+  public async canSwitchModel(wc: WebContents): Promise<boolean> {
+    try {
+      const res: any = await wc.executeJavaScript(`(() => {
+        try {
+          return !!(document.querySelector('[role="radiogroup"]') || document.querySelector('[data-model-type][role="radio"]'));
+        } catch (e) { return false; }
+      })()`);
+      return res === true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
    * 切换到「识图模式」。
    * 对齐 DeepSeek-desktop-client 参考实现：识图入口是 radio[data-model-type="vision"][role="radio"]，
    * 且必须用 wc.sendInputEvent 按坐标派发可信鼠标事件（合成 dispatchEvent 会被 setPointerCapture 拦截）。
    * 流程：找 radio →（找不到则点「新建对话」展开）→ 取消隐藏祖先 → 取坐标 → 可信点击 → 轮询 aria-checked。
    */
-  public async switchToVisionModel(wc: WebContents): Promise<boolean> {
+  public async switchToVisionModel(wc: WebContents, opts?: { allowNewConversation?: boolean }): Promise<boolean> {
+    const allowNewConversation = opts?.allowNewConversation !== false;
     const VISION_RADIO = '[data-model-type="vision"][role="radio"]';
 
-    // 1. 查找 vision radio；找不到则尝试点击「新建对话」展开模型选择器
+    // 1. 查找 vision radio；找不到时若允许，则点击「新建对话」展开模型选择器（共享屏幕等已有对话场景不允许）
     let found = false;
     for (let attempt = 0; attempt < 3 && !found; attempt++) {
       const exists = await wc.executeJavaScript(`(() => {
@@ -181,6 +750,10 @@ export class Injector {
       if (existsOk) {
         found = true;
         break;
+      }
+      if (!allowNewConversation) {
+        // 已有对话场景：模型选择器已被页面卸载，无法切换，直接失败
+        return false;
       }
       console.log('[Injector] switchToVisionModel: 未找到 vision radio，尝试点击「新建对话」');
       await this.clickNewConversationButton(wc);
@@ -694,7 +1267,7 @@ export class Injector {
   }
 
   /** 点击右上角「新建对话」按钮（带加号图标），用于展开折叠的模型选择器。 */
-  private async clickNewConversationButton(wc: WebContents): Promise<boolean> {
+  public async clickNewConversationButton(wc: WebContents): Promise<boolean> {
     try {
       const rect = await wc.executeJavaScript(`(() => {
         const allBtns = Array.from(document.querySelectorAll('.ds-button--iconLabelPrimary, .ds-button--iconLabel, ._4f3769f'));
@@ -704,16 +1277,9 @@ export class Injector {
           const hasPlusIcon = btn.querySelector('svg[class*="plus"], svg[data-icon*="plus"], svg[viewBox="0 0 24 24"] path[d*="M12 5v14M5 12h14"]');
           if (hasPlusIcon) return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: r.width, height: r.height };
         }
-        const xlButtons = Array.from(document.querySelectorAll('.ds-button--xl'));
-        if (xlButtons.length >= 2) {
-          xlButtons.sort((a, b) => b.getBoundingClientRect().x - a.getBoundingClientRect().x);
-          const btn = xlButtons[0];
-          const r = btn.getBoundingClientRect();
-          if (r.width > 0 && r.height > 0) return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: r.width, height: r.height };
-        }
-        // 去掉「右上角任意按钮」fallback（用户反馈"自动点分享"根因）：
-        // 该 fallback 会命中右上角的分享对话按钮（弯曲箭头），触发分享侧栏/弹窗。
-        // 只保留：① 带加号图标的 iconLabelPrimary 按钮 ② ds-button--xl 最右一个 ③ 文字匹配。
+        // 删除「ds-button--xl 取最右」fallback（2026-08-01 用户反馈"副窗口切回自动点分享"根因）：
+        // 该 fallback 会命中对话顶栏最右的分享按钮（弯曲箭头，纯 SVG 无 aria-label），
+        // 触发分享侧栏/弹窗。只保留：① 带加号图标的 iconLabelPrimary 按钮 ② 文字精确匹配。
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
         let node;
         while ((node = walker.nextNode())) {
@@ -778,10 +1344,19 @@ export class Injector {
    * 全程 console.log('[Injector] ...')，由 WindowManager.attachWebConsole 转发到终端，
    * 便于在无真实 DOM 时诊断（若仍失败，把 [web:LOG] [Injector] 日志发回即可精修）。
    */
-  public async injectScissorsButton(wc: WebContents, onTrigger: () => void): Promise<boolean> {
+  public async injectScissorsButton(wc: WebContents, onTrigger: () => void, injectPlusButton: boolean = true): Promise<boolean> {
     // onTrigger 在 Node 侧无法跨桥序列化；真实触发走 IPC(SCISSORS_TRIGGER)。
     void onTrigger;
+    // 提取 WPS 程序图标作为「共享 WPS」系列菜单项图标；失败时回退到原 SVG 图标
+    const wpsIconUrl = await getWpsIconDataUrl();
+    const wpsShareIcon = wpsIconUrl
+      ? '<img src="' + wpsIconUrl + '" alt="" style="display:inline-block;width:14px;height:14px;object-fit:contain;vertical-align:middle;"/>'
+      : '';
+    const wpsDocIcon = wpsShareIcon || '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+    const wpsExcelIcon = wpsShareIcon || '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
+    const wpsPdfIcon = wpsShareIcon || '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
     const code = `(() => {
+      const SHOULD_INJECT_PLUS_BUTTON = ${injectPlusButton};
       try {
         // 稳健定位上传按钮：策略A 由 file input 向上找 clickable 祖先；策略B 取 footer 中「发送前一位」按钮
         function disabledOf(b){ return b.disabled===true || b.getAttribute('aria-disabled')==='true' || (b.classList && b.classList.contains('disabled')); }
@@ -840,7 +1415,14 @@ export class Injector {
         function isExpertMode(){ return getModelMode() === 'expert'; }
         function syncScissorsVisibility(){
           var btn = document.getElementById('ds-scissors-btn');
-          if (isExpertMode()) { if (btn) btn.remove(); return; }
+          var plusBtn = document.getElementById('ds-plus-btn');
+          var menu = document.getElementById('ds-plus-menu');
+          if (isExpertMode()) {
+            if (btn) btn.remove();
+            if (plusBtn) plusBtn.remove();
+            if (menu) menu.remove();
+            return;
+          }
           if (!btn) inject();
         }
         function inject() {
@@ -867,9 +1449,9 @@ export class Injector {
           btn.textContent = '\\u2702'; // ✂
           btn.title = '截图';
           btn.setAttribute('aria-label', '截图');
-          btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;margin:0 4px;vertical-align:middle;background:transparent;border:none;outline:none;box-shadow:none;color:#ffffff;opacity:0.85;transition:opacity 0.18s;cursor:pointer;font-size:18px;line-height:1;user-select:none;-webkit-user-select:none;z-index:2147483647;';
-          btn.onmouseenter = function () { this.style.opacity = '1'; };
-          btn.onmouseleave = function () { this.style.opacity = '0.85'; };
+          btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;margin:0 4px;vertical-align:middle;background:transparent;border:none;outline:none;box-shadow:none;color:#ffffff;opacity:0.85;border-radius:50%;transition:background 0.18s,opacity 0.18s;cursor:pointer;font-size:18px;line-height:1;user-select:none;-webkit-user-select:none;z-index:2147483647;';
+          btn.onmouseenter = function () { this.style.opacity = '1'; this.style.background = 'rgba(255,255,255,0.1)'; };
+          btn.onmouseleave = function () { this.style.opacity = '0.85'; this.style.background = 'transparent'; };
           btn.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -878,6 +1460,152 @@ export class Injector {
           if (anchor.parentElement) anchor.parentElement.insertBefore(btn, anchor);
           else anchor.insertAdjacentElement('beforebegin', btn);
           console.log('[Injector] 剪刀按钮已插入（对话框内）；锚点=' + anchor.tagName + '|' + (anchor.getAttribute('aria-label') || '') + '|' + (anchor.className && anchor.className.toString ? anchor.className.toString() : '').slice(0, 40));
+
+          // 再在剪刀按钮左侧插入「+」按钮（二级菜单：截图提问/共享屏幕/上传文件）
+          // B类窗口不注入加号按钮
+          if (SHOULD_INJECT_PLUS_BUTTON) {
+          (function injectPlusButton() {
+            if (document.getElementById('ds-plus-btn')) return;
+            var plusBtn = document.createElement('button');
+            plusBtn.id = 'ds-plus-btn';
+            plusBtn.type = 'button';
+            plusBtn.textContent = '+';
+            plusBtn.title = '更多操作';
+            plusBtn.setAttribute('aria-label', '更多操作');
+            plusBtn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;margin:0 2px 0 0;vertical-align:middle;background:transparent;border:none;outline:none;box-shadow:none;color:#ffffff;opacity:0.85;border-radius:50%;transition:background 0.18s,opacity 0.18s;cursor:pointer;font-size:22px;line-height:1;font-weight:400;user-select:none;-webkit-user-select:none;z-index:2147483647;';
+            plusBtn.onmouseenter = function () { this.style.opacity = '1'; this.style.background = 'rgba(255,255,255,0.1)'; };
+            plusBtn.onmouseleave = function () { this.style.opacity = '0.85'; this.style.background = 'transparent'; };
+
+            // 创建下拉菜单
+            var menu = document.createElement('div');
+            menu.id = 'ds-plus-menu';
+            menu.style.cssText = 'position:fixed;display:none;flex-direction:column;background:#2a2a2a;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:4px 0;min-width:130px;z-index:2147483647;box-shadow:0 4px 16px rgba(0,0,0,0.35);';
+            var items = [
+              { label: '截图提问', type: 'screenshotQ', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>' },
+              { label: '共享WPS Word', type: 'shareDoc', icon: '${wpsDocIcon}' },
+              { label: '共享WPS Excel', type: 'shareExcel', icon: '${wpsExcelIcon}' },
+              { label: '共享WPS PDF', type: 'sharePdf', icon: '${wpsPdfIcon}' },
+              { label: '共享屏幕', type: 'shareScreen', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>' },
+              { label: '上传文件', type: 'uploadFile', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' },
+            ];
+            // 共享状态同步：window.__dsShareActiveMode 标记当前共享模式（'shareDoc'/'shareExcel'/'sharePdf'/null），
+            // 据此给对应「共享」菜单项加蓝色高亮框；统一由此函数刷新，供共享浮层（picker）注入时调用。
+            function syncShareMenuHighlight() {
+              var menuEl = document.getElementById('ds-plus-menu');
+              if (!menuEl) return;
+              var active = window.__dsShareActiveMode || null;
+              var btns = menuEl.querySelectorAll('button');
+              for (var si = 0; si < btns.length; si++) {
+                var b = btns[si];
+                var t = b.getAttribute('data-ds-type');
+                if (t !== 'shareDoc' && t !== 'shareExcel' && t !== 'sharePdf') continue;
+                // 恢复原始标签文字（悬浮时的「取消共享」在鼠标离开后由本函数还原）
+                var lbl = b.querySelector('.ds-menu-label');
+                if (lbl && lbl.getAttribute('data-ds-label')) lbl.textContent = lbl.getAttribute('data-ds-label');
+                if (t === active) {
+                  b.style.borderColor = 'rgba(90,140,255,0.85)';
+                  b.style.background = 'rgba(90,140,255,0.16)';
+                  b.style.color = '#ffffff';
+                } else {
+                  b.style.borderColor = 'transparent';
+                  b.style.background = 'transparent';
+                  b.style.color = '#e0e0e0';
+                }
+              }
+            }
+            window.__dsSyncShareMenu = syncShareMenuHighlight;
+            for (var mi = 0; mi < items.length; mi++) {
+              (function (item) {
+                var menuItem = document.createElement('button');
+                menuItem.type = 'button';
+                menuItem.setAttribute('data-ds-type', item.type);
+                menuItem.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 13px;border:1px solid transparent;background:transparent;color:#e0e0e0;font-size:13px;cursor:pointer;text-align:left;white-space:nowrap;transition:background 0.12s,border-color 0.12s;';
+                menuItem.onmouseenter = function () {
+                  var t = this.getAttribute('data-ds-type');
+                  var isActive = t === (window.__dsShareActiveMode || null);
+                  this.style.background = isActive ? 'rgba(90,140,255,0.26)' : 'rgba(255,255,255,0.1)';
+                  // 共享中悬浮：显示「取消共享」，提示点击即可关闭共享
+                  if (isActive) {
+                    var lbl = this.querySelector('.ds-menu-label');
+                    if (lbl) lbl.textContent = '取消共享';
+                  }
+                };
+                menuItem.onmouseleave = function () {
+                  this.style.background = 'transparent';
+                  syncShareMenuHighlight(); // 恢复共享中选项的蓝色高亮与原始标签文字
+                };
+                // WPS 程序图标（<img>）保持原色，不加暗化
+                var isWpsIcon = item.icon.indexOf('<img') === 0;
+                menuItem.innerHTML = '<span style="display:inline-flex;align-items:center;width:18px;height:14px;' + (isWpsIcon ? '' : 'opacity:0.7;') + '">' + item.icon + '</span><span class="ds-menu-label" data-ds-label="' + item.label + '">' + item.label + '</span>';
+                menuItem.addEventListener('click', function (e) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  menu.style.display = 'none';
+                  // 共享类菜单项：再次点击同一项=取消共享；切换类型时先取消旧共享
+                  if (item.type === 'shareDoc' || item.type === 'shareExcel' || item.type === 'sharePdf') {
+                    if (window.__dsShareActiveMode === item.type) {
+                      if (window.__dsDocShareStop) window.__dsDocShareStop();
+                      window.__dsShareActiveMode = null;
+                      window.__dsRequestedShare = null;
+                      syncShareMenuHighlight();
+                      return;
+                    }
+                    if (window.__dsShareActiveMode && window.__dsDocShareStop) window.__dsDocShareStop();
+                    window.__dsShareActiveMode = item.type;
+                    window.__dsRequestedShare = item.type;
+                    syncShareMenuHighlight();
+                  }
+                  if (item.type === 'screenshotQ') {
+                    document.dispatchEvent(new CustomEvent('ds-plus-trigger', { detail: { type: 'screenshotQ' } }));
+                  } else if (item.type === 'uploadFile') {
+                    document.dispatchEvent(new CustomEvent('ds-plus-trigger', { detail: { type: 'uploadFile' } }));
+                  } else if (item.type === 'shareScreen') {
+                    document.dispatchEvent(new CustomEvent('ds-plus-trigger', { detail: { type: 'shareScreen' } }));
+                  } else if (item.type === 'shareDoc') {
+                    document.dispatchEvent(new CustomEvent('ds-plus-trigger', { detail: { type: 'shareDoc' } }));
+                  } else if (item.type === 'shareExcel') {
+                    document.dispatchEvent(new CustomEvent('ds-plus-trigger', { detail: { type: 'shareExcel' } }));
+                  } else if (item.type === 'sharePdf') {
+                    document.dispatchEvent(new CustomEvent('ds-plus-trigger', { detail: { type: 'sharePdf' } }));
+                  }
+                });
+                menu.appendChild(menuItem);
+              })(items[mi]);
+            }
+            document.body.appendChild(menu);
+
+            // 点击「+」按钮切换菜单（向上展开）
+            plusBtn.addEventListener('click', function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              var rect = plusBtn.getBoundingClientRect();
+              if (menu.style.display === 'flex') {
+                menu.style.display = 'none';
+              } else {
+                syncShareMenuHighlight(); // 打开菜单时刷新共享选项的蓝色高亮状态
+                // 先显示菜单以测量高度，再向上定位
+                menu.style.display = 'flex';
+                menu.style.visibility = 'hidden';
+                var menuHeight = menu.offsetHeight;
+                menu.style.visibility = 'visible';
+                menu.style.left = rect.left + 'px';
+                menu.style.top = (rect.top - menuHeight - 4) + 'px';
+              }
+            });
+
+            // 点击菜单外部关闭
+            document.addEventListener('click', function () {
+              menu.style.display = 'none';
+            }, false);
+
+            // 插入到剪刀按钮之前
+            var scissorBtn = document.getElementById('ds-scissors-btn');
+            if (scissorBtn && scissorBtn.parentElement) {
+              scissorBtn.parentElement.insertBefore(plusBtn, scissorBtn);
+            }
+            console.log('[Injector] 「+」按钮已插入');
+          })();
+          } // end if (SHOULD_INJECT_PLUS_BUTTON)
           return true;
         }
         // 一次性纯 ASCII 诊断 dump（避免中文在 GBK 终端乱码）：打印 file input 祖先链 + 全部可点击元素
@@ -999,6 +1727,116 @@ export class Injector {
     }
   }
 
+  /**
+   * 注入「回答生成状态」监听（回答完成提醒功能）。
+   * 判定信号（实测 DeepSeek 网页：无停止生成按钮，必须靠 AI 消息文本增长）：
+   *   1) 最后一条 AI 消息正文（.ds-markdown）文本单调增长 = 生成中（思考/回答阶段均流式增长）；
+   *   2) 文本连续稳定约 3s = 回答完成；
+   *   3) 停止按钮存在（兼容其它模式）作辅助信号。
+   * 虚拟列表会卸载旧消息，故始终取「最后一条」，不依赖元素数量。
+   * 切换会话（URL 变化）时重置基线避免误报；状态经 window.__ds.reportAnswerStatus() 上报主进程。
+   * 幂等：已绑定则直接返回（did-navigate 重建页面后需重新注入）。
+   */
+  public async injectAnswerWatcher(wc: WebContents): Promise<boolean> {
+    const code = `(() => {
+      try {
+        if (window.__dsAnswerWatcherBound) return true;
+        window.__dsAnswerWatcherBound = true;
+        var lastLen = 0, stableTicks = 0, generating = false;
+        var first = true;
+        function findStop() {
+          var els = document.querySelectorAll('button, [role="button"], [class*="stop" i], [class*="abort" i]');
+          for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            var a = ((el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title') || '')) || '').toLowerCase();
+            var t = ((el.textContent || '').trim()).toLowerCase();
+            var cls = (el.className && el.className.toString ? el.className.toString().toLowerCase() : '');
+            if (a.indexOf('\u505c\u6b62') >= 0 || a.indexOf('stop') >= 0 ||
+                t.indexOf('\u505c\u6b62') >= 0 || t.indexOf('stop') >= 0 ||
+                cls.indexOf('stop') >= 0 || cls.indexOf('abort') >= 0) return el;
+          }
+          return null;
+        }
+        // 读取最后一条 AI 消息文本：优先正文容器，兜底最后一个 .ds-markdown（思考/回答阶段通用）
+        function readLastAI() {
+          var main = document.querySelectorAll('.ds-markdown.ds-assistant-message-main-content');
+          if (main && main.length) {
+            return { text: (main[main.length - 1].textContent || '') };
+          }
+          var all = document.querySelectorAll('.ds-markdown');
+          if (all && all.length) {
+            return { text: (all[all.length - 1].textContent || '') };
+          }
+          return null;
+        }
+        function setState(g) {
+          if (g === generating) return;
+          generating = g;
+          console.log('[AnswerWatch] 生成状态变化 -> ' + (g ? '生成中' : '结束/停止'));
+          try {
+            if (window.__ds && typeof window.__ds.reportAnswerStatus === 'function') {
+              window.__ds.reportAnswerStatus(g);
+            }
+          } catch (e2) {}
+        }
+        function reportSwitched() {
+          console.log('[AnswerWatch] 会话已切换，取消跟踪');
+          try {
+            if (window.__ds && typeof window.__ds.reportAnswerStatus === 'function') {
+              window.__ds.reportAnswerStatus(false, true);
+            }
+          } catch (e2) {}
+        }
+        // 重置文本基线；不改变 generating、不上报（避免把切换会话误判为「回答完成」）
+        function resetBaseline() {
+          var m = readLastAI();
+          lastLen = m ? m.text.length : 0;
+          stableTicks = 0;
+        }
+        function sync() {
+          try {
+            // 会话切换（URL 变化）：通知主进程取消跟踪（不提醒），并重置文本基线
+            if (location.href !== window.__dsAnswerUrl) {
+              window.__dsAnswerUrl = location.href;
+              resetBaseline();
+              reportSwitched();
+              return;
+            }
+            var stop = findStop();
+            var m = readLastAI();
+            if (first) { first = false; resetBaseline(); return; }
+            if (!m) { setState(!!stop); return; }
+            var changed = m.text.length !== lastLen;
+            lastLen = m.text.length;
+            if (stop || changed) {
+              stableTicks = 0;
+              setState(true);
+            } else if (generating) {
+              // 文本稳定：连续 6 次（约 3s）视为回答完成（思考→回答切换间隙也在此阈值内）
+              stableTicks++;
+              if (stableTicks >= 6) { stableTicks = 0; setState(false); }
+            } else {
+              setState(false);
+            }
+          } catch (e2) {}
+        }
+        window.__dsAnswerUrl = location.href;
+        sync();
+        var mo = new MutationObserver(sync);
+        mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+        window.__dsAnswerWatcherMO = mo;
+        window.__dsAnswerWatcherTimer = setInterval(sync, 500);
+        return true;
+      } catch (e) { return false; }
+    })()`;
+    try {
+      return Boolean(await wc.executeJavaScript(code));
+    } catch (e) {
+      console.error('[Injector] injectAnswerWatcher 失败:', e);
+      return false;
+    }
+  }
+
   /** 探测登录态：无登录按钮且存在输入框视为已登录。 */
   public async detectLogin(wc: WebContents): Promise<boolean> {
     const loginTexts = JSON.stringify(LOGIN_BUTTON_TEXTS);
@@ -1039,12 +1877,49 @@ export class Injector {
     }
   }
 
+  /**
+   * 向对话框输入框填入文本（不点击发送），并将光标置于文本末尾。
+   * 用于「问问DeepSeek」引用功能：将选中文本括起来放入输入框，等待用户输入问题。
+   */
+  public async setInputText(wc: WebContents, text: string): Promise<boolean> {
+    const ok = await this.fillText(wc, text);
+    if (!ok) return false;
+    // 将光标定位到文本末尾
+    try {
+      await wc.executeJavaScript(`(() => {
+        try {
+          var el = document.activeElement;
+          if (!el) return false;
+          if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+            var len = el.value.length;
+            el.setSelectionRange(len, len);
+          } else if (el.getAttribute && el.getAttribute('contenteditable') === 'true') {
+            var range = document.createRange();
+            var sel = window.getSelection();
+            if (el.lastChild) {
+              range.setStartAfter(el.lastChild);
+              range.collapse(true);
+            } else {
+              range.setStart(el, 0);
+            }
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+          return true;
+        } catch(e) { return false; }
+      })()`);
+    } catch (e) {
+      console.error('[Injector] setInputText 光标定位失败:', e);
+    }
+    return true;
+  }
+
   // -------------------- 内部辅助 --------------------
 
   /** 在输入框填入文本（兼容 React 受控组件）。轮询等待输入框出现并重试（覆盖 B 窗口加载时机）。 */
   private async fillText(wc: WebContents, text: string): Promise<boolean> {
     const t = JSON.stringify(text);
-    for (let attempt = 0; attempt < 12; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const res = await wc.executeJavaScript(`(() => {
         try {
           // 稳健定位聊天输入框：排除底部搜索框（其祖先可能有按钮但无上传文件框）。
@@ -1104,7 +1979,7 @@ export class Injector {
       if (typeof obj === 'boolean') return obj;
       if (obj && obj.ok) return true;
       if (attempt === 11) console.log('[Injector] fillText 失败，末次:', res);
-      await sleep(500);
+      await sleep(200);
     }
     return false;
   }
@@ -1124,77 +1999,99 @@ export class Injector {
    * 未发送则重试，避免「点了但没发」的静默失败。
    */
   public async clickSend(wc: WebContents): Promise<boolean> {
-    let last = '';
-    for (let attempt = 0; attempt < 33; attempt++) {
-      const res = await wc.executeJavaScript(`(async () => {
-        try {
-          function disabledOf(b){ return b.disabled===true || b.getAttribute('aria-disabled')==='true' || (b.classList && b.classList.contains('disabled')); }
-          function isToggle(b){ var a=(b.getAttribute('aria-label')||'').toLowerCase(); var t=(b.textContent||'').trim().toLowerCase(); return a.indexOf('思考')>=0||a.indexOf('搜索')>=0||a.indexOf('深度')>=0||a.indexOf('智能')>=0||t.indexOf('思考')>=0||t.indexOf('搜索')>=0; }
-          function getUploadButton(){
-            var fi=document.querySelector('input[type="file"]');
-            if(!fi) return null;
-            var el=fi.parentElement;
-            while(el && el!==document.body){ var tag=el.tagName; if(tag==='BUTTON'||tag==='LABEL'||(el.getAttribute&&el.getAttribute('role')==='button')) return el; if((tag==='DIV'||tag==='SPAN')&&el.children&&Array.prototype.indexOf.call(el.children,fi)>=0&&el.querySelector('svg')!=null) return el; el=el.parentElement; }
-            var p=fi.parentElement;
-            for(var i=0;i<6 && p;i++){ var icons=p.querySelectorAll('svg').length; var btns=p.querySelectorAll('button, [role="button"]').length; if(icons>=3||btns>=3){ var cur=fi.parentElement; while(cur&&cur.parentElement&&cur.parentElement!==p) cur=cur.parentElement; return cur||p; } p=p.parentElement; }
-            return null;
-          }
-          function getFooter(){
-            var best=null,bestSvg=0;
-            var p=(getUploadButton()||document.body).parentElement;
-            for(var i=0;i<8 && p;i++){ var svg=p.querySelectorAll('svg').length; if(svg>bestSvg){bestSvg=svg;best=p;} p=p.parentElement; }
-            return best;
-          }
-          function findSend(){
-            var primary=document.querySelector('.ds-button--primary, [class*="--primary"]');
-            if(primary && !disabledOf(primary)) return {b:primary, via:'primary'};
-            var all=Array.from(document.querySelectorAll('button, [role="button"], .ds-button'));
-            for(var i=0;i<all.length;i++){ var a=(all[i].getAttribute('aria-label')||'').toLowerCase(); if((a.indexOf('发送')>=0||a.indexOf('send')>=0)&&!disabledOf(all[i])) return {b:all[i],via:'label'}; }
-            // Bug 修复（用户反馈"点一下边栏、副窗口老自动点分享按钮"）：
-            // 之前 rightmost fallback「footer 从右往左找非上传/非 toggle/非禁用/非 share 的按钮」
-            // 在分享按钮没有 aria-label/title/textContent 含"share/分享"（纯 SVG 图标）时仍会命中。
-            // 根除：去掉 fallback，只按 primary class 或 aria-label 精确找发送按钮。
-            // 找不到就不发（宁可漏发，不点分享）。
-            return null;
-          }
-          function fireClick(el){
-            var types=['pointerdown','mousedown','mouseup','click'];
-            for(var i=0;i<types.length;i++){ try{ el.dispatchEvent(new MouseEvent(types[i],{bubbles:true,cancelable:true,view:window})); }catch(e){} }
-            try{ el.click(); }catch(e){}
-          }
-          var s=findSend();
-          if(!s){ console.log('[Injector] clickSend: no-send'); return JSON.stringify({found:false, sent:false}); }
-          var ta=document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], textarea');
-          var preVal=ta?(ta.value||''):'';
-          fireClick(s.b);
-          var sent=false;
-          for(var k=0;k<8;k++){
-            await new Promise(function(r){ setTimeout(r,200); });
-            var ta2=document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], textarea');
-            var nowVal=ta2?(ta2.value||''):'';
-            if(preVal && preVal.length>0 && nowVal.length===0){ sent=true; break; }
-            var sb=document.querySelector('.ds-button--primary, [class*="--primary"]');
-            if(sb && disabledOf(sb)){ sent=true; break; }
-            if(document.querySelector('[class*="stop" i], button[aria-label*="停止"], [class*="abort" i]')){ sent=true; break; }
-          }
-          console.log('[Injector] clickSend -> ' + s.via + ' sent=' + sent);
-          return JSON.stringify({found:true, sent:sent});
-        } catch(e){ return JSON.stringify({found:false, sent:false, err:String(e)}); }
-      })()`);
-      let obj: any;
+    const res = await wc.executeJavaScript(`(async () => {
       try {
-        obj = JSON.parse(res);
-      } catch {
-        obj = res;
-      }
-      // 测试桩直接返回裸布尔，视为确定性结果；真实场景返回 {found, sent} 结构
-      if (typeof obj === 'boolean') return obj;
-      if (obj && obj.sent) return true;
-      last = res;
-      await sleep(150);
+        function disabledOf(b){ return b.disabled===true || b.getAttribute('aria-disabled')==='true' || (b.classList && b.classList.contains('disabled')); }
+        function isToggle(b){ var a=(b.getAttribute('aria-label')||'').toLowerCase(); var t=(b.textContent||'').trim().toLowerCase(); return a.indexOf('思考')>=0||a.indexOf('搜索')>=0||a.indexOf('深度')>=0||a.indexOf('智能')>=0||t.indexOf('思考')>=0||t.indexOf('搜索')>=0; }
+        function getUploadButton(){
+          var fi=document.querySelector('input[type="file"]');
+          if(!fi) return null;
+          var el=fi.parentElement;
+          while(el && el!==document.body){ var tag=el.tagName; if(tag==='BUTTON'||tag==='LABEL'||(el.getAttribute&&el.getAttribute('role')==='button')) return el; if((tag==='DIV'||tag==='SPAN')&&el.children&&Array.prototype.indexOf.call(el.children,fi)>=0&&el.querySelector('svg')!=null) return el; el=el.parentElement; }
+          var p=fi.parentElement;
+          for(var i=0;i<6 && p;i++){ var icons=p.querySelectorAll('svg').length; var btns=p.querySelectorAll('button, [role="button"]').length; if(icons>=3||btns>=3){ var cur=fi.parentElement; while(cur&&cur.parentElement&&cur.parentElement!==p) cur=cur.parentElement; return cur||p; } p=p.parentElement; }
+          return null;
+        }
+        function getFooter(){
+          var best=null,bestSvg=0;
+          var p=(getUploadButton()||document.body).parentElement;
+          for(var i=0;i<8 && p;i++){ var svg=p.querySelectorAll('svg').length; if(svg>bestSvg){bestSvg=svg;best=p;} p=p.parentElement; }
+          return best;
+        }
+        function findSend(){
+          var primary=document.querySelector('.ds-button--primary, [class*="--primary"]');
+          if(primary && !disabledOf(primary)) return {b:primary, via:'primary'};
+          var all=Array.from(document.querySelectorAll('button, [role="button"], .ds-button'));
+          for(var i=0;i<all.length;i++){ var a=(all[i].getAttribute('aria-label')||'').toLowerCase(); if((a.indexOf('发送')>=0||a.indexOf('send')>=0)&&!disabledOf(all[i])) return {b:all[i],via:'label'}; }
+          return null;
+        }
+        function fireClick(el){
+          var types=['pointerdown','mousedown','mouseup'];
+          for(var i=0;i<types.length;i++){ try{ el.dispatchEvent(new MouseEvent(types[i],{bubbles:true,cancelable:true,view:window})); }catch(e){} }
+          try{ el.click(); }catch(e){}
+        }
+        // 轮询等待发送按钮可用（最多 3 秒），找到后只点击一次。
+        // 关键修复：发送按钮在消息发出后会变为「停止」按钮（同为 primary 样式、可用态），
+        // 若点击后验证失败就再次点击，会误点「停止」导致回答刚生成就被终止；
+        // 且文件发送场景下输入框文字为空、附件清空时机不定，验证信号不可靠。
+        // 故命中可用的发送按钮即视为点击成功，不再重复点击。
+        for (var wait = 0; wait < 30; wait++) {
+          await new Promise(function(r){ setTimeout(r, 100); });
+          var s = findSend();
+          if (!s) continue;
+          fireClick(s.b);
+          console.log('[Injector] clickSend -> ' + s.via + ' sent=true (click once)');
+          return JSON.stringify({found:true, sent:true});
+        }
+        console.log('[Injector] clickSend: timeout');
+        return JSON.stringify({found:false, sent:false});
+      } catch(e){ return JSON.stringify({found:false, sent:false, err:String(e)}); }
+    })()`);
+    let obj: any;
+    try {
+      obj = JSON.parse(res);
+    } catch {
+      obj = res;
     }
-    console.log('[Injector] clickSend 失败，末次状态:', last);
+    if (typeof obj === 'boolean') return obj;
+    if (obj && obj.sent) return true;
+    console.log('[Injector] clickSend 失败:', res);
     return false;
   }
 
+  /**
+   * 删除当前对话（B 窗口关闭时自动清理）。
+   * 先尝试调用 DeepSeek API 删除，失败则回退到导航到新对话页。
+   */
+  public async deleteConversation(wc: WebContents): Promise<boolean> {
+    const code = `(async () => {
+      try {
+        // 1) 从 URL 获取对话 ID
+        var m = location.pathname.match(/\\/c\\/([a-f0-9]+)/);
+        if (!m) return 'no_id'; // 不在对话详情页，无需删除
+        var id = m[1];
+        // 2) 尝试 API 删除
+        var res = await fetch('/api/chat/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id })
+        });
+        if (res.ok) return 'api_deleted';
+        // 3) API 失败，回退到导航到新对话
+        location.href = '/';
+        return 'navigate';
+      } catch(e) {
+        try { location.href = '/'; } catch {}
+        return 'error:' + String(e);
+      }
+    })()`;
+    try {
+      const result = String(await wc.executeJavaScript(code) || '');
+      console.log('[Injector] deleteConversation:', result);
+      return result === 'api_deleted' || result === 'navigate';
+    } catch (e) {
+      console.log('[Injector] deleteConversation 异常:', e);
+      return false;
+    }
+  }
 }

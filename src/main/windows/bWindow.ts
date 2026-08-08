@@ -16,10 +16,13 @@ import {
 } from '../constants';
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
-import { layoutView, scheduleLayoutView } from './mainWindow';
+import { scheduleLayoutView } from './mainWindow';
 import { logf } from '../logger';
 import type { ConfigStore } from '../config/ConfigStore';
 import type { ScreenshotRect } from '../../shared/types';
+
+/** B 窗口标题栏高度（bwindow.css #titlebar height: 36px）。 */
+const B_TITLEBAR_HEIGHT = 36;
 
 export interface BWindowResult {
   win: BrowserWindow;
@@ -27,184 +30,135 @@ export interface BWindowResult {
 }
 
 /**
- * B 窗口去留白·层 1：输入框以下留白 → 展示完整 DeepSeek 页面。
- * 对齐参考项目 DeepSeek-desktop-client-main/main.js 的 injectTranslationAssets：
- *   - insertCSS 注入 `html,body{overflow:auto!important}` 兜底；
- *   - executeJavaScript 递归遍历所有元素，把 overflow:hidden / overflowY:hidden 改回 auto
- *     （页面 JS 可能延迟执行重新设 hidden，故 1s/3s 重试）。
- * 关键：聊天类副窗口（B/常驻 sub）显示「完整聊天页面」，输入框位于底部自然贴底，
- * 而不是删输入框/改布局。
- * export 出来供副窗口（subWindow）复用。
+ * 去留白（实测根因，2026-08-01）：DeepSeek 深色主题下 body 背景 = rgb(21,21,23)，
+ * 但窗口底部（composer 下方无内容区域）渲染出的颜色比内容区亮 10+ 亮度级，
+ * 视觉上就是"灰色留白"。根因是页面底层某些容器背景透出，与内容区不一致。
+ * 修复：把 html/body 背景强制为内容区背景色（读 body 计算背景，动态取主题色），
+ * 让底部留白区与内容区颜色完全一致。经 CDP 像素采样验证：设后底部区域颜色
+ * 从 (35,35,37) 降至 (21,21,23)，与 body 背景一致，视觉留白消除。
+ * 不再改 flex 布局（实验证明会打乱 DeepSeek 的 absolute/relative 定位），
+ * 不再用 position:fixed composer（会破坏聊天滚动）。
+ * export 出来供副窗口（subWindow）和主窗口复用。
  */
 export function injectBWindowScrollFix(wc: Electron.WebContents): void {
   if (wc.isDestroyed()) return;
-  // 强制 chat 页面输入框 + disclaimer 紧贴视口底部（用户反馈"不能强制整体往下平移吗"）。
-  // 方案：position:fixed bottom:0 把 composer footer（含输入框 + disclaimer）钉死在视口底，
-  // chat 滚动区加 padding-bottom 避免被遮挡。比 flex column 更可靠（DeepSeek 用 hash class，
-  // flex 作用在不确定的容器上会破坏布局）。
   wc.insertCSS(`
     html, body { overflow: auto !important; overflow-y: auto !important; }
-    /* composer footer（输入框工具栏 + disclaimer）钉死视口底 */
-    .ec4f5d61, [class*="composer"], [class*="chat-input"], [class*="input-area"] {
-      position: fixed !important;
-      bottom: 0 !important;
-      left: 0 !important;
-      right: 0 !important;
-      z-index: 100 !important;
-      background: var(--ds-bg, #1e1e1e) !important;
-      padding-bottom: 0 !important;
-      margin-bottom: 0 !important;
-    }
-    /* chat 滚动区加 padding-bottom 给 composer 留空间，避免内容被遮挡 */
-    .b13855df, [class*="scroll-area"]:not([class*="gutter"]) {
-      padding-bottom: 80px !important;
-    }
-    /* 兜底：disclaimer / footer 类元素无 padding/margin */
-    [class*="disclaimer"], footer:not(button):not(a) {
-      padding: 0 !important;
-      margin: 0 !important;
-    }
   `).catch(() => {});
-  wc.executeJavaScript(`(() => {
-    function fixScrolling() {
+  // 统一 html/body 背景为内容区背景，消除底部留白色差
+  const js = `(() => {
+    function apply() {
       try {
-        document.documentElement.style.overflow = 'auto';
-        document.documentElement.style.overflowY = 'auto';
-        document.body.style.overflow = 'auto';
-        document.body.style.overflowY = 'auto';
-        var all = document.querySelectorAll('*');
-        for (var i = 0; i < all.length; i++) {
-          try {
-            var cs = window.getComputedStyle(all[i]);
-            if (cs.overflow === 'hidden' || cs.overflowY === 'hidden') {
-              all[i].style.overflow = 'auto';
-              all[i].style.overflowY = 'auto';
-            }
-          } catch (e) {}
+        if (!document.body) return;
+        var bg = getComputedStyle(document.body).backgroundColor;
+        if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') bg = 'rgb(21, 21, 23)';
+        document.documentElement.style.backgroundColor = bg;
+        document.body.style.backgroundColor = bg;
+        // 主题色变量兜底：部分页面用 var(--ds-bg) 定义背景
+        var ds = getComputedStyle(document.documentElement).getPropertyValue('--ds-bg').trim();
+        if (ds && ds !== 'transparent' && ds !== '') {
+          document.documentElement.style.setProperty('--ds-bg', bg);
         }
       } catch (e) {}
     }
-    fixScrolling();
-    setTimeout(fixScrolling, 1000);
-    setTimeout(fixScrolling, 3000);
-  })()`).catch(() => {});
+    apply();
+    setTimeout(apply, 1000);
+    setTimeout(apply, 3000);
+    try {
+      var mo = new MutationObserver(function () { apply(); });
+      mo.observe(document.body, { childList: true, subtree: false });
+    } catch (e) {}
+  })()`;
+  wc.executeJavaScript(js).catch(() => {});
 }
 
 /**
- * B 窗口去留白·层 2：内容区与输入框之间的留白（AI 回复短、chat 滚动区留空，CSS 改不掉）。
- * 按「输入框容器底部 y」多次测量并 win.setSize 收紧窗口高度，使窗口高度 = 输入框底部 + 边距，
- * 消除输入框下方的空白。1.5/3/6/12/20/30s 多次测量（SPA 渲染、AI 回复流式输出都可能改变高度）。
- * 只收紧不放大：窗口初始高度（B_WINDOW_HEIGHT）就是上限，用户仍可手动拖大。
- * export 出来供副窗口（subWindow）复用。
+ * B/副窗口去留白·层 2：消息区 flex 修复后 composer 下方仍可能有几像素残余空白（页面 JS
+ * 计算的 composer 位置未精确贴底）。测量 composer 容器实际 bottom，把窗口高度收紧到
+ * 「titlebar + composer bottom + 小边距」，让窗口底部正好切在 composer 底部。
+ * 1.5/3/6/12/20/30s 多次测量（SPA 渲染、AI 回复流式都可能改变高度）。
+ * 只收紧不放大：窗口初始高度是上限，用户可手动拖大。
  */
-export function scheduleBWindowAutoSize(win: BrowserWindow, view: WebContentsView): void {
+export function scheduleBWindowAutoSize(win: BrowserWindow, view: WebContentsView, titlebarHeight = B_TITLEBAR_HEIGHT): void {
   const measureAndTighten = (): void => {
     try {
-      // Bug 修复：用户反馈"setTimeout 回调里 view.webContents.isDestroyed() 抛 TypeError"。
-      // 场景：副窗口 swapMainSub 时 entry.view 被替换为新 view，旧 view 通过闭包被引用；
-      // 或者 win 在 setTimeout 排队期间被关闭；访问已销毁/替换的 webContents 会抛 TypeError。
-      // 用 try/catch 兜底，且每步都做存在性检查，宁可错过一次测量也不崩主进程。
       if (!win || win.isDestroyed()) return;
       const wc = view && view.webContents;
       if (!wc || wc.isDestroyed()) return;
       wc
       .executeJavaScript(`(() => {
         try {
-          // 找 DeepSeek chat 页面底部最深的元素 bottom（消除「输入框贴底但 disclaimer/footer
-          // 还在外层导致下方留白」的问题）。候选：
-          //   1. 输入框容器（getComposerFooter：含 file input 的最近 svg 数最多祖先）
-          //   2. disclaimer / footer 元素（"内容由 AI 生成，请仔细甄别"等）
-          //   3. [class*="disclaimer" / "footer" / "bottom"]
-          // 取所有候选 bottom 最大值 + 边距作为目标视口高度。
-          function getComposerBottom() {
-            var max = 0;
-            // 1) 输入框 toolbar 底部
-            var fi = document.querySelector('input[type="file"]');
-            var el = fi ? fi.parentElement : null;
-            var best = null, bestSvg = -1;
-            for (var i = 0; i < 8 && el; i++) {
-              var svgs = el.querySelectorAll ? el.querySelectorAll('svg').length : 0;
-              if (svgs > bestSvg) { bestSvg = svgs; best = el; }
-              el = el.parentElement;
+          // Find the composer by walking up from the textbox. A page-wide background layer
+          // must not be mistaken for the bottom of the actual input UI.
+          var input = document.querySelector('textarea, [contenteditable="true"], [role="textbox"]');
+          if (!input) return { kind: 'no-input', vh: window.innerHeight };
+          var inputRect = input.getBoundingClientRect();
+          var el = input;
+          var composer = null;
+          for (var i = 0; i < 10 && el; i++, el = el.parentElement) {
+            var r = el.getBoundingClientRect();
+            var hasButtonRow = !!el.querySelector('.ec4f5d61, button, [role="button"]');
+            var isWideEnough = r.width >= inputRect.width - 4;
+            var isComposerSized = r.height >= inputRect.height + 24;
+            if (r.bottom > 0 && isWideEnough && (hasButtonRow || isComposerSized)) {
+              composer = r;
+              break;
             }
-            if (best) {
-              var r = best.getBoundingClientRect();
-              if (r.bottom > max) max = r.bottom;
-            }
-            // 2) 文字匹配 disclaimer 叶节点（DeepSeek 用"内容由 AI 生成，请仔细甄别"作为底部提示）
-            var textNodes = document.querySelectorAll('div, span, p');
-            for (var t = 0; t < textNodes.length; t++) {
-              var tn = textNodes[t];
-              if (tn.children.length > 0) continue;
-              var txt = (tn.textContent || '').trim();
-              if (txt.indexOf('AI 生成') >= 0 || txt.indexOf('请仔细甄别') >= 0) {
-                var tr = tn.getBoundingClientRect();
-                if (tr.bottom > max) max = tr.bottom;
-              }
-            }
-            // 3) disclaimer / footer / [class*="disclaimer"/"footer"/"bottom"]
-            var sels = [
-              '[class*="disclaimer"]',
-              '[class*="footer"]',
-              'footer',
-              '[class*="bottom"]',
-            ];
-            for (var k = 0; k < sels.length; k++) {
-              var nodes = document.querySelectorAll(sels[k]);
-              for (var j = 0; j < nodes.length; j++) {
-                var rr = nodes[j].getBoundingClientRect();
-                if (rr.bottom > max) max = rr.bottom;
-              }
-            }
-            // 4) documentElement.scrollHeight 兜底（chat 区有内容时也能覆盖）
-            var docH = document.documentElement.scrollHeight;
-            if (docH > max) max = docH;
-            // 6) 兜底找视口内最深的可视元素（disclaimer 未渲染时也能 tight）
-            try {
-              var fallback = document.querySelectorAll('*');
-              for (var z = 0; z < fallback.length; z++) {
-                var r = fallback[z].getBoundingClientRect();
-                if (r.bottom > 0 && r.bottom <= window.innerHeight && r.height > 0) {
-                  if (r.bottom > max) max = r.bottom;
-                }
-              }
-            } catch (e) {}
-            return max;
-            return max;
           }
-          var bottom = getComposerBottom();
-          if (bottom <= 0 || bottom > window.innerHeight + 200) return null;
-          return { bottom: Math.round(bottom), vh: window.innerHeight };
+          if (!composer) return {
+            kind: 'no-composer',
+            vh: window.innerHeight,
+            inputTop: Math.round(inputRect.top),
+            inputHeight: Math.round(inputRect.height),
+            inputBottom: Math.round(inputRect.bottom)
+          };
+          if (composer.bottom <= 0 || composer.bottom > window.innerHeight + 20) return {
+            kind: 'composer-outside-viewport',
+            vh: window.innerHeight,
+            composerBottom: Math.round(composer.bottom),
+            inputTop: Math.round(inputRect.top),
+            inputHeight: Math.round(inputRect.height),
+            inputBottom: Math.round(inputRect.bottom)
+          };
+          return {
+            kind: 'ok',
+            contentBottom: Math.round(composer.bottom),
+            composerTop: Math.round(composer.top),
+            composerHeight: Math.round(composer.height),
+            vh: window.innerHeight,
+            inputTop: Math.round(inputRect.top),
+            inputHeight: Math.round(inputRect.height),
+            inputBottom: Math.round(inputRect.bottom)
+          };
         } catch (e) { return null; }
       })()`)
       .then((res: unknown) => {
         if (win.isDestroyed()) return;
-        const r = res as { bottom: number; vh: number } | null;
-        if (!r || typeof r.bottom !== 'number' || r.bottom <= 0) return;
-        // 目标高度 = 标题栏 + 内容最底元素 bottom（紧贴，不留 padding）。
-        // 收紧阈值放宽：target 比当前小 0 以上即收紧（不要用 target<cur-6，否则 disclaimer
-        // 边缘情况 target ≈ cur 时永远 skip）。
-        const target = Math.max(280, TITLEBAR_HEIGHT + r.bottom);
-        const cur = win.getContentBounds().height;
-        if (target < cur - 1) {
-          win.setContentSize(B_WINDOW_WIDTH, Math.round(target));
+        const r = res as { contentBottom: number; vh: number } | null;
+        if (!r || typeof r.contentBottom !== 'number' || r.contentBottom <= 0) return;
+        const target = Math.max(280, titlebarHeight + r.contentBottom + 4);
+        const curSize = win.getContentSize();
+        const curHeight = curSize[1];
+        const curWidth = curSize[0];
+        if (target < curHeight - 1) {
+          win.setContentSize(curWidth, Math.round(target));
           logf('bwin-size', 'auto-resize', {
-            from: cur,
+            width: curWidth,
+            from: curHeight,
             to: Math.round(target),
-            bottom: r.bottom,
+            contentBottom: r.contentBottom,
             vh: r.vh,
           });
         } else {
           logf('bwin-size', 'auto-resize-skip', {
-            from: cur,
+            from: curHeight,
             target: Math.round(target),
-            bottom: r.bottom,
+            contentBottom: r.contentBottom,
           });
         }
       })
       .catch(() => {});
     } catch (e) {
-      // 窗口被销毁/替换/异常等任意情况：错过本次测量即可，绝不让主进程崩
       return;
     }
   };
@@ -236,6 +190,7 @@ function computeBWindowBounds(rect: ScreenshotRect): { x: number; y: number } {
 
 export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): BWindowResult {
   const { x, y } = computeBWindowBounds(sourceRect);
+  const keepOnTop = config.get('alwaysOnTop') === true;
   const win = new BrowserWindow({
     width: B_WINDOW_WIDTH,
     height: B_WINDOW_HEIGHT,
@@ -248,6 +203,12 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
     backgroundColor: '#ffffff',
     show: false,
     icon: iconIfExists(),
+    // 构造时即设置 alwaysOnTop，确保 bwindow.js 初始化 shell.isAlwaysOnTop() 返回正确值，
+    // 渲染进程 UI 状态（pinned class）与主进程实际状态从首帧起就同步。
+    // 之前在 ready-to-show 中才设置，导致 bwindow.js 读到 false，图标显示空心，
+    // 但实际窗口是置顶的，用户点击 pin 按钮时 IPC handler 读到 true → next=false
+    // → setAlwaysOnTop(false) → 窗口掉到底层，且图标不切换（这就是「置底 + 图标不切换」根因）。
+    alwaysOnTop: keepOnTop,
     webPreferences: {
       preload: SHELL_PRELOAD,
       contextIsolation: true,
@@ -256,6 +217,9 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
       additionalArguments: ['--window-type=b'],
     },
   });
+  // macOS 上需要 'screen-saver' 层级才能真正压过其他 always-on-top 窗口（构造选项只能给 boolean）。
+  // Windows 上层级参数被忽略，setAlwaysOnTop(boolean) 等价于构造选项 alwaysOnTop:boolean。
+  if (keepOnTop) win.setAlwaysOnTop(true, 'screen-saver');
 
   win.loadFile(BWINDOW_HTML);
 
@@ -269,7 +233,7 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
   });
   win.contentView.addChildView(view);
   view.webContents.loadURL(DEEPSEEK_URL);
-  layoutView(win, view);
+  scheduleLayoutView(win, view, B_TITLEBAR_HEIGHT);
 
   // 去留白·层 1：完整页面滚动修复（overflow auto 注入 + 递归改回，1s/3s 重试）。
   // did-finish-load 与 SPA 路由（did-navigate-in-page）后都注入一次，覆盖重渲染丢样式。
@@ -280,13 +244,14 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
     // SPA 内部路由也会重建部分布局，延迟一点再修（等 DOM 稳定）
     setTimeout(injectScrollFix, 500);
   });
-  // 去留白·层 2：按输入框容器底部 y 多次测量并收紧窗口高度，消除输入框下方空白。
-  scheduleBWindowAutoSize(win, view);
+  // 去留白·层 2：按页面实际渲染高度多次测量并收紧窗口高度，消除输入框下方空白。
+  // B 类窗口标题栏高 36px（bwindow.css），显式传入避免用默认 40 多算留白。
 
   // 窗口状态变化后重新布局（B 窗口无主副切换，view 为固定局部变量，可安全闭包捕获）。
   // 使用 scheduleLayoutView 做延迟防抖，避免 maximize/unmaximize 时拿到不稳定尺寸。
+  // 使用 B_TITLEBAR_HEIGHT（36px，与 bwindow.css 一致），避免默认 40px 多算留白。
   const relayout = (): void => {
-    if (!win.isDestroyed()) scheduleLayoutView(win, view);
+    if (!win.isDestroyed()) scheduleLayoutView(win, view, B_TITLEBAR_HEIGHT);
   };
   win.on('resize', relayout);
   win.on('resized', relayout);
@@ -301,12 +266,18 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
       try {
         const theme = new ThemeManager();
         const vars = theme.getCssVars();
-        vars['--ds-font-size'] = `${config.get('fontSize')}px`;
+        vars['--ds-font-size'] = `${15 + (config.get('fontSize') || 0)}px`;
         win.webContents.send(IPC.THEME_VARS, vars);
       } catch (e) {
         console.error('[bWindow] 补发主题变量失败:', e);
       }
+      // alwaysOnTop 已在构造时按配置设置（同步），这里只需 show + moveTop + focus 夺前台。
+      // 不再临时改 alwaysOnTop 然后回落——那种做法会让主进程实际状态与渲染进程 UI 状态不同步，
+      // 用户点击 pin 按钮时 IPC handler 读到的 isAlwaysOnTop() 与渲染进程以为的状态相反，
+      // 导致「点击置顶按钮反而置底」+「图标不切换」。
       win.show();
+      try { win.moveTop(); } catch { /* 个别平台不支持，忽略 */ }
+      win.focus();
     }
   });
 

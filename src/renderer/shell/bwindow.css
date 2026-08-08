@@ -24,8 +24,7 @@ html, body {
   background: var(--ds-tb-bg, #f3f3f3);
 }
 
-.tb-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.tb-logo { font-weight: 600; letter-spacing: 0.3px; }
+.tb-left { display: flex; align-items: stretch; height: 100%; gap: 10px; min-width: 0; }
 
 .tb-right { display: flex; align-items: stretch; gap: 4px; height: 100%; }
 
@@ -39,7 +38,7 @@ html, body {
   min-width: 32px;
   padding: 0 10px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -47,3 +46,52 @@ html, body {
 }
 .tb-btn:hover { background: var(--ds-border, #e0e0e0); }
 .tb-btn:active { transform: translateY(1px); }
+
+/* 标题栏内联 SVG 图标（与 titlebar.css 一致）：默认描边空心风格，深色主题下 currentColor 为白色。
+   缺失此规则时 SVG <path> 走浏览器默认 fill:black，导致置顶按钮图标打开时是黑色、
+   且切换 pinned 状态时填色变化不明显（与副窗口表现不一致）。 */
+.tb-btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 置顶按钮状态：置顶时图标实心填充（与 titlebar.css 一致，描边→实心的视觉切换明显） */
+.tb-btn-pin.pinned svg {
+  fill: currentColor;
+}
+
+/* 翻译语言下拉框（标题栏左侧，替换「结果」文字），仅截图翻译时显示。
+   父级 .tb-left 已改为 align-items:stretch + height:100%，子元素可撑满 36px 标题栏。
+   height:100% + align-self:stretch 确保 select 上下顶格，与右侧按钮视觉一致。 */
+.tb-lang-select {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 100%;
+  align-self: stretch;
+  font-size: 13px;
+  padding: 0 6px;
+  text-align: center;
+  text-align-last: center;
+  border: 1px solid var(--ds-border, #ccc);
+  border-radius: 4px;
+  background: var(--ds-bg, #fff);
+  color: var(--ds-fg, #333);
+  cursor: pointer;
+  outline: none;
+  max-width: 130px;
+  box-sizing: border-box;
+}
+.tb-lang-select:hover {
+  border-color: var(--ds-accent, #007aff);
+}
+.tb-lang-select:focus {
+  border-color: var(--ds-accent, #007aff);
+  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.2);
+}

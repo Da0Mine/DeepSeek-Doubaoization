@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>发现新版本</title>
+    <link rel="stylesheet" href="updatePrompt.css" />
+  </head>
+  <body>
+    <div id="up-mask"></div>
+    <div id="up-card">
+      <div class="up-head">
+        <span class="up-badge">新版本</span>
+        <span id="up-version" class="up-version"></span>
+      </div>
+      <div id="up-notes" class="up-notes"></div>
+      <div id="up-progress" class="up-progress" style="display: none;">
+        <div class="up-progress-track"><div id="up-progress-fill" class="up-progress-fill"></div></div>
+        <div id="up-progress-text" class="up-progress-text"></div>
+      </div>
+      <div id="up-actions" class="up-actions">
+        <button id="up-later" class="up-btn">暂不更新</button>
+        <button id="up-install" class="up-btn up-btn-primary">立即更新</button>
+      </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script src="updatePrompt.js"></script>
+  </body>
+</html>

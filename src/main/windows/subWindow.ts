@@ -20,7 +20,7 @@ import { ThemeManager } from '../theme/ThemeManager';
 import type { ConfigStore } from '../config/ConfigStore';
 import type { WindowType } from '../../shared/types';
 import { layoutView, createChatView } from './mainWindow';
-import { injectBWindowScrollFix, scheduleBWindowAutoSize } from './bWindow';
+import { injectBWindowScrollFix } from './bWindow';
 
 export interface SubWindowResult {
   win: BrowserWindow;
@@ -91,7 +91,6 @@ export function createSubWindow(
       // SPA 内部路由可能重建布局，延迟一点再修（等 DOM 稳定）
       setTimeout(injectScrollFix, 500);
     });
-    scheduleBWindowAutoSize(win, view);
   }
 
   // 关闭行为：closeToTray 且非真正退出时隐藏；正在退出则放行 close。
@@ -103,8 +102,11 @@ export function createSubWindow(
     }
   });
 
-  if (config.get('alwaysOnTop') || type === 'vision') {
-    win.setAlwaysOnTop(true);
+  // 置顶严格按用户配置走（vision 等特殊类型不再硬编码置顶）。
+  if (config.get('alwaysOnTop') === true) {
+    win.setAlwaysOnTop(true, 'screen-saver');
+    try { win.moveTop(); } catch { /* 忽略 */ }
+    win.focus();
   }
 
   win.once('ready-to-show', () => {
@@ -113,7 +115,7 @@ export function createSubWindow(
       try {
         const theme = new ThemeManager();
         const vars = theme.getCssVars();
-        vars['--ds-font-size'] = `${config.get('fontSize')}px`;
+        vars['--ds-font-size'] = `${15 + (config.get('fontSize') || 0)}px`;
         win.webContents.send(IPC.THEME_VARS, vars);
       } catch (e) {
         console.error('[subWindow] 补发主题变量失败:', e);

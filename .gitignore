@@ -2,6 +2,7 @@
 node_modules/
 dist/
 release/
+release-build/
 out/
 
 # 日志与缓存
@@ -11,6 +12,7 @@ npm-debug.log*
 # 编辑器
 .vscode/
 .idea/
+.trae/
 .DS_Store
 
 # 本地配置（用户数据由 app.getPath('userData') 管理，不入库）
@@ -30,4 +32,13 @@ debug-*.md
 # 自检日志（主理人调试用，确认修复后删除 .debug-autolog 即可关闭）
 .debug-autolog
 logs/
+
+# 内部文件 / 调试产物（不进公开仓库）
+待实现功能*.md
+*.log
+codex-reference.png
+desktop-main.png
+screen-dump.png
+preview-redw.html
+desktop-main.html
 

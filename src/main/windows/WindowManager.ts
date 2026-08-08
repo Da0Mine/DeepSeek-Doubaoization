@@ -11,8 +11,10 @@ import { WEBVIEW_PRELOAD, DEEPSEEK_URL } from '../constants';
 import { createMainWindow, layoutView, createChatView } from './mainWindow';
 import { createSubWindow } from './subWindow';
 import { createBWindow as createBWindowFactory } from './bWindow';
+import { IPC } from '../ipc/channels';
 import { applyThinkCollapse } from '../inject/thinkCollapse';
 import type { Injector } from '../inject/Injector';
+import type { ScreenShareManager } from '../screenShare/ScreenShareManager';
 import { logf } from '../logger';
 
 /** 调试日志开关：项目根目录存在 .debug-autolog 时，终端才打印注入脚本的诊断 dump
@@ -51,6 +53,8 @@ export class WindowManager {
   private lastSendNewId: string | null = null;
   /** 截图期间被隐藏的窗口及其原可见性，用于恢复。 */
   private screenshotHidden: { id: string; visible: boolean }[] = [];
+  /** B 窗口创建前主窗口是否可见：B 窗口关闭后按此恢复主窗口（截图呼出 B 窗口会最小化/隐藏主窗口）。 */
+  private mainVisibleBeforeB = false;
   /** 对话当前是否在副窗口（true=在副窗口，false=在主窗口）。驱动「主副切换」的隐藏方向。 */
   private conversationInSub = false;
   /** 正在执行模型切换的 webContents id 集合：防止同一会话并发多次点击 radio 互相打断（问题 1 根因）。 */
@@ -59,8 +63,11 @@ export class WindowManager {
   private lastDefaultModelAt = new Map<number, number>();
   /** 各 webContents 上次记录的 chat URL：用于检测「从历史会话切回新建对话」的路由方向变化（Bug1 修复）。 */
   private lastUrlByWc = new Map<number, string>();
-  private onWebViewReady: ((wc: WebContents) => void) | null = null;
+  /** 各 webContents 上次同步「深度思考/智能搜索」开关的时间戳：去抖，避免同一次会话变化重复执行。 */
+  private lastToggleSyncAt = new Map<number, number>();
+  private onWebViewReady: ((wc: WebContents, type: WindowType) => void) | null = null;
   private injector: Injector | null = null;
+  private screenShare: ScreenShareManager | null = null;
   /** 正在退出标志：置 true 后所有窗口的 close 拦截放行，使 app.quit() 能真正关闭窗口。 */
   private quitting = false;
   /** 已接线 webContents 集合：防止 attachWebViewReady 被重复调用时叠加事件监听器（内存泄漏）。 */
@@ -73,13 +80,18 @@ export class WindowManager {
     this.injector = injector;
   }
 
+  /** 共享屏幕管理器 setter（用于主副窗口切换时重新绑定拦截器）。 */
+  public setScreenShare(screenShare: ScreenShareManager): void {
+    this.screenShare = screenShare;
+  }
+
   /** 标记应用正在退出（托盘退出前调用），放行窗口 close 拦截。 */
   public setQuitting(v: boolean): void {
     this.quitting = v;
   }
 
   /** 设置网页对话视图就绪回调（用于在 chat 视图注入剪刀按钮等）。 */
-  public setWebViewReadyHook(fn: (wc: WebContents) => void): void {
+  public setWebViewReadyHook(fn: (wc: WebContents, type: WindowType) => void): void {
     this.onWebViewReady = fn;
   }
 
@@ -136,7 +148,7 @@ export class WindowManager {
     // MaxListenersExceededWarning（潜在的 EventEmitter 内存泄漏）。
     if (view.webContents && this.wiredWebContents.has(view.webContents)) return;
     if (view.webContents) this.wiredWebContents.add(view.webContents);
-    const fire = () => this.onWebViewReady?.(view.webContents);
+    const fire = () => this.onWebViewReady?.(view.webContents, type);
     const applyDefaultMode = (): Promise<void> => this.applyDefaultModelMode(view.webContents);
     /**
      * URL 方向检测（Bug1 修复）：DeepSeek 是 SPA，点「新建对话」多走 pushState（did-navigate-in-page），
@@ -156,14 +168,24 @@ export class WindowManager {
         // 关键修正：DeepSeek 点「新建对话」后 URL 实际回到根域名（如 https://chat.deepseek.com/），
         // 并不带 /a/chat 后缀，故「新建对话」应判定为「当前 URL 不是历史会话」而非「以 /a/chat 结尾」。
         // 用 curHasId = 是否带会话 id 来定义：从历史会话(prevHasId)回到无 id 页面(curHasId=false)即触发。
-        const curHasId = /\/a\/chat\/.+/.test(url.split('#')[0]);
+        const curNoHash = url.split('#')[0];
+        const curHasId = /\/a\/chat\/.+/.test(curNoHash);
+        // 会话 id 片段：用于检测「新建对话 / 切换历史会话 / 历史→新建」等任意会话变化
+        const prevId = (prev.match(/\/a\/chat\/([^/?#]+)/) || [])[1] || null;
+        const curId = (curNoHash.match(/\/a\/chat\/([^/?#]+)/) || [])[1] || null;
+        const idChanged = prevId !== curId;
         logf(
           'convChange',
-          `prev=${prev || '(空)'} cur=${url} prevHasId=${prevHasId} curHasId=${curHasId} triggered=${prevHasId && !curHasId}`
+          `prev=${prev || '(空)'} cur=${url} prevHasId=${prevHasId} curHasId=${curHasId} idChanged=${idChanged}`
         );
+        // 任何会话变化（新建 / 切换历史会话）都按设置重新同步「深度思考 / 智能搜索」开关，
+        // 覆盖网页记住的手动开关状态（B 类窗口 applyDefaultModel=false 不参与）。
+        if (idChanged && applyDefaultModel) {
+          this.syncChatToggles(view.webContents).catch(() => {});
+        }
         if (prevHasId && !curHasId) {
           logf('convChange', '检测到「历史会话 → 新建对话」路由变化，应用默认模型模式');
-          applyDefaultMode().catch(() => {});
+          if (applyDefaultModel) applyDefaultMode().catch(() => {});
         }
         this.lastUrlByWc.set(wcId, url);
       } catch {
@@ -172,10 +194,13 @@ export class WindowManager {
     };
     view.webContents.on('did-finish-load', () => {
       fire();
+      // 全局字号：对网页视图应用缩放（同步网页字体大小）
+      this.applyFontZoom(view.webContents, this.config.get('fontSize') || 0);
       // 视图就绪后按当前设置应用折叠思考过程（I-新增：默认折叠模型思考）
       applyThinkCollapse(view.webContents, this.config.get('collapseThinking'));
-      // 新建对话窗口自动应用默认模型模式（简单模式无需处理）
-      applyDefaultMode().catch(() => {});
+      // 新建对话窗口自动应用默认模型模式（B类窗口跳过）
+      if (applyDefaultModel) applyDefaultMode().catch(() => {});
+      injectAnswerWatch();
       detectConversationChange();
     });
     view.webContents.on('did-navigate-in-page', () => {
@@ -186,11 +211,13 @@ export class WindowManager {
     });
     view.webContents.on('did-navigate', () => {
       fire();
+      this.applyFontZoom(view.webContents, this.config.get('fontSize') || 0);
       applyThinkCollapse(view.webContents, this.config.get('collapseThinking'));
-      applyDefaultMode().catch(() => {});
+      if (applyDefaultModel) applyDefaultMode().catch(() => {});
       detectConversationChange();
       // 完整导航会重建 document，页内点击监听可能丢失，重新注入一次（flag 防重复）
       injectWatcher();
+      injectAnswerWatch();
     });
     // 注入「新建对话」监听（Bug2 修复）：点击新建对话后由页面经 IPC 通知主进程自动切换默认模型。
     // 仅对带模型选择器的对话窗口（main/sub/vision）注入；translate/explain/extract/B 窗口、
@@ -211,7 +238,16 @@ export class WindowManager {
           .catch(() => logf('inject', `注入新建对话监听失败 wcId=${view.webContents.id}`));
       }
     };
+    // 注入「回答生成状态」监听（回答完成提醒功能）：did-finish-load / did-navigate 页面重建后均需重注入
+    const injectAnswerWatch = (): void => {
+      if (!this.injector) return;
+      this.injector
+        .injectAnswerWatcher(view.webContents)
+        .then((ok) => logf('inject', `注入回答状态监听 wcId=${view.webContents.id} ok=${ok} type=${type}`))
+        .catch(() => logf('inject', `注入回答状态监听失败 wcId=${view.webContents.id}`));
+    };
     injectWatcher();
+    injectAnswerWatch();
     this.attachWebConsole(view);
   }
 
@@ -247,8 +283,10 @@ export class WindowManager {
     }
     const mode = this.config.get('defaultModelMode') as DefaultModelMode;
     if (mode === 'simple') {
-      logf('applyDefault', `跳过：默认模式为 simple（页面默认，无需切换） id=${id} type=${entryType}`);
-      return; // 简单模式是页面默认，无需切换
+      // 简单模式是页面默认，无需切换模型；但「深度思考 / 智能搜索」仍按设置同步
+      logf('applyDefault', `跳过模型切换（simple），同步深度思考/智能搜索 id=${id} type=${entryType}`);
+      this.syncChatToggles(wc).catch(() => {});
+      return;
     }
 
     const wcId = wc.id;
@@ -285,11 +323,39 @@ export class WindowManager {
     }
   }
 
+  /**
+   * 按设置同步对话页的「深度思考 / 智能搜索」开关（true=开启，false=关闭）。
+   * 每次会话切换 / 新建对话时调用，强制覆盖网页记住的手动开关状态，
+   * 使设置面板的默认值真正生效。自带 400ms 去抖，避免同一次事件流重复执行。
+   * B 类临时窗口 / 截图 sendNew 窗口不参与（其开关由各自流程控制）。
+   */
+  public async syncChatToggles(wc: WebContents): Promise<void> {
+    if (!this.injector || !wc || wc.isDestroyed()) return;
+    const id = this.findIdByWebContents(wc);
+    const entry = id ? this.entries.get(id) : undefined;
+    if (entry && (entry.transient || entry.skipDefaultModel)) return;
+
+    const wcId = wc.id;
+    const now = Date.now();
+    const last = this.lastToggleSyncAt.get(wcId) ?? 0;
+    if (now - last < 400) {
+      logf('syncToggle', `去抖跳过 wcId=${wcId} 距上次 ${now - last}ms`);
+      return;
+    }
+    this.lastToggleSyncAt.set(wcId, now);
+    const deepThink = this.config.get('deepThinkEnabled') === true;
+    const smartSearch = this.config.get('smartSearchEnabled') === true;
+    await this.injector.setDeepThink(wc, deepThink).catch(() => {});
+    await this.injector.setSmartSearch(wc, smartSearch).catch(() => {});
+    logf('syncToggle', `同步开关 wcId=${wcId} deepThink=${deepThink} smartSearch=${smartSearch}`);
+  }
+
   /** 返回所有对话 webContents（用于配置变更时批量应用副作用，如折叠思考）。 */
   public getAllChatWebContents(): WebContents[] {
     const list: WebContents[] = [];
     for (const entry of this.entries.values()) {
-      if (entry.view && !entry.view.webContents.isDestroyed()) {
+      // 排除 B 类临时窗口（transient），其对话设置不应受用户配置影响
+      if (entry.view && !entry.view.webContents.isDestroyed() && !entry.transient) {
         list.push(entry.view.webContents);
       }
     }
@@ -325,26 +391,36 @@ export class WindowManager {
     // 像素。但主内容（_7780f2e）使用 absolute 定位在 y=204，结果被推到 y=8565。视口（0-731）只能
     // 看到中间空 + 底部 fixed 输入框，看起来就像"渲染到下面去了"。
     //
-    // 修复：让 sidebar 容器锁死在视口高度内，内部 .ds-scroll-area 保持 overflow-y:auto 自己滚动。
-    // 这样 html 高度被限制在 ~731 视口高度，主内容保持在 y=204。
-    // 同时隐藏 webkit 滚动条避免窗口上出现超长滚动条。
+    // 修复：仅把侧栏内部滚动区（.ds-scroll-area）上限锁在视口高度内，由其自己滚动。
+    // 注意：不能像旧方案那样把整个 sidebar 容器焊死为 height:100vh + overflow:hidden（!important），
+    // 那会破坏 DeepSeek 原生侧栏开关——宽屏下原生开关随容器一起失效/失踪（官网正常、我们这没有）。
+    // 只限滚动区即可让容器高度受内容约束、页面保持有界，且不碰原生按钮。
     const HIDE_SCROLLBAR_CSS = `
-      /* 隐藏 webContents 主滚动条（垂直+水平） */
+      /* Hide native scrollbars while keeping the chat viewport bounded. */
       ::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
       ::-webkit-scrollbar-thumb { background: transparent !important; }
       ::-webkit-scrollbar-track { background: transparent !important; }
-      /* 根因修复：限制 sidebar 容器在视口高度内（DeepSeek 主页 sidebar 内部 17000+ px 历史列表会撑高整页） */
-      .c3ecdb44,
-      .dc04ec1d,
-      .b8812f16.a2f3d50e {
-        max-height: 100vh !important;
-        overflow: hidden !important;
-      }
-      /* sidebar 内部滚动区域允许 vertical 滚动（高度不超过视口） */
-      .ds-scroll-area,
-      [class*="ds-scroll-area"] {
+
+      /* The history sidebar can grow to thousands of pixels and stretch the root flex row.
+         Cap only the inner scroll area so the page stays bounded without locking the sidebar
+         container (which breaks DeepSeek's native sidebar toggle at desktop widths). */
+      .dc04ec1d .ds-scroll-area,
+      .b8812f16.a2f3d50e .ds-scroll-area {
         max-height: calc(100vh - 134px) !important;
         overflow-y: auto !important;
+      }
+
+      /* 屏蔽 DeepSeek 页面自带的蓝色键盘聚焦/引导圆环：
+         页面获得焦点时会在左上角搜索按钮等元素上短暂套一个蓝色圆环（ds-button__background::after
+         的 box-shadow），启动时尤其明显（约 2s 出现、随后自动消失），用户要求去掉。
+         本应用以鼠标操作为主，隐藏聚焦环不影响使用。 */
+      .ds-focus-ring,
+      .ds-button__background::after,
+      .ds-button__icon::after {
+        box-shadow: none !important;
+      }
+      .ds-focus-ring {
+        opacity: 0 !important;
       }
     `;
     // 每次页面加载完成后重新注入（DeepSeek 是 SPA，路由切换可能丢失样式）
@@ -533,8 +609,44 @@ export class WindowManager {
     this.entries.set(id, { id, type: 'sub', win, view, role: 'sub', transient: true });
     this.trackActive(win, id);
     this.trackClosed(win, id);
+    // 可选：关闭 B 窗口时自动删除对话记录
+    if (this.config.get('cleanBWindowHistory') && this.injector) {
+      const wc = view.webContents;
+      win.on('close', (e) => {
+        if (wc.isDestroyed()) return;
+        e.preventDefault();
+        win.hide();
+        this.injector!.deleteConversation(wc).catch(() => {}).finally(() => {
+          if (!win.isDestroyed()) win.destroy();
+        });
+      });
+    }
     this.attachWebViewReady(view, 'sub', false);
+    // B 类窗口：页面渲染后需要显式关闭联网搜索和深度思考（网页默认开启）
+    // 使用 did-finish-load 配合 retry，因为 React 渲染可能延迟
+    const disableBWindowToggles = async (): Promise<void> => {
+      if (!this.injector) return;
+      for (let i = 0; i < 30; i++) {
+        if (view.webContents.isDestroyed()) return;
+        const smartOk = await this.injector.setSmartSearch(view.webContents, false).catch(() => false);
+        const deepOk = await this.injector.setDeepThink(view.webContents, false).catch(() => false);
+        if (smartOk && deepOk) return;
+        await new Promise(r => setTimeout(r, 500));
+      }
+    };
+    view.webContents.on('did-finish-load', () => { disableBWindowToggles(); });
     this.currentBId = id;
+    // 截图呼出 B 窗口时最小化主窗口，避免主窗口遮挡 B 窗口。
+    // 放在 createBWindow 内而非 handler 中，确保所有途径创建 B 窗口都触发。
+    this.minimizeMainWindow();
+    // B 窗口关闭后恢复主窗口（截图时主窗口被最小化/隐藏，关闭后应还原，避免主窗口一直处于隐藏/底层）。
+    win.on('closed', () => {
+      if (!this.mainVisibleBeforeB) return;
+      const main = this.entries.get('main');
+      if (main && main.win && !main.win.isDestroyed() && !main.win.isVisible()) {
+        this.showMainWindowRaised();
+      }
+    });
     return id;
   }
 
@@ -544,8 +656,9 @@ export class WindowManager {
     if (this.currentSubId) {
       const e = this.entries.get(this.currentSubId);
       if (e && !e.win.isDestroyed()) {
-        e.win.setAlwaysOnTop(keepOnTop);
+        e.win.setAlwaysOnTop(keepOnTop, keepOnTop ? 'screen-saver' : 'normal');
         e.win.show();
+        try { e.win.moveTop(); } catch { /* 个别平台不支持，忽略 */ }
         e.win.focus();
         return this.currentSubId;
       }
@@ -557,7 +670,7 @@ export class WindowManager {
     const sub = this.entries.get(id);
     if (main && sub && !main.win.isDestroyed() && !sub.win.isDestroyed()) {
       this.placeSubWindowRight(sub.win, main.win);
-      sub.win.setAlwaysOnTop(keepOnTop);
+      sub.win.setAlwaysOnTop(keepOnTop, keepOnTop ? 'screen-saver' : 'normal');
     }
     return id;
   }
@@ -580,8 +693,9 @@ export class WindowManager {
         }
         // 不可见：重新定位到右侧再显示（避免停留上次被移走的异常位置）
         this.placeSubWindowRight(e.win);
-        e.win.setAlwaysOnTop(keepOnTop);
+        e.win.setAlwaysOnTop(keepOnTop, keepOnTop ? 'screen-saver' : 'normal');
         e.win.show();
+        try { e.win.moveTop(); } catch { /* 忽略 */ }
         e.win.focus();
         return this.currentSubId;
       }
@@ -592,7 +706,7 @@ export class WindowManager {
     const sub = this.entries.get(id);
     if (sub && !sub.win.isDestroyed()) {
       this.placeSubWindowRight(sub.win);
-      sub.win.setAlwaysOnTop(keepOnTop);
+      sub.win.setAlwaysOnTop(keepOnTop, keepOnTop ? 'screen-saver' : 'normal');
     }
     return id;
   }
@@ -646,12 +760,19 @@ export class WindowManager {
       sub.win.focus();
       this.conversationInSub = true;
     } else {
-      // 对话搬回主窗口：隐藏副窗口，显示主窗口
+      // 对话搬回主窗口：隐藏副窗口，显示主窗口并可靠置前（主窗口永不置顶，避免 Windows Z 序置底）
       sub.win.hide();
-      main.win.show();
-      main.win.focus();
+      this.showMainWindowRaised();
       this.conversationInSub = false;
     }
+    
+    // 主副窗口切换后，如果共享屏幕模式激活，重新绑定拦截器到新活跃窗口
+    if (this.screenShare && this.screenShare.isActive()) {
+      setTimeout(() => {
+        this.screenShare?.rebindInterceptor();
+      }, 500);
+    }
+    
     return true;
   }
 
@@ -731,6 +852,53 @@ export class WindowManager {
     return this.getActiveWebContents();
   }
 
+  /**
+   * 最小化主窗口（截图呼出 B 窗口时调用，避免主窗口遮挡 B 窗口）。
+   * 同时从 screenshotHidden 中移除主窗口，防止 restoreChatWindowsAfterScreenshot()
+   * 在 overlay 关闭后异步恢复主窗口（见 ScreenshotManager 的 onOverlayClosed → restoreChatWindowsAfterScreenshot 注册）。
+   * 先用 entries 找，兜底用 BrowserWindow.getAllWindows 扫一遍。
+   * 某些平台 minimize() 不生效时 fallback 到 hide()，确保主窗口消失。
+   */
+  public minimizeMainWindow(): void {
+    // 从截图恢复列表中移除主窗口，防止 overlay 关闭后 restoreChatWindowsAfterScreenshot 恢复它
+    this.screenshotHidden = this.screenshotHidden.filter((rec) => rec.id !== 'main');
+
+    const main = this.entries.get('main');
+    if (main && !main.win.isDestroyed()) {
+      // 仅当主窗口当前可见才记为「B 窗口关闭后需要恢复」（重复调用不覆盖标记）
+      if (main.win.isVisible()) this.mainVisibleBeforeB = true;
+      main.win.minimize();
+      // minimize 后窗口若仍可见（某些窗口管理器/OS 不响应），fallback 到 hide
+      if (main.win.isVisible()) {
+        main.win.hide();
+      }
+      return;
+    }
+    // 兜底：遍历所有窗口，按尺寸判断主窗口（主窗口宽屏 800+，副窗口 ~400）
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.isDestroyed()) continue;
+      const [width] = w.getSize();
+      if (width >= 800) {
+        w.minimize();
+        if (w.isVisible()) w.hide();
+        return;
+      }
+    }
+  }
+
+  /**
+   * 设置当前 B 窗口的翻译语言，显示语言栏，调整视图布局。
+   * 由 handler 在截图翻译动作创建 B 窗口后调用。
+   */
+  public sendTranslateSetLang(lang: string): void {
+    if (!this.currentBId) return;
+    const e = this.entries.get(this.currentBId);
+    if (!e || e.win.isDestroyed()) return;
+    // 向 B 窗口外壳发送 TRANSLATE_SET_LANG → 显示语言下拉框 + 设置选中语言
+    // 下拉框在标题栏内（36px），无需调整视图偏移
+    e.win.webContents.send(IPC.TRANSLATE_SET_LANG, lang);
+  }
+
   /** 按 id 取窗口内嵌对话视图的 webContents（用于「发送到新对话」取新建副窗口视图）。 */
   public getViewWebContents(id: string): WebContents | null {
     const e = this.entries.get(id);
@@ -767,6 +935,8 @@ export class WindowManager {
       setTimeout(() => {
         if (e.win.isDestroyed()) return;
         e.win.setAlwaysOnTop(keepOnTop, keepOnTop ? 'screen-saver' : 'normal');
+        // 非置顶时 setAlwaysOnTop(false) 会把窗口移到 Z 序最底，双重切换强制复位
+        if (!keepOnTop) this.bringToFront(e.win);
       }, 1500);
     }
   }
@@ -809,6 +979,27 @@ export class WindowManager {
   }
 
   /**
+   * 创建「问问 AI」说明书专用 B 类临时窗口：完整复刻 B 类窗口逻辑
+   * （用完即关、关闭时按 cleanBWindowHistory 设置自动删除该对话记录、ready-to-show 即显示），
+   * 位置在屏幕右侧。
+   */
+  public createManualAskBWindow(): string | null {
+    try {
+      const workArea = screen.getPrimaryDisplay().workArea;
+      // 合成屏幕右侧的选区，使 B 窗口出现在右边缘内侧
+      const sourceRect: ScreenshotRect = {
+        x: workArea.x + workArea.width - 40,
+        y: workArea.y + Math.round(workArea.height / 2),
+        width: 20,
+        height: 20,
+      };
+      return this.createBWindow(sourceRect);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * 把副窗口摆到屏幕右侧（Bug6 修复：副窗口应默认出现在屏幕右边）。
    * 使用 safeSetBounds：先 unmaximize 再 setBounds，避免窗口处于最大化态时 setBounds 被忽略。
    * 位置恒为右边缘内侧（workArea.x + workArea.width - w - margin）；居中于垂直方向。
@@ -836,6 +1027,13 @@ export class WindowManager {
     return this.currentSubId;
   }
 
+  /** 获取主窗口（未创建或已销毁则 null）。设置面板内嵌等场景使用。 */
+  public getMainWindow(): { win: BrowserWindow; view: WebContentsView | null } | null {
+    const main = this.entries.get('main');
+    if (!main || main.win.isDestroyed()) return null;
+    return { win: main.win, view: main.view };
+  }
+
   /** 复制指定窗口（同类型、偏移位置的新窗口）。 */
   public copyWindow(id: string): string | null {
     const entry = this.entries.get(id);
@@ -852,10 +1050,37 @@ export class WindowManager {
     return newId;
   }
 
-  /** 设置窗口置顶。 */
+  /** 设置窗口置顶（仅副窗口和 B 类窗口，主窗口不参与——用户要求主窗口不要长时间置顶）。 */
   public setAlwaysOnTop(id: string, on: boolean): void {
     const entry = this.entries.get(id);
-    if (entry) entry.win.setAlwaysOnTop(on);
+    if (!entry) return;
+    if (entry.type === 'main') return; // 主窗口不参与置顶
+    entry.win.setAlwaysOnTop(on, on ? 'screen-saver' : 'normal');
+    if (on && entry.win.isVisible()) {
+      try { entry.win.moveTop(); } catch { /* 个别平台不支持，忽略 */ }
+      entry.win.focus();
+    } else if (!on && entry.win.isVisible()) {
+      // Windows：setAlwaysOnTop(false) 后窗口掉到 Z 序最底且 moveTop 无效，需强制复位
+      this.bringToFront(entry.win);
+    }
+  }
+
+  /**
+   * Windows 可靠地把（非置顶）窗口恢复到普通窗口波段最前。
+   * 背景：setAlwaysOnTop(false) 后 Windows 会把窗口扔到 Z 序最底，且 moveTop() 在此场景下无效
+   * （electron#45024 / #48169）。改用「重新置顶 → 立即取消置顶」的双重切换强制 Windows
+   * 重新计算 Z 序，使窗口落到普通窗口顶部，再 moveTop + focus 兜底。
+   */
+  private bringToFront(win: BrowserWindow): void {
+    if (!win || win.isDestroyed()) return;
+    try {
+      win.setAlwaysOnTop(true);
+      win.setAlwaysOnTop(false);
+    } catch { /* 忽略 */ }
+    if (win.isVisible()) {
+      try { win.moveTop(); } catch { /* 个别平台不支持，忽略 */ }
+      win.focus();
+    }
   }
 
   /** 切换主窗口显示/隐藏。 */
@@ -868,9 +1093,25 @@ export class WindowManager {
     if (entry.win.isVisible()) {
       entry.win.hide();
     } else {
-      entry.win.show();
-      entry.win.focus();
+      this.showMainWindowRaised();
     }
+  }
+
+  /**
+   * 显示主窗口并可靠置前（主窗口永不置顶）。
+   * 与副窗口「置顶关闭」时的唤出方式完全一致：setAlwaysOnTop(false) → show()（重新断言 Z 序）
+   * → moveTop + focus。不使用「临时置顶 + 500ms 回落」——那个延迟回落正是主窗口被 Windows
+   * 压到 Z 序最底的根因；也绝不长时间置顶（用户要求）。
+   */
+  private showMainWindowRaised(): void {
+    const main = this.entries.get('main');
+    if (!main || main.win.isDestroyed()) return;
+    try {
+      main.win.setAlwaysOnTop(false, 'normal');
+    } catch { /* 忽略 */ }
+    main.win.show();
+    try { main.win.moveTop(); } catch { /* 忽略 */ }
+    main.win.focus();
   }
 
   /** 隐藏主窗口。 */
@@ -879,102 +1120,9 @@ export class WindowManager {
     if (entry && !entry.win.isDestroyed()) entry.win.hide();
   }
 
-  /**
-   * 切换主窗口内嵌 DeepSeek 的侧栏（展开/收起）。
-   * 背景：回退到 7/29 稳定版后，主窗口标题栏里没有侧栏按钮，完全依赖 DeepSeek 页面
-   * 自带的原生开关；而 DeepSeek 改 UI + 我们注入的 HIDE_SCROLLBAR_CSS（哈希类名 + !important
-   * 焊死侧栏容器）使那个原生开关失效/失踪（官网正常、我们这没有）。
-   * 解决：在标题栏加一个永远可见的自定义侧栏按钮，点击时由本方法在网页里定位 DeepSeek
-   * 原生侧栏开关并点击（优先按 aria-label/title 命中 menu/sidebar/侧栏/面板，否则退化为
-   * 顶栏最左侧小图标按钮）。点击结果连同几何诊断一并落盘，便于自检根因。
-   */
-  public toggleMainSidebar(): void {
-    const entry = this.entries.get('main');
-    if (!entry || entry.win.isDestroyed()) return;
-    const view = entry.view;
-    if (!view || view.webContents.isDestroyed()) return;
-    const expr = `(() => {
-      return new Promise(function (resolve) {
-        try {
-          function collectTopBtns() {
-            var els = Array.from(document.querySelectorAll('button, [role="button"], div[class*="ds-button"]'));
-            // 排除纯背景包裹层（如 ds-button__background），只保留可点击的开关按钮
-            els = els.filter(function (b) { return (b.className || '').indexOf('__background') < 0; });
-            return els.filter(function (b) {
-              var r = b.getBoundingClientRect();
-              return r.width > 0 && r.height > 0 && r.top < 80 && r.height >= 12 && r.height <= 64 && r.width >= 12 && r.width <= 72;
-            }).sort(function (a, b) { return (a.getBoundingClientRect().left - b.getBoundingClientRect().left); });
-          }
-          function findPanel() {
-            return Array.from(document.querySelectorAll('div, aside, nav')).find(function (d) {
-              var r = d.getBoundingClientRect();
-              return r.left <= 6 && r.width >= 120 && r.width <= 480 && r.height >= window.innerHeight * 0.4;
-            }) || null;
-          }
-          function leftPanelOpen() { return !!findPanel(); }
-          // 按「当前开合状态」挑真实侧栏开关：开 -> 侧栏头部最右的收起图标；关 -> 主内容区最左的展开图标(iconLabelPrimary)
-          function pickToggleBtn() {
-            var open = leftPanelOpen();
-            var btns = collectTopBtns();
-            if (!btns.length) return null;
-            if (open) {
-              var sb = btns.filter(function (b) { var r = b.getBoundingClientRect(); return r.left < 270 && r.top < 80; });
-              return sb.length ? sb[sb.length - 1] : btns[btns.length - 1];
-            }
-            var primary = btns.filter(function (b) { return (b.className || '').indexOf('iconLabelPrimary') >= 0; });
-            return primary.length ? primary[0] : btns[0];
-          }
-          var before = leftPanelOpen();
-          var topBtns = collectTopBtns();
-          // 全量诊断：整个文档所有交互元素（不限区域），含完整 class/aria/title/text/data-*，定位真实开关
-          function attrs(el) {
-            var r = el.getBoundingClientRect();
-            var ds = {};
-            for (var i = 0; i < el.attributes.length; i++) {
-              var a = el.attributes[i];
-              if (a.name === 'aria-label' || a.name === 'title' || a.name === 'role' || a.name === 'aria-expanded' || a.name === 'aria-pressed' || a.name.indexOf('data-') === 0) ds[a.name] = a.value.slice(0, 40);
-            }
-            return { tag: el.tagName, cls: (el.className || '').toString().slice(0, 60), left: Math.round(r.left), top: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), aria: (el.getAttribute('aria-label') || '').slice(0, 30), title: (el.getAttribute('title') || '').slice(0, 30), role: (el.getAttribute('role') || '').slice(0, 20), text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 24), data: ds };
-          }
-          var rawDump = Array.from(document.querySelectorAll('button, [role="button"], div[class*="ds-button"], div[class*="button"], a[class*="button"]'))
-            .filter(function (b) { var r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.width <= 260 && r.height <= 260; })
-            .sort(function (a, b) { return (a.getBoundingClientRect().top - b.getBoundingClientRect().top) || (a.getBoundingClientRect().left - b.getBoundingClientRect().left); })
-            .map(attrs).slice(0, 60);
-          var panelInfo = (function () { var p = findPanel(); if (!p) return null; var r = p.getBoundingClientRect(); return { cls: (p.className || '').toString().slice(0, 80), style: (p.getAttribute('style') || '').slice(0, 80), left: Math.round(r.left), w: Math.round(r.width) }; })();
-          var labeled = topBtns.filter(function (el) {
-            var t = (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '').toLowerCase();
-            return /sidebar|menu|侧栏|菜单|展开|收起|面板|panel|drawer|目录/.test(t);
-          });
-          var target = labeled[0] || pickToggleBtn() || null;
-          var info = { before: before, topBtnCount: topBtns.length, labeledCount: labeled.length, clicked: false, dump: rawDump, panelInfo: panelInfo };
-          if (target) {
-            var r = target.getBoundingClientRect();
-            info.targetLeft = Math.round(r.left); info.targetTop = Math.round(r.top);
-            info.targetW = Math.round(r.width); info.targetH = Math.round(r.height);
-            info.targetClass = (target.className || '').toString().slice(0, 60);
-            // 点真实按钮：背景层/图标层可能不是事件挂载点，向上找最近的 <button>/[role=button]
-            var clickEl = (target.closest && target.closest('button, [role="button"]')) ? target.closest('button, [role="button"]') : target;
-            if (!clickEl) clickEl = target;
-            clickEl.click();
-            info.clicked = true;
-          }
-          setTimeout(function () { info.after = leftPanelOpen(); resolve(info); }, 900);
-        } catch (e) { resolve({ error: String(e) }); }
-      });
-    })()`;
-    view.webContents
-      .executeJavaScript(expr, true)
-      .then((r) => logf('sidebar-toggle', 'toggleMainSidebar', r))
-      .catch(() => {});
-  }
-
-  /** 显示主窗口。 */
+  /** 显示主窗口（永不置顶，可靠置前）。 */
   public showMainWindow(): void {
-    const entry = this.entries.get('main');
-    if (entry && !entry.win.isDestroyed()) {
-      entry.win.show();
-      entry.win.focus();
-    }
+    this.showMainWindowRaised();
   }
 
   /**
@@ -993,13 +1141,20 @@ export class WindowManager {
 
   /** 截图结束后恢复被隐藏窗口到截图前的可见性（保持主副切换状态）。 */
   public restoreChatWindowsAfterScreenshot(): void {
+    let mainWasVisible = false;
     for (const rec of this.screenshotHidden) {
       const entry = this.entries.get(rec.id);
       if (entry && !entry.win.isDestroyed() && rec.visible) {
         entry.win.show();
+        if (rec.id === 'main') mainWasVisible = true;
       }
     }
     this.screenshotHidden = [];
+    // 截图后主窗口用 show() 只恢复显示、不提升 Z 序，可能被压在其他窗口之下；
+    // 若主窗口截图前可见，则恢复到普通窗口最前（置顶的副窗口/B 窗口仍可覆盖它）。
+    if (mainWasVisible) {
+      this.showMainWindowRaised();
+    }
   }
 
   /** 获取当前活动窗口的对话 webContents（无则回退主窗口）。 */
@@ -1024,6 +1179,14 @@ export class WindowManager {
     return null;
   }
 
+  /** 通过 webContents 反查宿主 BrowserWindow（兼容 WebContentsView 的 chat 视图）。 */
+  public getWinByWebContents(wc: WebContents): BrowserWindow | null {
+    const id = this.findIdByWebContents(wc);
+    if (!id) return null;
+    const entry = this.entries.get(id);
+    return entry && entry.win && !entry.win.isDestroyed() ? entry.win : null;
+  }
+
   /** 返回所有外壳窗口（BrowserWindow 自身 webContents）列表，用于统一广播（如主题变量）。 */
   public getShellWebContentsList(): WebContents[] {
     const list: WebContents[] = [];
@@ -1031,6 +1194,26 @@ export class WindowManager {
       if (!entry.win.isDestroyed()) list.push(entry.win.webContents);
     }
     return list;
+  }
+
+  /** 依据全局字号偏移对指定对话视图设置页面缩放（同步网页字体大小）。 */
+  public applyFontZoom(wc: WebContents, offset: number): void {
+    if (!wc || wc.isDestroyed()) return;
+    try {
+      // 全局字号整体放大一号：缩放基础 1.0 → 1.05（网页视图字体跟随，设置界面除外）
+      wc.setZoomFactor(1.05 + (Number(offset) || 0) * 0.05);
+    } catch {
+      /* 平台不支持则忽略 */
+    }
+  }
+
+  /** 对所有对话视图应用全局字号缩放（字号设置变化时调用）。 */
+  public applyFontZoomAll(offset: number): void {
+    for (const entry of this.entries.values()) {
+      if (entry.view && entry.view.webContents && !entry.view.webContents.isDestroyed()) {
+        this.applyFontZoom(entry.view.webContents, offset);
+      }
+    }
   }
 
   private trackActive(win: BrowserWindow, id: string): void {
