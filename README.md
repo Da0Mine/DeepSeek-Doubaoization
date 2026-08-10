@@ -1,4 +1,4 @@
-# DeepSeek-Doubaoization
+# Deepderk
 
 > 让 DeepSeek 网页版像豆包电脑版一样便捷的使用。
 
