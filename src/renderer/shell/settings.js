@@ -42,10 +42,11 @@
       children: [
         {
           label: '常规', icon: SUB_ICONS['常规'],
-          keys: ['theme', 'fontSize'],
+          keys: ['theme', 'fontSize', 'linkOpenMode'],
           items: [
             { key: 'theme', label: '主题', type: 'select', options: [{ label: '浅色', value: 'light' }, { label: '深色', value: 'dark' }, { label: '跟随系统', value: 'system' }] },
             { key: 'fontSize', label: '全局字号', type: 'fontsize' },
+            { key: 'linkOpenMode', label: '链接打开方式', type: 'select', options: [{ label: '内置浏览器窗口', value: 'internal' }, { label: '系统默认浏览器', value: 'external' }], hint: '点击网页中的链接时：内置浏览器窗口会在应用内多标签页打开；系统默认浏览器会调用你电脑默认的浏览器打开。' },
           ]
         },
         {
@@ -53,9 +54,9 @@
           keys: ['alwaysOnTop', 'closeToTray', 'startAtLogin', 'minimizeToTrayOnStart'],
           items: [
             { key: 'alwaysOnTop', label: '副窗口默认置顶', type: 'checkbox', hint: '开启后，副窗口和提问小窗（B 窗口）默认置顶显示，始终位于其他窗口之上。主窗口不受此设置影响。' },
-            { key: 'closeToTray', label: '关闭进托盘', type: 'checkbox', hint: '关闭窗口时，程序不会退出，而是最小化到系统托盘继续运行。' },
-            { key: 'startAtLogin', label: '开机自启', type: 'checkbox', hint: '开启后，登录系统时自动启动本程序。' },
-            { key: 'minimizeToTrayOnStart', label: '启动最小化到托盘', type: 'checkbox', hint: '开启后，启动程序时直接最小化到系统托盘，不显示主窗口。' },
+            { key: 'closeToTray', label: '关闭行为', type: 'select', options: [{ label: '直接关闭', value: false }, { label: '最小化到托盘', value: true }], hint: '选择点击窗口关闭按钮时的行为：直接关闭并退出程序，或最小化到系统托盘继续运行。' },
+            { key: 'startAtLogin', label: '开机自启', type: 'checkbox', hint: '开启后，登录系统时自动启动本程序，并直接最小化到系统托盘（不显示主窗口）。' },
+            { key: 'minimizeToTrayOnStart', label: '手动启动最小化到托盘', type: 'checkbox', hint: '开启后，手动打开程序时也直接最小化到系统托盘，不显示主窗口（开机自启始终最小化到托盘，不受此设置影响）。' },
           ]
         },
         {
@@ -135,9 +136,10 @@
       children: [
         {
           label: '截图', icon: SUB_ICONS['截图'],
-          keys: ['annotationColors'],
+          keys: ['annotationColors', 'keepWindowsOnScreenshot'],
           items: [
             { key: 'annotationColors', label: '标注画笔色板', type: 'colorlist' },
+            { key: 'keepWindowsOnScreenshot', label: '截图时保留窗口', type: 'checkbox', hint: '开启后，截图时应用窗口保持显示在屏幕上（会被截进图里）；关闭后截图前自动隐藏应用窗口，避免窗口出现在截图中。' },
           ]
         },
         {
@@ -425,6 +427,132 @@
       return { btn: btn, get: function () { return current; }, setText: setText };
     }
 
+    /**
+     * 自定义下拉选择器（加号菜单同款：毛玻璃深色浮层 + 圆角 + hover 高亮 + GSAP 动效）。
+     * 原生 <select> 的弹出列表是系统渲染的，无法做样式/动效，故用 div 模拟。
+     * 对外兼容原生 select 的接口：value 属性（get/set）、addEventListener('change')。
+     */
+    function makeCustomSelect(item) {
+      var options = item.options || [];
+      var currentValue = options.length && (options[0] && typeof options[0] === 'object' ? options[0].value : options[0]);
+      currentValue = currentValue == null ? '' : currentValue;
+
+      var box = document.createElement('div');
+      box.className = 'ds-custom-select';
+
+      var trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'ds-select-trigger';
+      var labelEl = document.createElement('span');
+      labelEl.className = 'ds-select-label';
+      var arrowEl = document.createElement('span');
+      arrowEl.className = 'ds-select-arrow';
+      trigger.appendChild(labelEl);
+      trigger.appendChild(arrowEl);
+
+      var menu = document.createElement('div');
+      menu.className = 'ds-select-menu';
+      var menuOpen = false;
+
+      function labelOf(v) {
+        for (var i = 0; i < options.length; i++) {
+          var o = options[i];
+          if (o && typeof o === 'object') { if (String(o.value) === String(v)) return o.label; }
+          else if (String(o) === String(v)) return o;
+        }
+        return String(v == null ? '' : v);
+      }
+
+      function render() {
+        labelEl.textContent = labelOf(currentValue);
+      }
+
+      function buildMenu() {
+        menu.innerHTML = '';
+        options.forEach(function (o) {
+          var v = o && typeof o === 'object' ? o.value : o;
+          var l = o && typeof o === 'object' ? o.label : o;
+          var el = document.createElement('div');
+          el.className = 'ds-select-option' + (String(v) === String(currentValue) ? ' selected' : '');
+          el.textContent = l;
+          el.addEventListener('click', function () {
+            setValue(v);
+            close();
+          });
+          menu.appendChild(el);
+        });
+      }
+
+      function open() {
+        if (menuOpen) { close(); return; }
+        menuOpen = true;
+        box.classList.add('open');
+        buildMenu();
+        document.body.appendChild(menu);
+        // 定位：优先向下展开，空间不足则向上
+        var r = box.getBoundingClientRect();
+        var mw = Math.max(r.width, 160);
+        menu.style.minWidth = mw + 'px';
+        menu.style.display = 'block';
+        var mh = menu.offsetHeight;
+        var spaceBelow = window.innerHeight - r.bottom - 8;
+        var top = spaceBelow >= mh ? r.bottom + 4 : Math.max(8, r.top - mh - 4);
+        menu.style.left = Math.min(r.left, window.innerWidth - mw - 8) + 'px';
+        menu.style.top = top + 'px';
+        menu.classList.add('open');
+        if (gsap) {
+          gsap.fromTo(menu,
+            { opacity: 0, y: spaceBelow >= mh ? -6 : 6, scale: 0.98 },
+            { opacity: 1, y: 0, scale: 1, duration: 0.18, ease: 'power2.out' });
+        } else {
+          menu.style.opacity = '1';
+        }
+      }
+
+      function close() {
+        if (!menuOpen) return;
+        menuOpen = false;
+        box.classList.remove('open');
+        if (gsap && menu.parentNode) {
+          gsap.to(menu, { opacity: 0, y: -4, scale: 0.98, duration: 0.12, ease: 'power1.in', onComplete: function () { if (menu.parentNode) menu.parentNode.removeChild(menu); } });
+        } else if (menu.parentNode) {
+          menu.parentNode.removeChild(menu);
+        }
+      }
+
+      function setValue(v) {
+        if (String(currentValue) === String(v)) { close(); return; }
+        currentValue = v;
+        render();
+        box.dispatchEvent(new CustomEvent('change', { detail: { value: v } }));
+      }
+
+      trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        open();
+      });
+      // 点击外部关闭
+      document.addEventListener('click', function (e) {
+        if (!menuOpen) return;
+        if (menu.contains(e.target) || box.contains(e.target)) return;
+        close();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') close();
+      });
+
+      // 兼容原生 select：value 属性
+      Object.defineProperty(box, 'value', {
+        get: function () { return currentValue; },
+        set: function (v) { currentValue = v == null ? '' : v; render(); },
+        configurable: true,
+      });
+
+      box.appendChild(trigger);
+      render();
+      return box;
+    }
+
     function createControl(item) {
       if (item.type === 'checkbox') {
         var cb = document.createElement('input');
@@ -435,14 +563,8 @@
         num.type = 'number';
         return num;
       } else if (item.type === 'select') {
-        var sel = document.createElement('select');
-        (item.options || []).forEach(function (o) {
-          var opt = document.createElement('option');
-          if (o && typeof o === 'object') { opt.value = o.value; opt.textContent = o.label; }
-          else { opt.value = o; opt.textContent = o; }
-          sel.appendChild(opt);
-        });
-        return sel;
+        // 自定义下拉（加号菜单同款 + 动效），替代原生 select
+        return makeCustomSelect(item);
       } else if (item.type === 'textarea') {
         var ta = document.createElement('textarea');
         return ta;
@@ -905,8 +1027,9 @@
           ['主副窗口切换', '点击标题栏右侧的 ⇄ 按钮，在主窗口与副窗口之间来回切换，副窗口适合边查边聊、多任务并行。', '标题栏 ⇄ 按钮'],
           ['一键呼出副窗口', '无论你在哪个应用，按 左 Alt + 空格 即可随时呼出或隐藏副窗口。', '设置 → 应用 → 快捷键'],
           ['副窗口默认置顶', '副窗口和提问小窗默认显示在其他窗口之上，不被遮挡。', '设置 → 应用 → 窗口'],
-          ['系统托盘常驻', '关闭窗口后程序不会退出，驻留系统托盘，随时点击图标唤回。', '设置 → 应用 → 窗口'],
-          ['开机自启', '登录系统时自动启动本程序，开机即用。', '设置 → 应用 → 窗口'],
+          ['关闭行为', '点击窗口关闭按钮时，可选择直接退出程序，或最小化到系统托盘继续运行。', '设置 → 应用 → 窗口'],
+          ['开机自启', '登录系统时自动启动本程序并最小化到系统托盘，不显示主窗口；手动打开仍正常显示主界面。', '设置 → 应用 → 窗口'],
+          ['手动启动最小化到托盘', '开启后，手动打开程序时也直接最小化到系统托盘，不显示主窗口。', '设置 → 应用 → 窗口'],
         ]],
         ['快捷键', [
           ['截图快捷键', '一键唤起截图（默认 左 Alt + C），截取后可翻译、提取文字、解释或向 AI 提问。', '设置 → 应用 → 快捷键'],
@@ -1309,7 +1432,12 @@
           if (item.type === 'checkbox') {
             ctrl.addEventListener('change', function () { applyValue(item.key, ctrl.checked); });
           } else if (item.type === 'select') {
-            ctrl.addEventListener('change', function () { applyValue(item.key, ctrl.value); });
+            ctrl.addEventListener('change', function () { 
+              var v = ctrl.value;
+              if (v === 'true') v = true;
+              else if (v === 'false') v = false;
+              applyValue(item.key, v); 
+            });
           } else if (item.type === 'number') {
             ctrl.addEventListener('input', function () { applyValue(item.key, Number(ctrl.value)); });
             ctrl.addEventListener('change', function () { applyValue(item.key, Number(ctrl.value)); });

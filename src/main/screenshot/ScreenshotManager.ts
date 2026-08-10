@@ -50,8 +50,14 @@ export class ScreenshotManager {
   /** 开始截图流程：先隐藏应用窗口，再采集屏幕，最后弹出遮罩。 */
   public async startCapture(mode?: 'normal' | 'question'): Promise<void> {
     if (mode) this.screenshotMode = mode;
-    // 先隐藏应用自身窗口，避免它们被截进图里；给 Windows 合成器一帧时间确保生效
-    this.windows?.hideChatWindowsForScreenshot();
+    // 默认隐藏应用自身窗口，避免它们被截进图里；给 Windows 合成器一帧时间确保生效。
+    // 「截图时保留窗口」开启时不隐藏（窗口照常显示在截图中）。
+    if (!this.config.get('keepWindowsOnScreenshot')) {
+      this.windows?.hideChatWindowsForScreenshot();
+    } else {
+      // 保留窗口模式：清空截图期间恢复列表，避免遮罩关闭后误触发恢复逻辑
+      this.windows?.clearScreenshotHidden();
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
     await this.captureSources();
     // 仅弹出遮罩；背景图不在此时发送——overlay 渲染进程就绪后会发 overlay:ready，

@@ -177,9 +177,25 @@ const shellApi = {
   setOnboardingInteractive: (interactive: boolean): void => {
     ipcRenderer.send(IPC.ONBOARDING_SET_INTERACTIVE, interactive);
   },
-  /** 主 -> 引导视图：订阅步骤数据下发。 */
+  // ---- 主 -> 引导视图：订阅步骤数据下发 ----
   onOnboardingFocus: (cb: (p: OnboardingFocus) => void): void => {
     ipcRenderer.on(IPC.ONBOARDING_FOCUS, (_e, p: OnboardingFocus) => cb(p));
+  },
+
+  // ---- 内置浏览器窗口（多标签） ----
+  /** 浏览器外壳 -> 主（invoke）：请求当前标签快照。 */
+  getBrowserState: (): Promise<unknown> => ipcRenderer.invoke(IPC.BROWSER_GET_STATE),
+  /** 浏览器外壳 -> 主：切换标签。 */
+  switchBrowserTab: (id: number): void => ipcRenderer.send(IPC.BROWSER_SWITCH_TAB, { id }),
+  /** 浏览器外壳 -> 主：关闭标签。 */
+  closeBrowserTab: (id: number): void => ipcRenderer.send(IPC.BROWSER_CLOSE_TAB, { id }),
+  /** 浏览器外壳 -> 主：关闭整个浏览器窗口。 */
+  closeBrowserWindow: (): void => ipcRenderer.send(IPC.BROWSER_CLOSE),
+  /** 浏览器外壳 -> 主：新建标签页。 */
+  newBrowserTab: (url?: string): void => ipcRenderer.send(IPC.BROWSER_NEW_TAB, { url }),
+  /** 主 -> 浏览器外壳：订阅标签列表快照更新。 */
+  onBrowserTabsUpdated: (cb: (state: unknown) => void): void => {
+    ipcRenderer.on(IPC.BROWSER_TABS_UPDATED, (_e, state: unknown) => cb(state));
   },
 };
 

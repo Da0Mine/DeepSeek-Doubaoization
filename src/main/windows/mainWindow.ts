@@ -2,7 +2,7 @@
  * 主窗口：自绘标题栏（加载 titlebar.html）+ WebContentsView 内嵌 chat.deepseek.com。
  * 所有窗口共享 session.defaultSession，登录态自动持久化跨启动。
  */
-import { BrowserWindow, WebContentsView, nativeTheme, screen } from 'electron';
+import { app, BrowserWindow, WebContentsView, nativeTheme, screen } from 'electron';
 import {
   DEEPSEEK_URL,
   SHELL_PRELOAD,
@@ -14,6 +14,7 @@ import {
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
 import type { ConfigStore } from '../config/ConfigStore';
+import { installLinkOpenHandler } from './browserWindow';
 import { logf } from '../logger';
 
 /** 依据配置主题 + 系统深浅，计算窗口底色（首帧防白屏）。 */
@@ -107,11 +108,14 @@ export function createChatView(win: BrowserWindow, getView: () => WebContentsVie
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      backgroundThrottling: false,
     },
   });
   win.contentView.addChildView(view);
   view.webContents.loadURL(DEEPSEEK_URL);
   layoutView(win, view);
+  // 链接打开方式（内置浏览器窗口 / 系统默认浏览器）
+  installLinkOpenHandler(view.webContents);
 
   // 注册该窗口，供 DPI / 显示器变化时统一重新布局。
   chatWindows.set(win, getView);
@@ -198,7 +202,13 @@ export function createMainWindow(
     } catch (e) {
       console.error('[mainWindow] 补发主题变量失败:', e);
     }
-    if (!config.get('minimizeToTrayOnStart') || !config.get('trayEnabled')) {
+    // 开机自启（startAtLogin）时始终最小化到托盘，不显示主界面；
+    // 手动启动时按 minimizeToTrayOnStart 设置决定是否显示。
+    // 注意：托盘禁用时（trayEnabled=false）无法最小化到托盘，开机自启也正常显示窗口。
+    if (app.getLoginItemSettings().wasOpenedAtLogin && config.get('trayEnabled')) {
+      // 开机自启且托盘启用：不显示主窗口，直接最小化到托盘
+      // 不执行 win.show()
+    } else if (!config.get('minimizeToTrayOnStart') || !config.get('trayEnabled')) {
       win.show();
     }
     // 窗口真正显示并居中后，立即刷新视图边界（确保拿到稳定后的 viewport 尺寸）。

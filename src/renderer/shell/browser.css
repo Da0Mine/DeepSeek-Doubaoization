@@ -1,0 +1,157 @@
+/* 内置浏览器窗口外壳：顶部标签栏（40px）+ 下方内容区（WebContentsView 铺满）。 */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 40px; /* 与 constants.TITLEBAR_HEIGHT 对应 */
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: var(--ds-font-size, 13px);
+  background: var(--ds-tb-bg, #f3f3f3);
+  color: var(--ds-tb-fg, #333);
+}
+
+#tabbar {
+  -webkit-app-region: drag;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  user-select: none;
+  border-bottom: 1px solid var(--ds-border, #e0e0e0);
+  background: var(--ds-tb-bg, #f3f3f3);
+}
+
+.tabbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+}
+
+#tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tab {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 220px;
+  padding: 0 8px 0 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ds-tb-fg, #333);
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.tab:hover {
+  background: var(--ds-border, #e0e0e0);
+}
+
+.tab.active {
+  background: rgba(128, 128, 128, 0.22);
+  border-color: var(--ds-border, #e0e0e0);
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+  font-size: 12px;
+}
+
+.tab-close {
+  -webkit-app-region: no-drag;
+  border: none;
+  background: transparent;
+  color: inherit;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  opacity: 0.7;
+}
+
+.tab-close:hover {
+  background: rgba(255, 60, 60, 0.25);
+  color: #d32f2f;
+  opacity: 1;
+}
+
+.new-tab-btn {
+  -webkit-app-region: no-drag;
+  border: none;
+  background: transparent;
+  color: var(--ds-tb-fg, #333);
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  opacity: 0.85;
+}
+
+.new-tab-btn:hover {
+  background: var(--ds-border, #e0e0e0);
+}
+
+.tabbar-right {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  height: 100%;
+}
+
+.tb-btn {
+  -webkit-app-region: no-drag;
+  border: none;
+  background: transparent;
+  color: var(--ds-tb-fg, #333);
+  height: 100%;
+  min-width: 36px;
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+}
+
+.tb-btn:hover {
+  background: var(--ds-border, #e0e0e0);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+.tb-btn:active {
+  transform: translateY(1px);
+}

@@ -1878,6 +1878,48 @@ export class Injector {
   }
 
   /**
+   * 读取对话框输入框当前文本（兼容 React 受控组件）。
+   * 用于主副切换时把输入框文字迁移到目标窗口。返回空字符串表示无输入或无输入框。
+   */
+  public async readInputText(wc: WebContents): Promise<string> {
+    try {
+      const res = await wc.executeJavaScript(`(() => {
+        try {
+          function disabledOf(b){ return b.disabled===true || b.getAttribute('aria-disabled')==='true'; }
+          function getComposerFooter(input){
+            if(!input) return null;
+            var chain=[]; var p=input.parentElement;
+            for(var i=0;i<6 && p;i++){ chain.push(p); p=p.parentElement; }
+            var best=null,bestN=-1;
+            for(var j=0;j<chain.length;j++){ var n=chain[j].querySelectorAll('button').length; if(n>bestN){bestN=n;best=chain[j];} }
+            return best;
+          }
+          function findChatInput() {
+            var sp = document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], [contenteditable][aria-label*="发送消息"]');
+            if (sp) return sp;
+            var cands = document.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]');
+            var best = null, bestN = -1;
+            for (var ci = 0; ci < cands.length; ci++) {
+              var f = getComposerFooter(cands[ci]);
+              if (!f) continue;
+              var n = f.querySelectorAll('button').length;
+              if (n > bestN) { bestN = n; best = cands[ci]; }
+            }
+            return best;
+          }
+          var el = findChatInput();
+          if (!el) return '';
+          var v = (el.value !== undefined ? el.value : el.textContent) || '';
+          return String(v);
+        } catch (e) { return ''; }
+      })()`);
+      return typeof res === 'string' ? res : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
    * 向对话框输入框填入文本（不点击发送），并将光标置于文本末尾。
    * 用于「问问DeepSeek」引用功能：将选中文本括起来放入输入框，等待用户输入问题。
    */

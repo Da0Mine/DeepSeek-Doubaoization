@@ -490,7 +490,7 @@ html, body {
   box-shadow: inset 0 1px 3px rgba(0,0,0,0.15), 0 0 0 2px rgba(51,112,255,0.08);
 }
 
-/* 选择框 — 精致风格 */
+/* 选择框 — 精致风格（保留原生 select 作为回退；实际使用自定义组件 .ds-custom-select） */
 .field select {
   cursor: pointer;
   appearance: none;
@@ -525,6 +525,115 @@ html, body {
   border-color: var(--ds-accent, #3370ff);
   box-shadow: 0 0 0 3px rgba(51,112,255,0.1);
   background: var(--ds-bg, #fff);
+}
+
+/* ===== 自定义下拉选择器（加号菜单同款：毛玻璃深色浮层 + 动效） ===== */
+.ds-custom-select {
+  position: relative;
+  flex: 1; min-width: 0;
+  max-width: 260px;
+}
+
+.ds-select-trigger {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px 0 12px;
+  border: 1px solid var(--ds-border, rgba(0,0,0,0.12));
+  border-radius: var(--radius-sm);
+  background: var(--ds-bg, #fff);
+  color: var(--ds-fg, #1f1f1f);
+  font-size: 0.93em;
+  font-family: inherit;
+  font-weight: 450;
+  transition: border-color var(--transition-speed) ease, box-shadow var(--transition-speed) ease, background var(--transition-speed) ease;
+  outline: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+}
+
+.ds-select-trigger:hover {
+  border-color: var(--ds-accent, #3370ff);
+  background: var(--ds-bg-hover, rgba(51,112,255,0.02));
+}
+
+.ds-select-trigger:focus-visible {
+  border-color: var(--ds-accent, #3370ff);
+  box-shadow: 0 0 0 3px rgba(51,112,255,0.1);
+}
+
+.ds-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.ds-select-arrow {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.85;
+  transition: transform 0.2s ease;
+}
+
+.ds-custom-select.open .ds-select-arrow {
+  transform: rotate(180deg);
+}
+
+/* 下拉浮层：加号菜单同款（深色毛玻璃 + 圆角 + 阴影），浅色主题下用玻璃白 */
+.ds-select-menu {
+  position: fixed;
+  z-index: 9999;
+  display: none;
+  min-width: 160px;
+  padding: 4px 0;
+  border-radius: 10px;
+  background: rgba(42, 42, 42, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.ds-select-menu.open {
+  display: block;
+}
+
+.ds-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #e6e6e6;
+  font-size: 0.92em;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.ds-select-option:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.ds-select-option.selected {
+  color: #ffffff;
+  background: rgba(90, 140, 255, 0.22);
+  border-color: rgba(90, 140, 255, 0.35);
 }
 
 /* 数字输入框对齐 */

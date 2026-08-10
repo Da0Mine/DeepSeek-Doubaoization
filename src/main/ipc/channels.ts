@@ -187,6 +187,20 @@ export const IPC = {
   // ---- 回答完成提醒 ----
   /** webview -> 主：页面报告「开始生成 / 回答完成」（payload: { started: boolean }）。 */
   ANSWER_STATUS: 'answer:status',
+
+  // ---- 内置浏览器窗口（多标签） ----
+  /** 主 -> 浏览器外壳：标签列表快照更新（payload: BrowserTabsState）。 */
+  BROWSER_TABS_UPDATED: 'browser:tabsUpdated',
+  /** 浏览器外壳 -> 主（invoke）：请求当前标签快照（初始化时拉取）。 */
+  BROWSER_GET_STATE: 'browser:getState',
+  /** 浏览器外壳 -> 主：切换标签（payload: { id }）。 */
+  BROWSER_SWITCH_TAB: 'browser:switchTab',
+  /** 浏览器外壳 -> 主：关闭标签（payload: { id }）。 */
+  BROWSER_CLOSE_TAB: 'browser:closeTab',
+  /** 浏览器外壳 -> 主：新建标签页（payload: { url? }）。 */
+  BROWSER_NEW_TAB: 'browser:newTab',
+  /** 浏览器外壳 -> 主：关闭整个浏览器窗口。 */
+  BROWSER_CLOSE: 'browser:close',
 } as const;
 
 export type ChannelName = (typeof IPC)[keyof typeof IPC];

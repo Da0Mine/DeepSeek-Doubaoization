@@ -15,6 +15,7 @@ import { IPC } from '../ipc/channels';
 import { applyThinkCollapse } from '../inject/thinkCollapse';
 import type { Injector } from '../inject/Injector';
 import type { ScreenShareManager } from '../screenShare/ScreenShareManager';
+import { installLinkOpenHandler } from './browserWindow';
 import { logf } from '../logger';
 
 /** 调试日志开关：项目根目录存在 .debug-autolog 时，终端才打印注入脚本的诊断 dump
@@ -723,7 +724,7 @@ export class WindowManager {
    *
    * @param subId 要交换的副窗口 id；缺省时回退为 currentSubId（快捷键等场景）。
    */
-  public swapMainSub(subId?: string): boolean {
+  public async swapMainSub(subId?: string): Promise<boolean> {
     // 主副切换总开关（enableRoleSwap）已移除，固定为始终启用。
     const main = this.entries.get('main');
     if (!main || !main.view || main.win.isDestroyed()) return false;
@@ -747,7 +748,26 @@ export class WindowManager {
     try {
       const srcEntry = this.conversationInSub ? sub : main;
       const dstEntry = this.conversationInSub ? main : sub;
+
+      // 迁移前，记住源窗口输入框的文字（迁移后页面重建会丢失）
+      let draftText = '';
+      if (this.injector && srcEntry.view && !srcEntry.view.webContents.isDestroyed()) {
+        draftText = await this.injector.readInputText(srcEntry.view.webContents).catch(() => '');
+      }
+
       this.migrateConversationToWindow(dstEntry, srcEntry);
+
+      // 迁移后，源窗口的旧视图不再需要保留对话——重置为全新对话（DEEPSEEK_URL），
+      // 避免切到副窗口后点击托盘唤出主窗口时主窗口仍显示旧对话（用户要求）。
+      const srcView = srcEntry.view;
+      if (srcView && !srcView.webContents.isDestroyed()) {
+        srcView.webContents.loadURL(DEEPSEEK_URL).catch(() => {});
+      }
+
+      // 把源窗口的输入框文字同步到目标窗口
+      if (draftText && this.injector && dstEntry.view && !dstEntry.view.webContents.isDestroyed()) {
+        this.injector.setInputText(dstEntry.view.webContents, draftText).catch(() => {});
+      }
     } catch (e) {
       console.error('[WindowManager] swapMainSub 对话迁移失败:', e);
       return false;
@@ -840,6 +860,8 @@ export class WindowManager {
     layoutView(dst.win, view);
     // 重新接线：剪刀按钮 / 新建对话监听 / 默认模型（did-finish-load 时自动应用）
     this.attachWebViewReady(view, dst.type);
+    // 链接打开方式（内置浏览器窗口 / 系统默认浏览器）
+    installLinkOpenHandler(view.webContents);
     dst.view = view;
   }
 
@@ -963,17 +985,11 @@ export class WindowManager {
       this.entries.delete(this.lastSendNewId);
       this.lastSendNewId = null;
     }
-    const id = this.createSubWindow('sub', false, true);
+    const id = this.createSubWindow('sub', true, true);
     this.lastSendNewId = id;
     const e = this.entries.get(id);
     if (e && !e.win.isDestroyed()) {
       this.placeSubWindowRight(e.win);
-      // 兜底：视图（chat.deepseek.com）加载完成即重新靠右定位并显示窗口，避免任何情况下副窗口唤不出 / 出现在左侧。
-      // 与调用方 revealWindow 互补：即便等待就绪的逻辑异常，窗口也会在加载完成后出现且位于右侧。
-      e.view?.webContents.once('did-finish-load', () => {
-        this.placeSubWindowRight(e.win);
-        this.revealWindow(id);
-      });
     }
     return id;
   }
@@ -1137,6 +1153,14 @@ export class WindowManager {
       this.screenshotHidden.push({ id, visible });
       if (visible) entry.win.hide();
     }
+  }
+
+  /**
+   * 清空截图期间隐藏记录（「截图时保留窗口」开启时调用）：
+   * 窗口未被隐藏，恢复逻辑不应做任何事，避免遮罩关闭后误触发恢复。
+   */
+  public clearScreenshotHidden(): void {
+    this.screenshotHidden = [];
   }
 
   /** 截图结束后恢复被隐藏窗口到截图前的可见性（保持主副切换状态）。 */

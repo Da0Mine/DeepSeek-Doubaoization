@@ -84,8 +84,10 @@ export class AnswerReminder {
     } catch {
       win = null;
     }
-    // 窗口在后台：不可见（含最小化）或未聚焦
-    const background = !win || win.isDestroyed() || !win.isVisible() || !win.isFocused();
+    // 窗口在后台：不可见（含最小化），或可见但被其他窗口遮挡（非聚焦且非置顶），视为后台。
+    // 前台置顶=可见且（获得焦点或置顶）时才不提醒——用户要求：窗口在前台可见
+    // 且用户能看到时不要打扰，最小化/被遮挡时才通知。
+    const background = !win || win.isDestroyed() || !win.isVisible() || (!win.isFocused() && !win.isAlwaysOnTop());
     // 用户已切到其他会话：当前会话 id ≠ 开始生成时的会话 id
     const nowId = extractSessionId(wc.getURL());
     const switched = !!st.sessionId && st.sessionId !== nowId;

@@ -12,6 +12,9 @@ export type DefaultModelMode = 'simple' | 'expert' | 'vision';
 /** 主题模式。 */
 export type ThemeMode = 'light' | 'dark' | 'system';
 
+/** 链接打开方式：internal=内置浏览器窗口（多标签），external=系统默认浏览器。 */
+export type LinkOpenMode = 'internal' | 'external';
+
 /** 用户在遮罩上选择截图后提交的动作。 */
 export type ScreenshotAction =
   | 'chat'
@@ -59,6 +62,10 @@ export interface ConfigShape {
   trayEnabled: boolean;
   startAtLogin: boolean;
   minimizeToTrayOnStart: boolean;
+  /** 链接打开方式：internal=内置浏览器窗口（多标签），external=系统默认浏览器。默认内置。 */
+  linkOpenMode: LinkOpenMode;
+  /** 截图时保留应用窗口（默认关闭：截图前自动隐藏应用窗口，避免被截进图里）。 */
+  keepWindowsOnScreenshot: boolean;
   deepThinkEnabled: boolean;
   /** 新建对话/窗口就绪时是否自动开启「智能搜索」（联网搜索）。默认开启。 */
   smartSearchEnabled: boolean;

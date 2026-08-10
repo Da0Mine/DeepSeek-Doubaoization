@@ -17,6 +17,10 @@ const DEFAULT_CONFIG: ConfigShape = {
   trayEnabled: true,
   startAtLogin: false,
   minimizeToTrayOnStart: false,
+  /** 链接打开方式：默认内置浏览器窗口（多标签）。 */
+  linkOpenMode: 'internal',
+  /** 截图时保留应用窗口：默认关闭（截图前自动隐藏应用窗口，避免被截进图里）。 */
+  keepWindowsOnScreenshot: false,
   /** 深度思考默认开启（用户要求）。 */
   deepThinkEnabled: true,
   /** 智能搜索默认开启（用户要求）。 */

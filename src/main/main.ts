@@ -26,6 +26,7 @@ import { WpsDocManager } from './wps/WpsDocManager';
 import { OnboardingManager } from './onboarding/OnboardingManager';
 import { FirstRunDialog } from './firstRun/FirstRunDialog';
 import { AnswerReminder } from './reminder/AnswerReminder';
+import { initBrowserWindowManager } from './windows/browserWindow';
 
 app.setName('DeepSeek');
 
@@ -159,6 +160,8 @@ app.whenReady().then(() => {
   onboarding = new OnboardingManager(config, windows);
   firstRunDialog = new FirstRunDialog(windows);
   answerReminder = new AnswerReminder(config, windows);
+  // 内置浏览器窗口管理器（链接打开方式 = 内置时承载所有外部链接，多标签）
+  initBrowserWindowManager(config);
 
   // 网页内对话视图就绪后注入剪刀截图按钮（I-01）。
   // 必须在 createMainWindow 之前设置，确保首个主窗口也能注入。
@@ -303,11 +306,6 @@ app.whenReady().then(() => {
     setTimeout(() => {
       autoCheckUpdate().catch(() => {});
     }, 8000);
-  }
-
-  // 启动最小化到托盘
-  if (config.get('minimizeToTrayOnStart') && config.get('trayEnabled')) {
-    windows.hideMainWindow();
   }
 });
 

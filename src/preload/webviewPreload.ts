@@ -315,7 +315,8 @@ function blockEnvironmentRiskDialog(): void {
       node = parent;
       depth++;
     }
-    console.log('[web:risk] 已屏蔽「使用环境异常」弹窗及其模糊遮罩');
+    // 生产环境不输出日志，避免终端刷屏（调试时取消注释）
+    // console.log('[web:risk] 已屏蔽「使用环境异常」弹窗及其模糊遮罩');
   }
 
   function scanRoot(root: ParentNode): void {

@@ -44,6 +44,8 @@ export const OVERLAY_HTML = path.join(SHELL_DIR, 'overlay.html');
 export const TRANSLATE_HTML = path.join(SHELL_DIR, 'translate.html');
 export const SETTINGS_HTML = path.join(SHELL_DIR, 'settings.html');
 export const BWINDOW_HTML = path.join(SHELL_DIR, 'bwindow.html');
+/** 内置浏览器窗口外壳（多标签页标签栏 UI）。 */
+export const BROWSER_HTML = path.join(SHELL_DIR, 'browser.html');
 /** 使用说明引导视图（内嵌于主窗口的 WebContentsView）。 */
 export const ONBOARDING_HTML = path.join(SHELL_DIR, 'onboarding.html');
 /** 更新提醒弹框（覆盖主窗口的透明窗口，发现新版本时弹出）。 */

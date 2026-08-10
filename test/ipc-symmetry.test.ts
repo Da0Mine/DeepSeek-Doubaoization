@@ -14,10 +14,12 @@ const root = path.resolve(__dirname, '..');
 const channelsPath = path.join(root, 'src/main/ipc/channels.ts');
 const channelsSrc = fs.readFileSync(channelsPath, 'utf-8');
 
-/** 解析 IPC 对象：KEY: 'value' → 收集 KEY。 */
+/** 解析 IPC 对象：行首 KEY: 'value' → 收集 KEY。
+ * 必须锚定行首（^），否则会把注释/类型里的 `mode: 'word'`、`action: '...'`
+ * 等误计入，导致通道数统计虚高（历史教训）。 */
 const channelKeys: string[] = [];
 {
-  const re = /(\w+)\s*:\s*'([^']+)'/g;
+  const re = /^\s*(\w+)\s*:\s*'([^']+)'/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(channelsSrc)) !== null) {
     channelKeys.push(m[1]);
@@ -40,8 +42,8 @@ const mainContent = collectFiles(mainDir).map((f) => fs.readFileSync(f, 'utf-8')
 const rendererContent = collectFiles(rendererDir).map((f) => fs.readFileSync(f, 'utf-8')).join('\n');
 
 describe('IPC 通道对称 - 静态分析', () => {
-  test('channels.ts 恰好定义 38 个通道', () => {
-    expect(channelKeys).toHaveLength(38);
+  test('channels.ts 恰好定义 84 个通道', () => {
+    expect(channelKeys).toHaveLength(84);
   });
 
   test('每个通道在主进程侧与渲染侧均被引用（IPC.KEY），无单侧缺口', () => {

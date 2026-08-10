@@ -31,6 +31,7 @@ import type {
   TranslateSyncPayload,
 } from '../../shared/types';
 import { getOverlayWebContents } from '../windows/screenshotOverlay';
+import { getBrowserWindowManager } from '../windows/browserWindow';
 import { DEEPSEEK_URL } from '../constants';
 import type { UpdateChecker } from '../update/UpdateChecker';
 import type { UpdatePromptWindow } from '../update/UpdatePromptWindow';
@@ -73,6 +74,9 @@ export function registerHandlers(ctx: HandlerCtx): void {
     const list = [...windows.getShellWebContentsList()];
     const settingsWc = settings.getWebContents();
     if (settingsWc && !settingsWc.isDestroyed()) list.push(settingsWc);
+    // 内置浏览器窗口外壳也要跟随主题（深色模式下标签栏同步变色）
+    const browserShell = getBrowserWindowManager()?.getShellWebContents();
+    if (browserShell && !browserShell.isDestroyed()) list.push(browserShell);
     for (const wc of list) {
       if (!wc.isDestroyed()) wc.send(IPC.THEME_VARS, v);
     }
@@ -233,6 +237,10 @@ export function registerHandlers(ctx: HandlerCtx): void {
               notify('没有对话窗口', '请先打开 DeepSeek 对话窗口');
               return;
             }
+            // Bug 修复：截图发送到当前对话时，若该窗口不在前台（被最小化/隐藏在后台），
+            // 先把承载该对话的窗口呼出到前台并显示，确保用户能看到发送结果，而不是「发完就完」。
+            const targetId = windows.findIdByWebContents(wc);
+            if (targetId) windows.revealWindow(targetId);
             await injector.waitForAppReady(wc);
             await injector.uploadImageOnly(wc, screenshot.writeTempImage(img));
             break;
@@ -264,7 +272,13 @@ export function registerHandlers(ctx: HandlerCtx): void {
             }
             // 同步「深度思考」开关到当前设置（只读默认，不强行开启）
             await injector.setDeepThink(wc, config.get('deepThinkEnabled') === true).catch(() => {});
-            windows.revealWindow(id);
+            // 窗口已通过 ready-to-show 原生显示（与其它窗口一致，避免 revealWindow 反复置顶切换
+            // 触发 Windhawk 等窗口修饰工具导致白屏）。此处仅简单聚焦到前台。
+            const sendNewWin = windows.getWinByWebContents(wc);
+            if (sendNewWin && !sendNewWin.isDestroyed()) {
+              try { sendNewWin.moveTop(); } catch { /* 忽略 */ }
+              sendNewWin.focus();
+            }
             await injector.uploadImageOnly(wc, screenshot.writeTempImage(img));
             break;
           }
@@ -315,12 +329,27 @@ export function registerHandlers(ctx: HandlerCtx): void {
   // ---------------- 设置 / 副窗口 / 剪刀 ----------------
   ipcMain.on(IPC.SETTINGS_OPEN, () => settings.open());
   ipcMain.on(IPC.SETTINGS_CLOSE, () => settings.close());
+
+  // ---- 内置浏览器窗口（多标签） ----
+  ipcMain.handle(IPC.BROWSER_GET_STATE, () => getBrowserWindowManager()?.getState() ?? { tabs: [], visible: false });
+  ipcMain.on(IPC.BROWSER_SWITCH_TAB, (_e, { id }: { id: number }) => {
+    getBrowserWindowManager()?.switchTab(id);
+  });
+  ipcMain.on(IPC.BROWSER_CLOSE_TAB, (_e, { id }: { id: number }) => {
+    getBrowserWindowManager()?.closeTab(id);
+  });
+  ipcMain.on(IPC.BROWSER_NEW_TAB, (_e, { url }: { url?: string }) => {
+    getBrowserWindowManager()?.newTab(url);
+  });
+  ipcMain.on(IPC.BROWSER_CLOSE, () => {
+    getBrowserWindowManager()?.closeWindow();
+  });
   // Bug5 修复：副窗口快捷键改为 toggle（按一次显示/再按一次隐藏，循环）
   ipcMain.on(IPC.SUB_SUMMON, () => windows.toggleSubWindow());
   ipcMain.on(IPC.SUB_SWAP, (e) => {
     const id = windows.findIdByWebContents(e.sender);
     // 如果发送者不是已登记的窗口（例如来自 preload 的某个独立 webContents），回退旧行为。
-    windows.swapMainSub(id || undefined);
+    windows.swapMainSub(id || undefined).catch(() => {});
   });
   ipcMain.on(IPC.NEW_CONVERSATION, (e) => {
     // 网页内「新建对话」被触发：自动把当前对话窗口切换到设置的默认模型模式（Bug2 修复）。

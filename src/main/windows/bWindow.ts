@@ -17,6 +17,7 @@ import {
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
 import { scheduleLayoutView } from './mainWindow';
+import { installLinkOpenHandler } from './browserWindow';
 import { logf } from '../logger';
 import type { ConfigStore } from '../config/ConfigStore';
 import type { ScreenshotRect } from '../../shared/types';
@@ -234,6 +235,8 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
   win.contentView.addChildView(view);
   view.webContents.loadURL(DEEPSEEK_URL);
   scheduleLayoutView(win, view, B_TITLEBAR_HEIGHT);
+  // 链接打开方式（内置浏览器窗口 / 系统默认浏览器）
+  installLinkOpenHandler(view.webContents);
 
   // 去留白·层 1：完整页面滚动修复（overflow auto 注入 + 递归改回，1s/3s 重试）。
   // did-finish-load 与 SPA 路由（did-navigate-in-page）后都注入一次，覆盖重渲染丢样式。
