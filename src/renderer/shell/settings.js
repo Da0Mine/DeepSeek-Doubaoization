@@ -44,40 +44,40 @@
           label: '常规', icon: SUB_ICONS['常规'],
           keys: ['theme', 'fontSize', 'linkOpenMode'],
           items: [
-            { key: 'theme', label: '主题', type: 'select', options: [{ label: '浅色', value: 'light' }, { label: '深色', value: 'dark' }, { label: '跟随系统', value: 'system' }] },
-            { key: 'fontSize', label: '全局字号', type: 'fontsize' },
-            { key: 'linkOpenMode', label: '链接打开方式', type: 'select', options: [{ label: '内置浏览器窗口', value: 'internal' }, { label: '系统默认浏览器', value: 'external' }], hint: '点击网页中的链接时：内置浏览器窗口会在应用内多标签页打开；系统默认浏览器会调用你电脑默认的浏览器打开。' },
+            { key: 'theme', label: '外观主题', type: 'select', options: [{ label: '浅色', value: 'light' }, { label: '深色', value: 'dark' }, { label: '跟随系统', value: 'system' }], hint: '选择应用界面的外观主题：浅色、深色，或跟随操作系统自动切换。' },
+            { key: 'fontSize', label: '界面字号', type: 'fontsize', hint: '调整应用界面（标题栏、设置面板等）的文字大小。' },
+            { key: 'linkOpenMode', label: '链接打开方式', type: 'select', options: [{ label: '内置浏览器窗口', value: 'internal' }, { label: '系统默认浏览器', value: 'external' }], hint: '点击链接时在应用内打开，或调用系统默认浏览器。' },
           ]
         },
         {
           label: '窗口', icon: SUB_ICONS['窗口'],
           keys: ['alwaysOnTop', 'closeToTray', 'startAtLogin', 'minimizeToTrayOnStart'],
           items: [
-            { key: 'alwaysOnTop', label: '副窗口默认置顶', type: 'checkbox', hint: '开启后，副窗口和提问小窗（B 窗口）默认置顶显示，始终位于其他窗口之上。主窗口不受此设置影响。' },
-            { key: 'closeToTray', label: '关闭行为', type: 'select', options: [{ label: '直接关闭', value: false }, { label: '最小化到托盘', value: true }], hint: '选择点击窗口关闭按钮时的行为：直接关闭并退出程序，或最小化到系统托盘继续运行。' },
-            { key: 'startAtLogin', label: '开机自启', type: 'checkbox', hint: '开启后，登录系统时自动启动本程序，并直接最小化到系统托盘（不显示主窗口）。' },
-            { key: 'minimizeToTrayOnStart', label: '手动启动最小化到托盘', type: 'checkbox', hint: '开启后，手动打开程序时也直接最小化到系统托盘，不显示主窗口（开机自启始终最小化到托盘，不受此设置影响）。' },
+            { key: 'alwaysOnTop', label: '副窗口默认置顶', type: 'checkbox', hint: '副窗口和临时窗口（B 窗口）始终置顶显示，主窗口不受影响。' },
+            { key: 'closeToTray', label: '关闭窗口时', type: 'select', options: [{ label: '退出程序', value: false }, { label: '最小化到系统托盘', value: true }], hint: '点击关闭按钮时退出程序，或最小化到系统托盘。' },
+            { key: 'startAtLogin', label: '开机自启', type: 'checkbox', hint: '登录 Windows 时自动启动并最小化到系统托盘。' },
+            { key: 'minimizeToTrayOnStart', label: '手动启动时最小化到托盘', type: 'checkbox', hint: '手动启动时直接最小化到系统托盘，不显示主窗口。' },
           ]
         },
         {
           label: '快捷键', icon: SUB_ICONS['快捷键'],
           keys: ['screenshotShortcut', 'subWindowShortcut', 'textSelectionShortcut'],
           items: [
-            { key: 'screenshotShortcut', label: '截图快捷键', type: 'shortcut', hint: '一键唤起截图，默认 左 Alt + C。' },
-            { key: 'subWindowShortcut', label: '副窗呼出键', type: 'shortcut', hint: '一键呼出/隐藏副窗口，默认 左 Alt + 空格。' },
-            { key: 'textSelectionShortcut', label: '划词开关快捷键', type: 'shortcut', hint: '设置后可按快捷键一键开启/关闭划词功能（默认空，需手动设置）。' },
+            { key: 'screenshotShortcut', label: '截图快捷键', type: 'shortcut', hint: '一键唤起截图功能，默认 左 Alt + C。' },
+            { key: 'subWindowShortcut', label: '副窗口呼出快捷键', type: 'shortcut', hint: '一键呼出/隐藏副窗口，默认 左 Alt + 空格。' },
+            { key: 'textSelectionShortcut', label: '划词功能快捷键', type: 'shortcut', hint: '按快捷键一键开启/关闭划词功能（默认空）。' },
           ]
         },
         {
           label: '通知', icon: SUB_ICONS['通知'],
           keys: ['notificationEnabled', 'notificationScreenshot', 'notificationOperation', 'notificationTextSelection', 'notificationShortcut', 'notificationReplyDone'],
           items: [
-            { key: 'notificationEnabled', label: '总开关', type: 'checkbox', hint: '关闭后所有系统通知一律不再弹出。' },
-            { key: 'notificationScreenshot', label: '截图反馈', type: 'checkbox', hint: '截图成功复制、截图失败、未知截图动作等提示。' },
-            { key: 'notificationOperation', label: '操作反馈', type: 'checkbox', hint: '上传/翻译失败、没有对话窗口、创建副窗口失败、引用失败等提示。' },
-            { key: 'notificationTextSelection', label: '划词反馈', type: 'checkbox', hint: '划词失败等提示。' },
-            { key: 'notificationShortcut', label: '快捷键提示', type: 'checkbox', hint: '快捷键注册失败或被系统占用等提示。' },
-            { key: 'notificationReplyDone', label: '回答完成提醒', type: 'checkbox', hint: 'AI 回答完成时，若窗口在后台或你已切到其他会话，弹通知提醒；点击通知可跳回原会话。' },
+            { key: 'notificationEnabled', label: '通知总开关', type: 'checkbox', hint: '关闭后所有系统通知一律不再弹出。' },
+            { key: 'notificationScreenshot', label: '截图操作通知', type: 'checkbox', hint: '截图成功复制、截图失败、未知截图动作等提示。' },
+            { key: 'notificationOperation', label: '功能操作通知', type: 'checkbox', hint: '上传/翻译失败、创建副窗口失败等提示。' },
+            { key: 'notificationTextSelection', label: '划词操作通知', type: 'checkbox', hint: '划词失败等提示。' },
+            { key: 'notificationShortcut', label: '快捷键状态通知', type: 'checkbox', hint: '快捷键注册失败或被系统占用等提示。' },
+            { key: 'notificationReplyDone', label: '回答完成提醒', type: 'checkbox', hint: 'AI 回答完成且窗口不在前台时弹通知，点击可跳回原会话。' },
           ]
         },
         {
@@ -96,37 +96,38 @@
           label: '模型行为', icon: SUB_ICONS['模型行为'],
           keys: ['deepThinkEnabled', 'smartSearchEnabled', 'collapseThinking', 'defaultModelMode'],
           items: [
-            { key: 'deepThinkEnabled', label: '深度思考', type: 'checkbox', hint: '开启后，AI 在回答前会进行深度思考，展示详细的推理过程，适用于复杂问题。' },
-            { key: 'smartSearchEnabled', label: '智能搜索', type: 'checkbox', hint: '开启后，AI 会根据问题自动联网搜索，获取最新信息来辅助回答。' },
-            { key: 'collapseThinking', label: '折叠思考过程', type: 'checkbox', hint: '开启后，AI 的深度思考过程默认折叠收起，只显示最终答案，界面更简洁。' },
-            { key: 'defaultModelMode', label: '默认模型模式', type: 'select', options: [{ label: '快速模式', value: 'simple' }, { label: '专家模式', value: 'expert' }, { label: '识图模式', value: 'vision' }], hint: '选择新建对话时默认使用的模型模式：快速模式响应最快，专家模式适合复杂任务，识图模式支持图片理解。' },
+            { key: 'deepThinkEnabled', label: '深度思考', type: 'checkbox', hint: 'AI 回答前进行深度思考，展示详细推理过程。' },
+            { key: 'smartSearchEnabled', label: '智能搜索', type: 'checkbox', hint: 'AI 根据问题自动联网搜索最新信息。' },
+            { key: 'collapseThinking', label: '折叠思考过程', type: 'checkbox', hint: '深度思考过程默认折叠，只显示最终答案。' },
+            { key: 'defaultModelMode', label: '默认模型模式', type: 'select', options: [{ label: '快速模式', value: 'simple' }, { label: '专家模式', value: 'expert' }, { label: '识图模式', value: 'vision' }], hint: '新建对话默认的模型模式：快速响应最快，专家适合复杂任务，识图支持图片。' },
           ]
         },
         {
           label: '共享设置', icon: SUB_ICONS['共享'],
-          keys: ['screenShareSwitchVision', 'screenShareModeReminder', 'docSharePdfSaveInterval', 'docShareWpsWordLargeRounds', 'docShareWpsExcelLargeRounds', 'docSharePdfLargeRounds', 'docShareWpsWordLargeThreshold', 'docShareWpsExcelLargeThreshold', 'docSharePdfLargeThreshold'],
+          keys: ['shareIdleTimeout', 'screenShareSwitchVision', 'screenShareModeReminder', 'docSharePdfSaveInterval', 'docShareWpsWordLargeRounds', 'docShareWpsExcelLargeRounds', 'docSharePdfLargeRounds', 'docShareWpsWordLargeThreshold', 'docShareWpsExcelLargeThreshold', 'docSharePdfLargeThreshold'],
           items: [
-            { key: 'screenShareSwitchVision', label: '共享屏幕自动切识图模式', type: 'checkbox', hint: '开启后，点击「共享屏幕」时自动切换到识图模式以便发送截图（默认开启）。若当前对话已无法切换模型，则按当前模式给出提示。' },
-            { key: 'screenShareModeReminder', label: '共享屏幕模式提示', type: 'checkbox', hint: '控制共享屏幕时对话模式非识图模式时的提醒' },
-            { key: 'docSharePdfSaveInterval', label: 'PDF改动检测保存间隔（秒）', type: 'number', hint: '0 = 仅发送时保存（默认）：平时绝不自动保存原件，只有点发送上传那一刻才保存一次抓取最新内容。设为 10/30/60 等秒数后，共享期间会按该间隔自动保存一次并检测改动（PDF 的 COM 接口没有内存内容读取能力，感知未保存修改必须让 WPS 落盘一次）。' },
-            { key: '_docShareRounds', label: '共享文件提交轮数', type: 'docshare-rounds', hint: '文档/工作簿/PDF 内容超过各自的触发阈值时，对话每经过设定的提交轮数自动重新提交最新文件；检测到改动会立即提交并重新计数。WPS Word 触发阈值默认 70 万字，WPS Excel 默认 10 万字，WPS PDF 默认 20 万（按文件字节数近似）。' },
+            { key: 'shareIdleTimeout', label: '共享空闲自动退出（分钟）', type: 'number', hint: '共享屏幕/文档超时未发送消息自动退出。默认 10 分钟，0 = 不自动退出。' },
+            { key: 'screenShareSwitchVision', label: '共享屏幕自动切换识图模式', type: 'checkbox', hint: '启动共享屏幕时自动切换到识图模式，便于发送截图。' },
+            { key: 'screenShareModeReminder', label: '共享模式限制提醒', type: 'checkbox', hint: '非识图模式共享屏幕时弹出限制提醒。' },
+            { key: 'docSharePdfSaveInterval', label: 'PDF 改动检测保存间隔（秒）', type: 'number', hint: '0 = 仅发送时保存（默认）；设为秒数后按间隔自动保存并检测改动。' },
+            { key: '_docShareRounds', label: '共享文件自动重提轮数', type: 'docshare-rounds', hint: '内容超过阈值时按设定轮数自动重新提交，检测到改动立即提交。Word 70 万字、Excel 10 万字、PDF 20 万。' },
           ]
         },
         {
           label: '对话管理', icon: SUB_ICONS['对话管理'],
           keys: ['cleanBWindowHistory'],
           items: [
-            { key: 'cleanBWindowHistory', label: '提问小窗对话自动清理', type: 'checkbox', hint: '开启后，关闭提问小窗（包括截图翻译、截图解释、截图提取文字、截图提问等窗口）时，自动删除该次对话记录，避免历史记录堆积。' },
+            { key: 'cleanBWindowHistory', label: '临时窗口记录自动清理', type: 'checkbox', hint: '关闭临时窗口（B 窗口）时自动删除该次对话记录。' },
           ]
         },
         {
           label: '提示词', icon: SUB_ICONS['提示词'],
           keys: ['visionPromptTemplate', 'extractTextPromptTemplate', 'translatePromptTemplate', 'explainPromptTemplate'],
           items: [
-            { key: 'visionPromptTemplate', label: '识别图片', type: 'textarea', hint: '截图识图模式下发送给 AI 的提示词模板，{content} 为图片或文本内容占位符。' },
-            { key: 'extractTextPromptTemplate', label: '提取文字', type: 'textarea', hint: '截图「提取文字」功能使用的提示词模板。' },
-            { key: 'translatePromptTemplate', label: '翻译提示词（{content}{targetLang}）', type: 'textarea', hint: '截图翻译功能使用的提示词模板，{content} 为待翻译内容，{targetLang} 为目标语言。' },
-            { key: 'explainPromptTemplate', label: '解释提示词（{content}）', type: 'textarea', hint: '截图「解释」功能使用的提示词模板。' },
+            { key: 'visionPromptTemplate', label: '图片识别提示词', type: 'textarea', hint: '识图模式发送给 AI 的提示词模板，{content} 为内容占位符。' },
+            { key: 'extractTextPromptTemplate', label: '文字提取提示词', type: 'textarea', hint: '截图「提取文字」功能使用的提示词模板。' },
+            { key: 'translatePromptTemplate', label: '翻译提示词模板', type: 'textarea', hint: '翻译功能提示词模板：{content} 为内容，{targetLang} 为目标语言。' },
+            { key: 'explainPromptTemplate', label: '解释提示词模板', type: 'textarea', hint: '截图「解释」功能使用的提示词模板。' },
           ]
         },
       ]
@@ -138,23 +139,23 @@
           label: '截图', icon: SUB_ICONS['截图'],
           keys: ['annotationColors', 'keepWindowsOnScreenshot'],
           items: [
-            { key: 'annotationColors', label: '标注画笔色板', type: 'colorlist' },
-            { key: 'keepWindowsOnScreenshot', label: '截图时保留窗口', type: 'checkbox', hint: '开启后，截图时应用窗口保持显示在屏幕上（会被截进图里）；关闭后截图前自动隐藏应用窗口，避免窗口出现在截图中。' },
+            { key: 'annotationColors', label: '标注画笔颜色', type: 'colorlist', hint: '设置截图标注画笔的默认颜色，可添加多个常用颜色。' },
+            { key: 'keepWindowsOnScreenshot', label: '截图时保留窗口', type: 'checkbox', hint: '开启：截图时保留应用窗口（会截进图中）；关闭：截图前自动隐藏窗口。' },
           ]
         },
         {
           label: '划词', icon: SUB_ICONS['划词'],
           keys: ['textSelectionEnabled', 'textSelectionButtons'],
           items: [
-            { key: 'textSelectionEnabled', label: '划词功能开关', type: 'checkbox', hint: '开启后，选中文本并按 Ctrl+C 复制后，自动弹出划词工具栏，快速复制、翻译或解释选中内容。' },
-            { key: 'textSelectionButtons', label: '划词按钮列表', type: 'textselection-buttons' },
+            { key: 'textSelectionEnabled', label: '启用划词功能', type: 'checkbox', hint: '选中文本并复制时自动弹出划词工具栏。' },
+            { key: 'textSelectionButtons', label: '划词工具栏按钮', type: 'textselection-buttons', hint: '自定义划词工具栏按钮：可增删、拖拽排序、设置提示词。' },
           ]
         },
         {
           label: '翻译', icon: SUB_ICONS['翻译'],
           keys: ['defaultTranslateLang'],
           items: [
-            { key: 'defaultTranslateLang', label: '默认翻译语言', type: 'select', options: [
+            { key: 'defaultTranslateLang', label: '翻译默认目标语言', type: 'select', hint: '设置截图翻译、划词翻译等翻译功能默认输出的目标语言。', options: [
               { label: '简体中文', value: '简体中文' },
               { label: '繁體中文', value: '繁體中文' },
               { label: 'English', value: 'English' },
@@ -192,8 +193,8 @@
           label: '数据', icon: SUB_ICONS['数据'],
           keys: [],
           items: [
-            { key: '_exportData', label: '导出对话数据', type: 'action', action: 'data:exportData' },
-            { key: '_factoryReset', label: '清除本地配置数据', type: 'action', action: 'config:factoryReset', confirm: '确定要清除所有本地配置数据吗？此操作将退出登录并恢复默认设置，软件回到最初状态，且不可撤销。', hint: '清除本机的全部配置与登录状态，软件回到最初状态；下次启动将重新进行首次登录引导与使用说明。' },
+            { key: '_exportData', label: '导出对话记录', type: 'action', action: 'data:exportData', hint: '将本机的对话记录导出为文件，方便备份与迁移。' },
+            { key: '_factoryReset', label: '恢复出厂设置', type: 'action', action: 'config:factoryReset', confirm: '确定要恢复出厂设置吗？将清除全部配置与登录状态，不可撤销。', hint: '清除全部配置与登录状态，回到首次安装状态。' },
           ]
         },
       ]
@@ -205,8 +206,8 @@
           label: '使用说明', icon: SUB_ICONS['使用说明'],
           keys: [],
           items: [
-            { key: '_openOnboarding', label: '快速上手', type: 'action', action: 'onboarding:open', send: true, hint: '重新播放首次运行时的引导动画，介绍主副窗口切换、快捷键、划词与共享屏幕等核心功能。' },
-            { key: '_gotoManual', label: '详细说明书', type: 'manual-goto', hint: '在本面板内查看软件所有特殊功能的分组说明，可随时返回上一级。' },
+            { key: '_openOnboarding', label: '快速上手', type: 'action', action: 'onboarding:open', send: true, hint: '重新播放首次运行的引导，介绍主副窗口、快捷键、划词与共享屏幕等核心功能。' },
+            { key: '_gotoManual', label: '详细使用说明', type: 'manual-goto', hint: '在本面板内查看软件所有功能的分组说明，可随时返回上一级。' },
           ]
         },
       ]
@@ -950,7 +951,7 @@
                   if (lr && !lr.ok) {
                     progText.textContent = '打开安装程序失败：' + (lr.error || '未知错误');
                   } else {
-                    progText.textContent = '安装程序已打开，请按提示完成安装。安装完成后建议重新启动本程序。';
+                    progText.textContent = '安装程序已打开，请按提示完成安装。';
                   }
                 });
               }).catch(function (e) {
@@ -1021,20 +1022,20 @@
       return wrap;
     }
 
-    // ---- 详细说明书内容：按功能分组排版，逐一说明特色项及所在位置 ----
+    // ---- 详细使用说明内容：按功能分组排版，逐一说明特色项及所在位置 ----
     var MANUAL_GROUPS = [
         ['窗口与切换', [
-          ['主副窗口切换', '点击标题栏右侧的 ⇄ 按钮，在主窗口与副窗口之间来回切换，副窗口适合边查边聊、多任务并行。', '标题栏 ⇄ 按钮'],
+          ['主副窗口切换', '点击标题栏 ⇄ 按钮在主副窗口间切换，副窗口适合边查边聊。', '标题栏 ⇄ 按钮'],
           ['一键呼出副窗口', '无论你在哪个应用，按 左 Alt + 空格 即可随时呼出或隐藏副窗口。', '设置 → 应用 → 快捷键'],
-          ['副窗口默认置顶', '副窗口和提问小窗默认显示在其他窗口之上，不被遮挡。', '设置 → 应用 → 窗口'],
-          ['关闭行为', '点击窗口关闭按钮时，可选择直接退出程序，或最小化到系统托盘继续运行。', '设置 → 应用 → 窗口'],
-          ['开机自启', '登录系统时自动启动本程序并最小化到系统托盘，不显示主窗口；手动打开仍正常显示主界面。', '设置 → 应用 → 窗口'],
-          ['手动启动最小化到托盘', '开启后，手动打开程序时也直接最小化到系统托盘，不显示主窗口。', '设置 → 应用 → 窗口'],
+          ['副窗口默认置顶', '副窗口和临时窗口（B 窗口）默认显示在其他窗口之上，不被遮挡。', '设置 → 应用 → 窗口'],
+          ['关闭窗口时', '点击关闭按钮时退出程序，或最小化到系统托盘。', '设置 → 应用 → 窗口'],
+          ['开机自启', '登录系统时自动启动并最小化到托盘，不显示主窗口。', '设置 → 应用 → 窗口'],
+          ['手动启动时最小化到托盘', '开启后，手动打开程序时也直接最小化到系统托盘，不显示主窗口。', '设置 → 应用 → 窗口'],
         ]],
         ['快捷键', [
           ['截图快捷键', '一键唤起截图（默认 左 Alt + C），截取后可翻译、提取文字、解释或向 AI 提问。', '设置 → 应用 → 快捷键'],
-          ['副窗呼出键', '一键呼出或隐藏副窗口（默认 左 Alt + 空格）。', '设置 → 应用 → 快捷键'],
-          ['划词开关快捷键', '一键开启或关闭划词功能，避免工作时误弹出。', '设置 → 应用 → 快捷键'],
+          ['副窗口呼出快捷键', '一键呼出或隐藏副窗口（默认 左 Alt + 空格）。', '设置 → 应用 → 快捷键'],
+          ['划词功能快捷键', '一键开启或关闭划词功能，避免工作时误弹出。', '设置 → 应用 → 快捷键'],
         ]],
         ['截图与识图', [
           ['一键截图提问', '按快捷键或点击聊天框旁的剪刀按钮，截取屏幕选区，直接向 AI 提问。', '左 Alt + C 或剪刀按钮'],
@@ -1050,37 +1051,38 @@
           ['智能搜索', '自动联网搜索最新信息，辅助回答。', '设置 → 对话 → 模型行为'],
           ['折叠思考过程', '深度思考过程默认折叠收起，界面更简洁。', '设置 → 对话 → 模型行为'],
           ['默认模型模式', '快速 / 专家 / 识图三档，新建对话时自动应用。', '设置 → 对话 → 模型行为'],
-          ['开关自动同步', '新建对话或切换会话时，深度思考与智能搜索自动按设置恢复，不会被网页记住的手动状态带偏。', '自动生效'],
-          ['提问小窗清理', '关闭提问小窗（截图翻译、解释等，含说明书「问问AI」）时自动删除该次对话记录。', '设置 → 对话 → 对话管理'],
+          ['开关自动同步', '新建对话或切换会话时，深度思考与智能搜索自动按设置恢复。', '自动生效'],
+          ['临时窗口记录自动清理', '关闭临时窗口（B 窗口）时自动删除该次对话记录。', '设置 → 对话 → 对话管理'],
         ]],
         ['共享屏幕', [
-          ['共享屏幕', '发送消息时自动附带当前屏幕截图，适合远程演示与求助，屏幕四角会显示共享指示框。', '聊天框 + 按钮 → 共享屏幕'],
-          ['自动切识图模式', '点击「共享屏幕」时自动切换到识图模式，以便直接理解图片内容；可在设置中关闭。', '设置 → 对话 → 共享设置'],
-          ['模式提示', '若当前对话已无法切换模型（已有对话），快速模式会提示「只支持 OCR 识别，可能不精准」；专家模式会提示「不支持上传图片」且不开启共享屏幕。', '聊天框 + 按钮 → 共享屏幕'],
-          ['模式提示开关', '模式提示弹窗默认开启，点「不再提醒」后不再弹出，可在设置中随时重新开启。', '设置 → 对话 → 共享设置'],
-          ['共享文档', 'WPS 中打开 Word 文档后，点击「+」→「共享文档」，在输入框上方选择要共享的文档；发送时会自动带上该文档最新内容。', '聊天框 + 按钮 → 共享WPS Word'],
-          ['共享WPS Excel', 'WPS 表格中打开工作簿后，点击「+」→「共享WPS Excel」，在输入框上方选择要共享的工作簿；发送时会自动带上该工作簿最新内容。', '聊天框 + 按钮 → 共享WPS Excel'],
-          ['文档自动重新提交', '同一对话内文档提交后，WPS Word 超过 70 万字（可在设置修改轮数，默认 15）与 WPS Excel 超过 10 万字（可在设置修改轮数，默认 15）自动按轮数重新提交最新版；其余文档仅在检测到改动时立即重新提交。', '设置 → 对话 → 共享设置'],
+          ['共享屏幕', '发送消息时自动附带当前屏幕截图，屏幕四角显示共享指示框。', '聊天框 + 按钮 → 共享屏幕'],
+          ['自动切换识图模式', '启动共享屏幕时自动切换识图模式，可在设置中关闭。', '设置 → 对话 → 共享设置'],
+          ['共享模式限制提醒', '快速模式提示「只支持 OCR 识别」，专家模式提示「不支持上传图片」。', '聊天框 + 按钮 → 共享屏幕'],
+          ['限制提醒开关', '提醒弹窗默认开启，点「不再提醒」后可随时重新开启。', '设置 → 对话 → 共享设置'],
+          ['共享文档', '在 WPS 选择要共享的 Word 文档，发送时自动带上最新内容。', '聊天框 + 按钮 → 共享WPS Word'],
+          ['共享WPS Excel', '在 WPS 选择要共享的工作簿，发送时自动带上最新内容。', '聊天框 + 按钮 → 共享WPS Excel'],
+          ['文档自动重新提交', '内容超过阈值时按设定轮数自动重新提交最新版，检测到改动立即重新提交。', '设置 → 对话 → 共享设置'],
+          ['共享空闲自动退出', '共享期间超时未发送消息自动退出，默认 10 分钟，0 = 不自动退出。', '设置 → 对话 → 共享设置'],
         ]],
         ['翻译', [
-          ['默认翻译语言', '设置截图翻译、划词翻译默认输出的目标语言。', '设置 → 工具 → 翻译'],
+          ['翻译默认目标语言', '设置截图翻译、划词翻译等翻译功能默认输出的目标语言。', '设置 → 工具 → 翻译'],
         ]],
         ['个性化', [
-          ['主题', '浅色 / 深色 / 跟随系统三种模式，界面自动适配。', '设置 → 应用 → 常规'],
-          ['全局字号', '界面字号整体微调（-10 ~ +10），设置界面与网页对话内容同步放大缩小。', '设置 → 应用 → 常规'],
+          ['外观主题', '浅色 / 深色 / 跟随系统三种模式，界面自动适配。', '设置 → 应用 → 常规'],
+          ['界面字号', '界面字号整体微调（-10 ~ +10），设置界面与网页对话内容同步放大缩小。', '设置 → 应用 → 常规'],
           ['提示词模板', '识图、提取文字、翻译、解释等功能的提示词均可自定义。', '设置 → 对话 → 提示词'],
         ]],
         ['通知与提醒', [
-          ['通知总开关', '关闭后所有系统通知（截图、操作、划词、快捷键、回答完成）一律不再弹出。', '设置 → 应用 → 通知'],
-          ['回答完成提醒', 'AI 回答完成时，若窗口在后台或你已切到其他会话，会弹通知提醒；点击通知可跳回原会话。', '设置 → 应用 → 通知'],
-          ['分类通知控制', '截图反馈、操作反馈、划词反馈、快捷键提示可分别开关，按需保留关注的通知。', '设置 → 应用 → 通知'],
+          ['通知总开关', '关闭后所有系统通知一律不再弹出。', '设置 → 应用 → 通知'],
+          ['回答完成提醒', 'AI 回答完成且窗口不在前台时弹通知，点击可跳回原会话。', '设置 → 应用 → 通知'],
+          ['分类通知控制', '截图、操作、划词、快捷键等通知可分别开关。', '设置 → 应用 → 通知'],
         ]],
         ['使用说明', [
-          ['说明书问问 AI', '在「详细说明书」页面点击「看不懂，问问AI？」，会打开一个提问小窗并把整份说明书作为文档上传给 AI，看不懂的地方可直接提问；关闭小窗时按「提问小窗清理」设置自动删除该次对话。', '设置 → 帮助 → 使用说明 → 详细说明书'],
+          ['说明书问问 AI', '把整份说明书上传给临时窗口（B 窗口），看不懂的地方直接向 AI 提问。', '设置 → 帮助 → 使用说明 → 详细使用说明'],
         ]],
         ['更新与数据', [
           ['软件内更新', '自动检查新版本，发现后一键下载并唤起安装；也可手动检查。', '设置 → 应用 → 更新'],
-          ['导出对话数据', '将对话记录导出保存，方便备份与迁移。', '设置 → 个人中心 → 数据'],
+          ['导出对话记录', '将对话记录导出保存，方便备份与迁移。', '设置 → 个人中心 → 数据'],
           ['账号管理', '查看登录状态、退出登录。', '设置 → 个人中心 → 账号'],
         ]],
       ];
@@ -1107,7 +1109,7 @@
      * 分组标题 + 每条功能说明 + 末尾引导 AI 仔细阅读并请用户提问的提示语。
      */
     function buildManualMarkdown() {
-      var lines = ['# DeepSeek 桌面版详细说明书', ''];
+      var lines = ['# DeepSeek 桌面版详细使用说明', ''];
       MANUAL_GROUPS.forEach(function (g) {
         lines.push('## ' + g[0]);
         lines.push('');
@@ -1127,7 +1129,7 @@
     var MANUAL_CONTENT = buildManualHtml();
 
     /**
-     * 「详细说明书」面板内子页：不切换左侧导航，直接在面板中展示说明书，
+     * 「详细使用说明」面板内子页：不切换左侧导航，直接在面板中展示说明书，
      * 顶部提供「返回」按钮回到使用说明板块。
      */
     function renderManual() {
@@ -1145,7 +1147,7 @@
         head.appendChild(backBtn);
         var title = document.createElement('div');
         title.className = 'manual-head-title';
-        title.textContent = '详细说明书';
+        title.textContent = '详细使用说明';
         head.appendChild(title);
         // 说明书搜索框：按文字过滤说明条目
         var search = document.createElement('input');
@@ -1410,7 +1412,7 @@
           applyValue(item.key, next);
         });
       } else if (item.type === 'manual-goto') {
-        // 「详细说明书」按钮：点击后在本面板内打开说明书子页（可返回上一级）
+        // 「详细使用说明」按钮：点击后在本面板内打开说明书子页（可返回上一级）
         var mBtn = document.createElement('button');
         mBtn.className = 'action-btn';
         mBtn.textContent = item.label;
@@ -1672,11 +1674,11 @@
           panelBody.appendChild(resetSection);
         }
 
-        // 特殊处理：色板
+        // 特殊处理：标注画笔颜色
         if (sec.label === '截图') {
           shell.getConfig('annotationColors').then(function (val) { renderColors(val || []); }).catch(function () {});
         }
-        // 特殊处理：划词按钮列表
+        // 特殊处理：划词工具栏按钮
         if (sec.label === '划词') {
           shell.getConfig('textSelectionButtons').then(function (val) {
             var buttons = [];

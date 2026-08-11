@@ -1488,17 +1488,18 @@ export class Injector {
               { label: '共享屏幕', type: 'shareScreen', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>' },
               { label: '上传文件', type: 'uploadFile', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' },
             ];
-            // 共享状态同步：window.__dsShareActiveMode 标记当前共享模式（'shareDoc'/'shareExcel'/'sharePdf'/null），
-            // 据此给对应「共享」菜单项加蓝色高亮框；统一由此函数刷新，供共享浮层（picker）注入时调用。
+            // 共享状态同步：window.__dsShareActiveMode 标记当前共享模式（'shareDoc'/'shareExcel'/'sharePdf'/'shareScreen'/null），
+            // 据此给对应「共享」菜单项加蓝色高亮框；统一由此函数刷新，供共享浮层（picker）注入/共享屏幕启停时调用。
             function syncShareMenuHighlight() {
               var menuEl = document.getElementById('ds-plus-menu');
               if (!menuEl) return;
               var active = window.__dsShareActiveMode || null;
+              var shareTypes = ['shareDoc', 'shareExcel', 'sharePdf', 'shareScreen'];
               var btns = menuEl.querySelectorAll('button');
               for (var si = 0; si < btns.length; si++) {
                 var b = btns[si];
                 var t = b.getAttribute('data-ds-type');
-                if (t !== 'shareDoc' && t !== 'shareExcel' && t !== 'sharePdf') continue;
+                if (shareTypes.indexOf(t) < 0) continue;
                 // 恢复原始标签文字（悬浮时的「取消共享」在鼠标离开后由本函数还原）
                 var lbl = b.querySelector('.ds-menu-label');
                 if (lbl && lbl.getAttribute('data-ds-label')) lbl.textContent = lbl.getAttribute('data-ds-label');
@@ -1833,6 +1834,111 @@ export class Injector {
       return Boolean(await wc.executeJavaScript(code));
     } catch (e) {
       console.error('[Injector] injectAnswerWatcher 失败:', e);
+      return false;
+    }
+  }
+
+  /**
+   * 注入「切换会话后自动钉到底部」监听（修复：切换历史会话时被拽回顶部/随机位置）。
+   * DeepSeek 是 SPA：点侧边栏会话 → pushState/replaceState/popstate（偶有 hashchange）。
+   * 检测到 URL 变化后轮询消息滚动容器并持续滚到底部，直到「真正贴底且高度稳定」才停止，
+   * 覆盖虚拟列表边滚边懒加载的间隙；用户主动滚动/翻页则停止，切换下一个会话时重新允许。
+   * 幂等：同 document 只绑定一次；完整导航重建 document 后需重新注入。
+   */
+  public async injectPinToBottom(wc: WebContents): Promise<boolean> {
+    const code = `(() => {
+      try {
+        if (window.__dsPinBottomBound) return true;
+        window.__dsPinBottomBound = true;
+        var lastUrl = location.href;
+        // generation 计数器：每次 onUrlChange 自增，旧代 tick 检测到代差即退出，
+        // 避免快速连续切换会话时多条 rAF 链并存竞态。
+        var generation = 0;
+        var userScrolled = false;
+        function stopPin() { generation++; }
+        // 用户主动滚动/翻页 → 停止钉底，尊重用户操作（仅影响当前会话）
+        function markUser() { userScrolled = true; stopPin(); }
+        window.addEventListener('wheel', markUser, { passive: true, capture: true });
+        window.addEventListener('touchstart', markUser, { passive: true, capture: true });
+        window.addEventListener('keydown', function (e) {
+          var k = e.key || '';
+          if (k.indexOf('Arrow') === 0 || k === 'PageDown' || k === 'PageUp' || k === 'Home' || k === 'End' || k === ' ') markUser();
+        }, true);
+        // 消息滚动容器：从最后一条 AI 消息向上找「最近的可滚动祖先」。
+        // 从 .ds-markdown 向上走不会经过代码块等局部滚动区（它们在 markdown 内部），
+        // 加最小尺寸守卫防退化。
+        function findContainer() {
+          var marks = document.querySelectorAll('.ds-markdown');
+          if (!marks || !marks.length) return null;
+          var el = marks[marks.length - 1].parentElement;
+          for (var d = 0; d < 20 && el; d++, el = el.parentElement) {
+            try {
+              var cs = window.getComputedStyle(el);
+              if (!/(auto|scroll|overlay)/.test(cs.overflowY)) continue;
+            } catch (e2) { continue; }
+            if (el.scrollHeight > el.clientHeight + 10 && el.clientHeight > 50) return el;
+          }
+          return null;
+        }
+        function scrollBottom(c) {
+          if (userScrolled) return false;
+          if (c && c.scrollHeight > c.clientHeight) {
+            c.scrollTop = c.scrollHeight;
+            // 是否真正贴底（scrollTop 会被浏览器钳制到最大值）
+            return (c.scrollTop + c.clientHeight) >= c.scrollHeight - 8;
+          }
+          var marks = document.querySelectorAll('.ds-markdown');
+          if (marks && marks.length) {
+            try { marks[marks.length - 1].scrollIntoView({ block: 'end' }); return true; } catch (e3) {}
+          }
+          var d = document.scrollingElement || document.documentElement;
+          if (d && d.scrollHeight > d.clientHeight) { d.scrollTop = d.scrollHeight; return true; }
+          return false;
+        }
+        function onUrlChange() {
+          // 新会话 = 新的上下文：重置用户滚动标记，保证每次都尝试钉底
+          userScrolled = false;
+          var url = location.href;
+          if (url === lastUrl) return;
+          lastUrl = url;
+          stopPin();
+          var gen = generation;
+          var count = 0, lastH = -1, hStable = 0;
+          function tick() {
+            if (gen !== generation) return; // 已被新一代取代
+            count++;
+            var c = findContainer();
+            var atBottom = scrollBottom(c);
+            var h = c ? c.scrollHeight : 0;
+            if (h === lastH) hStable++; else { hStable = 0; lastH = h; }
+            // 真正贴底且高度连续稳定约 8 帧才认为渲染完成
+            if (atBottom && hStable >= 8) return;
+            // 最多约 10s 兜底（600 帧 × ~16ms）
+            if (count > 600) return;
+            // 用 rAF 在每帧绘制前滚动，比 setTimeout(150ms) 快约 10 倍，
+            // 最大限度减少新会话从顶部渲染到被钉底之间的顶部闪现
+            requestAnimationFrame(tick);
+          }
+          requestAnimationFrame(tick);
+        }
+        var origPush = history.pushState;
+        var origReplace = history.replaceState;
+        history.pushState = function () { var r = origPush.apply(this, arguments); setTimeout(onUrlChange, 0); return r; };
+        history.replaceState = function () { var r = origReplace.apply(this, arguments); setTimeout(onUrlChange, 0); return r; };
+        window.addEventListener('popstate', onUrlChange);
+        window.addEventListener('hashchange', onUrlChange);
+        // 兜底轮询 URL（覆盖非 pushState/replaceState 的导航方式）
+        setInterval(function () {
+          if (location.href !== lastUrl) onUrlChange();
+        }, 500);
+        console.log('[PinBottom] 已安装');
+        return true;
+      } catch (e) { return false; }
+    })()`;
+    try {
+      return Boolean(await wc.executeJavaScript(code));
+    } catch (e) {
+      console.error('[Injector] injectPinToBottom 失败:', e);
       return false;
     }
   }

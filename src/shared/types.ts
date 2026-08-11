@@ -98,6 +98,8 @@ export interface ConfigShape {
   screenShareSwitchVision: boolean;
   /** 共享屏幕模式提示弹框总开关（专家/快速模式限制时弹提示）。默认开启；点「不再提醒」后关闭，可在设置中重新开启。 */
   screenShareModeReminder: boolean;
+  /** 共享（屏幕/文档）空闲自动退出时间（分钟）：0=不自动退出。默认 10。 */
+  shareIdleTimeout: number;
   /** 共享WPS Word 大文档（>70万字）重新提交轮数，默认 15（WPS Word 专属设置；≤70万字仅在检测到改动时提交）。 */
   docShareWpsWordLargeRounds: number;
   /** 共享WPS Word 触发阈值（字符数），超过该值才按轮数重复提交，默认 700000。 */

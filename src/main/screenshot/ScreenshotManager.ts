@@ -3,7 +3,7 @@
  * - 修正高 DPI：thumbnail 以主屏「设备像素」尺寸采集，裁剪坐标 = 选区 × scaleFactor（I-03）。
  * - 标注合成：composeAnnotated 委托渲染层（overlay）在截图上绘制标注并返回合成图（I-05）。
  */
-import { clipboard, desktopCapturer, nativeImage, screen } from 'electron';
+import { BrowserWindow, clipboard, desktopCapturer, nativeImage, screen } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -13,6 +13,7 @@ import type { ConfigStore } from '../config/ConfigStore';
 import { IPC } from '../ipc/channels';
 import { showOverlay, hideOverlay, getOverlayWebContents, onOverlayClosed } from '../windows/screenshotOverlay';
 import type { WindowManager } from '../windows/WindowManager';
+import { enumWindowSnapRects, type SnapRect } from './windowSnap';
 
 export class ScreenshotManager {
   private sources: Electron.DesktopCapturerSource[] = [];
@@ -24,6 +25,8 @@ export class ScreenshotManager {
   private composeResolver: ((dataUrl: string) => void) | null = null;
   /** 截图模式：'normal'=标准带动作条，'question'=简化仅发送到当前对话。 */
   private screenshotMode: 'normal' | 'question' = 'normal';
+  /** 窗口吸附：截图时并行枚举的窗口边界列表（Promise 缓存，遮罩就绪后下发）。 */
+  private windowSnapPromise: Promise<SnapRect[]> | null = null;
 
   private windows?: WindowManager;
 
@@ -60,9 +63,30 @@ export class ScreenshotManager {
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
     await this.captureSources();
+    // 并行枚举窗口边界（供遮罩「悬浮吸附窗口」），不阻塞遮罩弹出；结果就绪后经 sendOverlayBackground 下发。
+    this.windowSnapPromise = this.enumSnapWindows();
     // 仅弹出遮罩；背景图不在此时发送——overlay 渲染进程就绪后会发 overlay:ready，
     // 主进程收到后才下发背景图，避免 webContents.send 早于监听器注册被丢弃（竞态会导致黑屏修复失效）。
     showOverlay(this.screenshotMode);
+  }
+
+  /** 枚举所有可见窗口边界（排除本应用自身窗口），供遮罩吸附；失败返回空数组。 */
+  private async enumSnapWindows(): Promise<SnapRect[]> {
+    const skipHandles: number[] = [];
+    for (const w of BrowserWindow.getAllWindows()) {
+      try {
+        const buf = w.getNativeWindowHandle();
+        skipHandles.push(Number(buf.readBigUInt64LE(0)));
+      } catch {
+        /* 忽略单个窗口句柄读取失败 */
+      }
+    }
+    try {
+      return await enumWindowSnapRects(skipHandles);
+    } catch (e) {
+      console.error('[ScreenshotManager] 窗口吸附枚举失败:', e);
+      return [];
+    }
   }
 
   /**
@@ -81,6 +105,40 @@ export class ScreenshotManager {
     const wc = getOverlayWebContents();
     if (wc && !wc.isDestroyed()) {
       wc.send(IPC.OVERLAY_SET_BACKGROUND_IMAGE, dataUrl);
+      this.sendWindowSnapRects(wc);
+    }
+  }
+
+  /** 下发窗口吸附边界列表（异步枚举结果就绪后推送；过滤掉遮罩自身窗口，失败则跳过——吸附功能优雅降级）。 */
+  private sendWindowSnapRects(wc: Electron.WebContents): void {
+    const p = this.windowSnapPromise;
+    if (!p) return;
+    p.then((list) => {
+      if (wc.isDestroyed()) return;
+      // 遮罩创建晚于枚举启动，这里按句柄过滤掉遮罩自身（透明全屏置顶，不过滤则吸附永远命中全屏）
+      const overlayH = this.getOverlayHandle();
+      const clean = overlayH
+        ? list.filter((r) => r.h !== overlayH)
+        : list;
+      wc.send(
+        IPC.OVERLAY_SET_WINDOWS,
+        clean.map(({ h: _h, ...rect }) => rect)
+      );
+    }).catch(() => {
+      /* 忽略 */
+    });
+  }
+
+  /** 取遮罩窗口句柄（不存在/已销毁返回 0）。 */
+  private getOverlayHandle(): number {
+    const overlayWc = getOverlayWebContents();
+    if (!overlayWc) return 0;
+    const ow = BrowserWindow.fromWebContents(overlayWc);
+    if (!ow || ow.isDestroyed()) return 0;
+    try {
+      return Number(ow.getNativeWindowHandle().readBigUInt64LE(0));
+    } catch {
+      return 0;
     }
   }
 

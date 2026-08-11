@@ -89,6 +89,8 @@ export const IPC = {
   OVERLAY_COMPOSE_RESULT: 'overlay:compose-result',
   /** 主 -> 渲染（overlay）：下发全屏截图背景图（PNG dataURL），替代透明窗口看穿桌面（修复全屏独占应用黑屏）。 */
   OVERLAY_SET_BACKGROUND_IMAGE: 'overlay:setBackgroundImage',
+  /** 主 -> 渲染（overlay）：下发可吸附窗口边界列表（payload: SnapRect[]，overlay 局部 CSS 坐标，按 Z 序从顶到底），用于悬浮吸附窗口。 */
+  OVERLAY_SET_WINDOWS: 'overlay:setWindows',
   /** 渲染（overlay）-> 主：渲染进程就绪（监听器已注册），主进程据此才下发背景图，避免 send 早于监听被丢弃。 */
   OVERLAY_READY: 'overlay:ready',
 

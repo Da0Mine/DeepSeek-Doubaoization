@@ -144,6 +144,20 @@ export class UpdateChecker {
     return shell.openPath(localPath);
   }
 
+  /**
+   * 唤起本地安装程序并自动退出应用。
+   * Windows 安装程序无法覆盖仍在运行的主程序文件，若不先退出应用，用户必须手动关闭后才能安装。
+   * 这里先启动安装程序，稍等其进程就绪后自动退出应用，释放文件占用。
+   * 返回空字符串表示安装程序已启动。
+   */
+  async launchInstallerAndQuit(localPath: string): Promise<string> {
+    const err = await this.launchInstaller(localPath);
+    if (err) return err;
+    // 给安装程序一点启动时间，随后自动退出应用；退出前 before-quit 会放行窗口关闭拦截并清理快捷键。
+    setTimeout(() => app.quit(), 1000);
+    return '';
+  }
+
   private async fetchLatest(): Promise<UpdateInfo> {
     const base: UpdateInfo = {
       currentVersion: this.currentVersion,

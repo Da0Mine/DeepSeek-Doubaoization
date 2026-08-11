@@ -8,7 +8,7 @@ import * as path from 'path';
 import type { ConfigStore } from '../config/ConfigStore';
 import type { DefaultModelMode, ScreenshotRect, SubWindowRole, WindowType } from '../../shared/types';
 import { WEBVIEW_PRELOAD, DEEPSEEK_URL } from '../constants';
-import { createMainWindow, layoutView, createChatView } from './mainWindow';
+import { createMainWindow, layoutView, createChatView, focusChatInputOnShow } from './mainWindow';
 import { createSubWindow } from './subWindow';
 import { createBWindow as createBWindowFactory } from './bWindow';
 import { IPC } from '../ipc/channels';
@@ -203,11 +203,13 @@ export class WindowManager {
       if (applyDefaultModel) applyDefaultMode().catch(() => {});
       injectAnswerWatch();
       detectConversationChange();
+      if (this.injector) this.injector.injectPinToBottom(view.webContents).catch(() => {});
     });
     view.webContents.on('did-navigate-in-page', () => {
       fire();
-      applyThinkCollapse(view.webContents, this.config.get('collapseThinking'));
-      // SPA 路由变化（含「历史会话 → 新建对话」）需据 URL 方向检测以应用默认模型
+      // 注意：SPA 路由切换（含切会话）不重跑 applyThinkCollapse——折叠脚本内部已监听
+      // pushState/replaceState/popstate 并在 URL 变化 500ms 后重新折叠；整脚本重跑会
+      // 在切换过渡期立即点击所有 think 块 toggle，引发 React 重渲染、扰乱消息列表滚动。
       detectConversationChange();
     });
     view.webContents.on('did-navigate', () => {
@@ -219,6 +221,7 @@ export class WindowManager {
       // 完整导航会重建 document，页内点击监听可能丢失，重新注入一次（flag 防重复）
       injectWatcher();
       injectAnswerWatch();
+      if (this.injector) this.injector.injectPinToBottom(view.webContents).catch(() => {});
     });
     // 注入「新建对话」监听（Bug2 修复）：点击新建对话后由页面经 IPC 通知主进程自动切换默认模型。
     // 仅对带模型选择器的对话窗口（main/sub/vision）注入；translate/explain/extract/B 窗口、
@@ -556,6 +559,8 @@ export class WindowManager {
     // 导致用户看到的是"中间的空内容 + 底部的输入框"而不是页面顶部。每次 did-finish-load
     // 把页面滚到 0，且禁用 history 的滚动记忆。同时多重延迟重试，覆盖 SPA 路由切换后
     // scrollY 又被恢复的情况。
+    // 关键修正（Bug）：仅在「非历史会话页」（新建对话根路由）执行——切换历史会话时若强制
+    // 滚顶，会把对话刷到开头，覆盖 DeepSeek 自身「切换会话停在底部」的原生逻辑。
     const SCROLL_TO_TOP_JS = `
       (() => {
         try {
@@ -567,12 +572,26 @@ export class WindowManager {
         } catch (e) { return -1; }
       })()
     `;
+    // 当前是否为「历史会话」页（URL 形如 /a/chat/<id>，判定规则与 detectConversationChange 一致）。
+    // 会话页交还 DeepSeek 自身的滚动恢复逻辑，不强制滚顶。
+    const isConversationPage = (): boolean => {
+      try {
+        const url = view.webContents.getURL();
+        return /\/a\/chat\/.+/.test(url.split('#')[0]);
+      } catch {
+        return false;
+      }
+    };
     const scrollToTop = (): void => {
       try {
         if (!view || view.webContents.isDestroyed()) return;
+        // 历史会话页不滚顶：让网页自身恢复滚动位置（切换会话应停在底部，而非跳回开头）
+        if (isConversationPage()) return;
         const wc = view.webContents;
-        // 立即 + 200ms + 1s + 3s 四次重试，覆盖 React 重渲染可能把 scrollY 恢复的情况
+        // 立即 + 200ms + 1s + 3s 四次重试，覆盖 React 重渲染可能把 scrollY 恢复的情况。
+        // 每次执行前都重新判断当前 URL，避免延迟重试落在用户已切入的会话页上。
         const tryOnce = (): void => {
+          if (isConversationPage()) return;
           wc.executeJavaScript(SCROLL_TO_TOP_JS, true).catch(() => { /* 忽略 */ });
         };
         tryOnce();
@@ -586,7 +605,7 @@ export class WindowManager {
     scrollToTop();
     view.webContents.on('did-finish-load', () => {
       scrollToTop();
-      // 路由切换后再次滚回顶部
+      // 路由切换后再次滚回顶部（仅对非会话页生效，会话页由网页自身处理滚动）
       setTimeout(scrollToTop, 1000);
     });
   }
@@ -858,6 +877,11 @@ export class WindowManager {
         }
       });
     layoutView(dst.win, view);
+    // 页面完整加载后聚焦输入框（切换重建视图时 show 可能发生在加载中，
+    // 注入到即将导航卸载的 document 里的 setTimeout 轮询会随导航销毁，故以 did-finish-load 兜底）。
+    view.webContents.on('did-finish-load', () => {
+      if (!view.webContents.isDestroyed()) focusChatInputOnShow(view.webContents);
+    });
     // 重新接线：剪刀按钮 / 新建对话监听 / 默认模型（did-finish-load 时自动应用）
     this.attachWebViewReady(view, dst.type);
     // 链接打开方式（内置浏览器窗口 / 系统默认浏览器）

@@ -40,6 +40,7 @@ import type { WpsDocManager } from '../wps/WpsDocManager';
 import type { OnboardingManager } from '../onboarding/OnboardingManager';
 import type { FirstRunDialog } from '../firstRun/FirstRunDialog';
 import type { AnswerReminder } from '../reminder/AnswerReminder';
+import { setLoginItem } from '../loginItem';
 
 export interface HandlerCtx {
   config: ConfigStore;
@@ -412,7 +413,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
     // 当前对话模型模式（快速/专家/识图/未知）
     const mode = await injector.getCurrentModelMode(wc);
     if (mode === 'vision') {
-      screenShare.start();
+      screenShare.start('vision');
       return;
     }
 
@@ -422,7 +423,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
       // 自动切换到识图模式（禁止点「新建对话」，避免破坏当前对话）
       const ok = await injector.switchToVisionModel(wc, { allowNewConversation: false });
       if (ok) {
-        screenShare.start();
+        screenShare.start('vision');
         return;
       }
     }
@@ -434,13 +435,13 @@ export function registerHandlers(ctx: HandlerCtx): void {
       return;
     }
     if (mode === 'simple') {
-      // 快速模式仅支持 OCR 识别：弹提示，仍开启共享
+      // 快速模式仅支持 OCR 识别：弹提示，仍开启共享（任务栏按钮置黄提示「当前非识图模式」）
       if (config.get('screenShareModeReminder')) modeReminder.open('simple');
-      screenShare.start();
+      screenShare.start('simple');
       return;
     }
     // 模式未知：保守开启，不阻断功能
-    screenShare.start();
+    screenShare.start('unknown');
   };
 
   // ---- 共享屏幕模式提示弹框 ----
@@ -469,6 +470,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
     if (!wc || wc.isDestroyed()) return;
     const docs = await wps.listDocuments();
     await injector.injectDocSharePicker(wc, docs, 'word');
+    startDocShareIdleTimer('word');
   });
 
   // 点击「+」→「共享WPS Excel」：枚举打开的 WPS 表格工作簿并注入下拉框浮层
@@ -477,6 +479,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
     if (!wc || wc.isDestroyed()) return;
     const docs = await wps.listExcelDocuments();
     await injector.injectDocSharePicker(wc, docs, 'excel');
+    startDocShareIdleTimer('excel');
   });
 
   // 点击「+」→「共享WPS PDF」：枚举打开的 WPS PDF 文档并注入下拉框浮层
@@ -485,6 +488,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
     if (!wc || wc.isDestroyed()) return;
     const docs = await wps.listPdfDocuments();
     await injector.injectDocSharePicker(wc, docs, 'pdf');
+    startDocShareIdleTimer('pdf');
   });
 
   // 共享期间定时刷新：按 mode 重新枚举打开的文档/工作簿/PDF，推送给浮层更新下拉列表。
@@ -510,8 +514,43 @@ export function registerHandlers(ctx: HandlerCtx): void {
     lastHash: '', // 上次提交时的文档内容哈希
     size: 0, // 文档大小（字符数）
     changed: false, // 轮询是否检测到文档改动
+    idleTimer: null as ReturnType<typeof setTimeout> | null, // 空闲自动退出计时器
   });
   const docShareTracks = { word: makeTrack(), excel: makeTrack(), pdf: makeTrack() };
+
+  // 共享文档空闲自动退出：长时间不发送消息自动退出共享文档状态（shareIdleTimeout 分钟，0=不自动退出）。
+  // 退出动作：重置跟踪状态 + 关闭页面浮层（若存在，__dsDocShareStop 会发 docShare:stop 再重置一次，幂等）。
+  const startDocShareIdleTimer = (m: 'word' | 'excel' | 'pdf'): void => {
+    const t = docShareTracks[m];
+    if (t.idleTimer) {
+      clearTimeout(t.idleTimer);
+      t.idleTimer = null;
+    }
+    const minutes = config.get('shareIdleTimeout');
+    if (!minutes || minutes <= 0) return;
+    t.idleTimer = setTimeout(() => {
+      t.idleTimer = null;
+      t.active = false;
+      t.trackName = '';
+      t.roundCount = 0;
+      t.lastCommitRound = -1;
+      t.lastHash = '';
+      t.size = 0;
+      t.changed = false;
+      const wc = windows.getActiveWebContents();
+      if (wc && !wc.isDestroyed()) {
+        wc.executeJavaScript(`if (window.__dsDocShareStop) { window.__dsDocShareStop(); }`).catch(() => {});
+      }
+      notify('共享文档', `已 ${minutes} 分钟未发送消息，自动退出共享文档`);
+    }, minutes * 60 * 1000);
+  };
+  const clearDocShareIdleTimer = (m: 'word' | 'excel' | 'pdf'): void => {
+    const t = docShareTracks[m];
+    if (t.idleTimer) {
+      clearTimeout(t.idleTimer);
+      t.idleTimer = null;
+    }
+  };
   // 上一次对 PDF 做「保存式检测」的时刻（按 docSharePdfSaveInterval 控制频率；0=仅发送时保存，轮询纯读取）
   let lastPdfSaveCheckAt = 0;
   // 每 10s 轮询检测三种文档是否被改动
@@ -571,6 +610,8 @@ export function registerHandlers(ctx: HandlerCtx): void {
     track.active = true;
     track.trackName = docName;
     track.roundCount++;
+    // 发送消息视为一次对话：重置空闲自动退出计时
+    startDocShareIdleTimer(m);
     console.log('[DocShare:' + m + '] 收到发送 round=' + track.roundCount + ' text="' + String(text || '').slice(0, 20) + '" lastHash=' + (track.lastHash || '').slice(0, 12));
     // PDF：无条件先读取一次最新（此刻 Save() 落盘内存未保存修改），保证发送时一定读上 PDF；
     // 据此与上次提交的签名对比，判断是否需要重新提交。
@@ -653,7 +694,9 @@ export function registerHandlers(ctx: HandlerCtx): void {
 
   // 取消共享文档：重置对应模式的智能提交跟踪状态
   ipcMain.on(IPC.DOC_SHARE_STOP, (_e, { mode }: { mode?: 'word' | 'excel' | 'pdf' }) => {
-    const t = docShareTracks[mode === 'excel' ? 'excel' : mode === 'pdf' ? 'pdf' : 'word'];
+    const m = mode === 'excel' ? 'excel' : mode === 'pdf' ? 'pdf' : 'word';
+    clearDocShareIdleTimer(m);
+    const t = docShareTracks[m];
     t.active = false;
     t.trackName = '';
     t.roundCount = 0;
@@ -814,7 +857,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
         }
         break;
       case 'startAtLogin':
-        app.setLoginItemSettings({ openAtLogin: Boolean(value) });
+        setLoginItem(Boolean(value));
         break;
       case 'fontSize':
         broadcastTheme();
@@ -1046,9 +1089,9 @@ export function registerHandlers(ctx: HandlerCtx): void {
     }
   });
 
-  // 唤起本地安装程序（打开路径；返回空字符串表示成功）。
+  // 唤起本地安装程序并自动退出应用（返回空字符串表示成功；应用将在安装程序启动后自动退出，无需手动关闭）。
   ipcMain.handle(IPC.UPDATE_LAUNCH, async (_e, { path: p }: { path: string }) => {
-    const err = await update.launchInstaller(p);
+    const err = await update.launchInstallerAndQuit(p);
     return { ok: !err, error: err || undefined };
   });
 

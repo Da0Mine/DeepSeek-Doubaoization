@@ -129,6 +129,12 @@ const shellApi = {
   onOverlayBackgroundImage: (cb: (dataUrl: string) => void): void => {
     ipcRenderer.on(IPC.OVERLAY_SET_BACKGROUND_IMAGE, (_e, dataUrl: string) => cb(dataUrl));
   },
+  /** 主 -> 渲染（overlay）：可吸附窗口边界列表（悬浮吸附窗口用）。 */
+  onOverlayWindows: (cb: (list: { x: number; y: number; width: number; height: number }[]) => void): void => {
+    ipcRenderer.on(IPC.OVERLAY_SET_WINDOWS, (_e, list: { x: number; y: number; width: number; height: number }[]) =>
+      cb(list || [])
+    );
+  },
 
   // ---- 通用 IPC 发送（划词工具栏等场景使用） ----
   send: (channel: string, ...args: unknown[]): void => {

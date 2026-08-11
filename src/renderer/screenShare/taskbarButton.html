@@ -33,6 +33,14 @@
     .taskbar-btn:hover {
       background: rgba(53, 122, 189, 0.9);
     }
+    /* 非识图模式（快速模式）提示置黄：背景、阴影、悬浮色同步切换 */
+    .taskbar-btn.warning {
+      background: rgba(226, 160, 74, 0.75);
+      box-shadow: 0 2px 12px rgba(226, 160, 74, 0.45);
+    }
+    .taskbar-btn.warning:hover {
+      background: rgba(190, 128, 44, 0.92);
+    }
     .taskbar-btn svg {
       width: 14px;
       height: 14px;
@@ -61,13 +69,27 @@
   </div>
 
   <script>
-    document.getElementById('stopBtn').addEventListener('click', function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (window.__dsScreenShare && window.__dsScreenShare.sendStop) {
-        window.__dsScreenShare.sendStop();
+    // 主进程经 URL query 传入进入共享时的模型模式：
+    // 非识图模式（快速模式）时按钮置黄，正常态文字提示「当前非识图模式」，悬浮仍显示「取消共享」。
+    (function () {
+      var mode = '';
+      try {
+        mode = new URLSearchParams(window.location.search).get('mode') || '';
+      } catch (e) {}
+      var btn = document.getElementById('stopBtn');
+      if (mode && mode !== 'vision') {
+        btn.classList.add('warning');
+        var normal = btn.querySelector('.normal-text');
+        if (normal) normal.textContent = '当前非识图模式';
       }
-    });
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (window.__dsScreenShare && window.__dsScreenShare.sendStop) {
+          window.__dsScreenShare.sendStop();
+        }
+      });
+    })();
   </script>
 </body>
 </html>

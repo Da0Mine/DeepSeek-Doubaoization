@@ -34,13 +34,8 @@ export class TrayManager {
   /** 创建并显示托盘。 */
   public show(): void {
     if (this.tray) return;
-    let image: Electron.NativeImage;
     const iconPath = iconIfExists();
-    if (iconPath) {
-      image = nativeImage.createFromPath(iconPath);
-    } else {
-      image = nativeImage.createEmpty();
-    }
+    const image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
     this.tray = new Tray(image);
     this.tray.setToolTip('DeepSeek Desktop');
     this.tray.setContextMenu(this.buildMenu());

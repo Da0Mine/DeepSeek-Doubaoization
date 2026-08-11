@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import type { WindowManager } from '../windows/WindowManager';
 import type { Injector } from '../inject/Injector';
+import type { ConfigStore } from '../config/ConfigStore';
 import { logf } from '../logger';
 import { SCREEN_SHARE_TASKBAR_PRELOAD } from '../constants';
 
@@ -20,6 +21,12 @@ export class ScreenShareManager {
   private taskbarWin: BrowserWindow | null = null;
   private windows?: WindowManager;
   private injector?: Injector;
+  /** 空闲自动退出计时器（长时间不对话自动退出共享屏幕）。 */
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 进入共享时的对话模型模式（vision/simple/expert/unknown），用于任务栏按钮提示（非识图模式置黄）。 */
+  private mode: 'vision' | 'simple' | 'expert' | 'unknown' = 'unknown';
+
+  constructor(private readonly config: ConfigStore) {}
 
   /** 注入依赖 */
   public setDependencies(windows: WindowManager, injector: Injector): void {
@@ -32,13 +39,16 @@ export class ScreenShareManager {
     return this.active;
   }
 
-  /** 进入共享屏幕模式 */
-  public start(): void {
+  /** 进入共享屏幕模式。mode 为当前对话模型模式（非识图模式时任务栏按钮提示置黄）。 */
+  public start(mode: 'vision' | 'simple' | 'expert' | 'unknown' = 'unknown'): void {
     if (this.active) return;
     this.active = true;
+    this.mode = mode;
     this.showIndicators();
     this.showTaskbarButton();
     this.injectEnterInterceptor();
+    this.syncShareMenuToPage('shareScreen');
+    this.resetIdleTimer();
     logf('ScreenShare', '进入共享屏幕模式');
   }
 
@@ -46,9 +56,11 @@ export class ScreenShareManager {
   public stop(): void {
     if (!this.active) return;
     this.active = false;
+    this.clearIdleTimer();
     this.hideIndicators();
     this.hideTaskbarButton();
     this.removeEnterInterceptor();
+    this.syncShareMenuToPage(null);
     logf('ScreenShare', '退出共享屏幕模式');
   }
 
@@ -56,6 +68,44 @@ export class ScreenShareManager {
   public toggle(): void {
     if (this.active) this.stop();
     else this.start();
+  }
+
+  /**
+   * 同步共享屏幕状态到聊天页面：让「+」菜单里的「共享屏幕」项显示蓝色高亮，
+   * 悬浮时显示「取消共享」，再次点击即可退出（与共享文档一致）。
+   * @param state 'shareScreen' 进入 / null 退出（仅当页面上一次标记是共享屏幕时才清除，避免误伤共享文档状态）。
+   */
+  private syncShareMenuToPage(state: 'shareScreen' | null): void {
+    const wc = this.windows?.getActiveWebContents();
+    if (!wc || wc.isDestroyed()) return;
+    wc.executeJavaScript(
+      state
+        ? `window.__dsShareActiveMode = 'shareScreen'; if (window.__dsSyncShareMenu) window.__dsSyncShareMenu();`
+        : `if (window.__dsShareActiveMode === 'shareScreen') { window.__dsShareActiveMode = null; if (window.__dsSyncShareMenu) window.__dsSyncShareMenu(); }`
+    ).catch(() => {});
+  }
+
+  /**
+   * 空闲自动退出计时：共享期间每次发送消息（对话）重置；
+   * 超过配置时长（shareIdleTimeout，分钟）未对话则自动退出共享屏幕。
+   * 0 或负值表示不自动退出。
+   */
+  private resetIdleTimer(): void {
+    this.clearIdleTimer();
+    const minutes = this.config.get('shareIdleTimeout');
+    if (!minutes || minutes <= 0) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      logf('ScreenShare', `已 ${minutes} 分钟未发送消息，自动退出共享屏幕`);
+      this.stop();
+    }, minutes * 60 * 1000);
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
   }
 
   /** 显示四角指示器 */
@@ -105,7 +155,7 @@ export class ScreenShareManager {
     });
   }
 
-  /** 显示任务栏按钮 */
+  /** 显示任务栏按钮（屏幕下方提示）。非识图模式（快速模式）时按钮置黄并提示「当前非识图模式」。 */
   private showTaskbarButton(): void {
     if (this.taskbarWin && !this.taskbarWin.isDestroyed()) return;
 
@@ -136,9 +186,9 @@ export class ScreenShareManager {
       },
     });
 
-    // 加载任务栏按钮 HTML
+    // 加载任务栏按钮 HTML（query 传入模型模式，非识图模式时渲染层置黄提示）
     const htmlPath = path.join(__dirname, '..', '..', 'renderer', 'screenShare', 'taskbarButton.html');
-    this.taskbarWin.loadFile(htmlPath);
+    this.taskbarWin.loadFile(htmlPath, { query: { mode: this.mode } });
 
     this.taskbarWin.once('ready-to-show', () => {
       if (this.taskbarWin && !this.taskbarWin.isDestroyed()) {
@@ -202,6 +252,9 @@ export class ScreenShareManager {
       window.__dsScreenShareVersion = (window.__dsScreenShareVersion || 0) + 1;
       var ver = window.__dsScreenShareVersion;
       window.__dsScreenShareActive = true;
+      // 同步「+」菜单共享屏幕项高亮（窗口切换/页面重载后恢复）
+      window.__dsShareActiveMode = 'shareScreen';
+      if (window.__dsSyncShareMenu) window.__dsSyncShareMenu();
 
       // 查找输入框
       function findInput() {
@@ -313,6 +366,9 @@ export class ScreenShareManager {
   public async handleEnterPressed(text: string): Promise<void> {
     const wc = this.windows?.getActiveWebContents();
     if (!wc || wc.isDestroyed() || !this.injector) return;
+
+    // 发送消息视为一次对话：重置空闲自动退出计时
+    this.resetIdleTimer();
 
     console.time('screenShare:total');
     try {

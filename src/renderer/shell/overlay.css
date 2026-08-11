@@ -60,6 +60,18 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* 窗口吸附框：悬浮在窗口上时显示（白色虚线 + 蓝色描边，区别于实线选区框），点击即按窗口边界框选 */
+#snap {
+  position: fixed;
+  display: none;
+  border: 2px dashed rgba(255, 255, 255, 0.95);
+  outline: 1px solid rgba(51, 112, 255, 0.9);
+  background: rgba(51, 112, 255, 0.06);
+  z-index: 8;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
 /* 标注工具栏（选区完成后贴在框「上方」，位置由 JS 设置） */
 #toolbar {
   position: fixed;

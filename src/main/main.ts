@@ -27,6 +27,7 @@ import { OnboardingManager } from './onboarding/OnboardingManager';
 import { FirstRunDialog } from './firstRun/FirstRunDialog';
 import { AnswerReminder } from './reminder/AnswerReminder';
 import { initBrowserWindowManager } from './windows/browserWindow';
+import { setLoginItem } from './loginItem';
 
 app.setName('DeepSeek');
 
@@ -150,7 +151,7 @@ app.whenReady().then(() => {
   windows.setInjector(injector);
   screenshot.setWindowManager(windows);
   settings = new SettingsWindow(() => windows.getMainWindow(), () => theme.getCssVars()['--ds-bg']);
-  screenShare = new ScreenShareManager();
+  screenShare = new ScreenShareManager(config);
   screenShare.setDependencies(windows, injector);
   windows.setScreenShare(screenShare);
   update = new UpdateChecker();
@@ -177,7 +178,7 @@ app.whenReady().then(() => {
   applyProxy();
 
   // 开机自启
-  app.setLoginItemSettings({ openAtLogin: config.get('startAtLogin') });
+  setLoginItem(config.get('startAtLogin'));
 
   // 快捷键
   shortcuts = new ShortcutManager();

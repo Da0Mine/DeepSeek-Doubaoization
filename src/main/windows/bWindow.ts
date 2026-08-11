@@ -16,7 +16,7 @@ import {
 } from '../constants';
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
-import { scheduleLayoutView } from './mainWindow';
+import { scheduleLayoutView, focusChatInputOnShow } from './mainWindow';
 import { installLinkOpenHandler } from './browserWindow';
 import { logf } from '../logger';
 import type { ConfigStore } from '../config/ConfigStore';
@@ -235,6 +235,11 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
   win.contentView.addChildView(view);
   view.webContents.loadURL(DEEPSEEK_URL);
   scheduleLayoutView(win, view, B_TITLEBAR_HEIGHT);
+  // 页面完整加载后聚焦输入框（show 聚焦是快速路径；页面加载中时脚本轮询会随导航销毁，
+  // did-finish-load 兜底可靠聚焦）。
+  view.webContents.on('did-finish-load', () => {
+    if (!view.webContents.isDestroyed()) focusChatInputOnShow(view.webContents);
+  });
   // 链接打开方式（内置浏览器窗口 / 系统默认浏览器）
   installLinkOpenHandler(view.webContents);
 
@@ -263,6 +268,8 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
   win.on('enter-full-screen', relayout);
   win.on('leave-full-screen', relayout);
   win.on('show', relayout);
+  // 打开窗口即可直接输入：B 窗口 show 时聚焦聊天输入框（view 为固定局部变量，可直接捕获）。
+  win.on('show', () => focusChatInputOnShow(view.webContents));
 
   win.once('ready-to-show', () => {
     if (!win.isDestroyed()) {

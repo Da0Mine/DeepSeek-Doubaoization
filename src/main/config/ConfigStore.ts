@@ -46,6 +46,8 @@ const DEFAULT_CONFIG: ConfigShape = {
   screenShareSwitchVision: true,
   /** 共享屏幕模式提示弹框：默认开启。点击「不再提醒」后置 false，可在设置中重新开启。 */
   screenShareModeReminder: true,
+  /** 共享（屏幕/文档）空闲自动退出时间（分钟）：0=不自动退出。默认 10。 */
+  shareIdleTimeout: 10,
   /** 共享WPS Word 大文档（>70万字）重新提交轮数，默认 15；≤70万字仅在检测到改动时提交。 */
   docShareWpsWordLargeRounds: 15,
   /** 共享WPS Word 触发阈值（字符数），默认 700000。 */

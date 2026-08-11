@@ -11,6 +11,9 @@
     <!-- 半透明暗化层（盖在背景之上，选区之下）（z-index 1） -->
     <div id="shade"></div>
 
+    <!-- 窗口吸附框：鼠标悬浮在窗口上时显示，点击即按窗口边界完成框选（z-index 8，与选区同级） -->
+    <div id="snap"></div>
+
     <!-- 标注工具栏（选区完成后显示）。颜色选择器默认隐藏，仅在选中画笔/矩形/椭圆工具时出现。 -->
     <div id="toolbar" class="hidden">
       <span class="tb-title">标注：</span>
@@ -37,7 +40,7 @@
       <button id="btn-cancel" class="act-btn cancel"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="act-label">取消</span></button>
     </div>
 
-    <div id="hint">请在屏幕上拖拽选择区域</div>
+    <div id="hint">移动鼠标可吸附窗口，点击直接框选；或拖拽手动选择</div>
 
     <!-- 冻结的截图底图（选区完成后定位显示） -->
     <img id="frozen" alt="" />

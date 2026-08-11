@@ -45,6 +45,11 @@
     var anno = document.getElementById('anno');
     var ctx = anno.getContext('2d');
     var palette = document.getElementById('palette');
+    var snap = document.getElementById('snap');
+
+    // ---- 窗口吸附：主进程下发的窗口边界（overlay 局部坐标，Z 序从顶到底）+ 当前鼠标命中的窗口 ----
+    var snapRects = [];
+    var snapActive = null;
 
     // ---- 色板（取自 config.annotationColors，失败回退默认） ----
     // 默认隐藏：仅当选中画笔/矩形/椭圆时才出现，避免工具栏杂乱。
@@ -143,12 +148,52 @@
       };
     }
 
+    // ---- 窗口吸附 ----
+    // 命中规则：在「包含鼠标点的所有窗口」中选面积最小者。
+    // 原因：列表顺序（GetTopWindow 链）与真实可见 Z 序不一致，若按顺序取第一个，
+    // 最大化/全屏窗口会吞掉所有命中（表现为吸附框固定在左上角的全屏），小窗口永远吸附不到。
+    function findSnapAt(cx, cy) {
+      var best = null;
+      var bestArea = Infinity;
+      for (var i = 0; i < snapRects.length; i++) {
+        var r = snapRects[i];
+        if (cx >= r.x && cx <= r.x + r.width && cy >= r.y && cy <= r.y + r.height) {
+          var a = r.width * r.height;
+          if (a < bestArea) { bestArea = a; best = r; }
+        }
+      }
+      return best;
+    }
+    function updateSnapAt(cx, cy) {
+      var s = findSnapAt(cx, cy);
+      if (s === snapActive) return;
+      snapActive = s;
+      if (s) {
+        snap.style.display = 'block';
+        snap.style.left = s.x + 'px';
+        snap.style.top = s.y + 'px';
+        snap.style.width = s.width + 'px';
+        snap.style.height = s.height + 'px';
+      } else {
+        snap.style.display = 'none';
+      }
+    }
+    function hideSnap() {
+      snapActive = null;
+      snap.style.display = 'none';
+    }
+
     // ---- 主进程 -> 渲染 订阅 ----
     // 全屏截图背景图：铺在 #bg 上，替代透明看穿桌面，修复全屏应用黑屏。
     // 背景在 showOverlay 后下发，此时监听已注册；为保险，若 #bg 暂未就绪也先保存。
     shell.onOverlayBackgroundImage(function (dataUrl) {
       var bg = document.getElementById('bg');
       if (bg) bg.src = dataUrl;
+    });
+
+    // 窗口吸附边界列表（异步枚举，可能稍晚到达）
+    shell.onOverlayWindows(function (list) {
+      snapRects = list || [];
     });
 
     shell.onOverlayImage(function (dataUrl) {
@@ -283,6 +328,14 @@
         e.clientY >= rect.y && e.clientY <= rect.y + rect.height;
 
       if (state === 'selecting') {
+        // 悬浮吸附到窗口时：点击即按窗口边界完成框选，无需拖拽
+        if (snapActive) {
+          e.preventDefault();
+          rect = { x: snapActive.x, y: snapActive.y, width: snapActive.width, height: snapActive.height };
+          hideSnap();
+          finishBySnap();
+          return;
+        }
         // 仅首次框选阶段可拉新框；选区一旦完成，点击选区外不再唤起新一轮截图
         startNewSelection();
         isSelecting = true;
@@ -334,6 +387,9 @@
           currentStroke.height = Math.abs(ry - drawStart.y);
         }
         redraw();
+      } else if (state === 'selecting') {
+        // 选择态且未拖拽：实时悬浮吸附窗口
+        updateSnapAt(e.clientX, e.clientY);
       }
     });
 
@@ -369,7 +425,8 @@
       toolbar.classList.add('hidden');
       actionbar.classList.add('hidden');
       hint.classList.remove('hidden');
-      hint.textContent = '请在屏幕上拖拽选择区域';
+      hint.textContent = '移动鼠标可吸附窗口，点击直接框选；或拖拽手动选择';
+      hideSnap();
       applyShade(null); // 回到全屏暗化初始态
       state = 'selecting';
     }
@@ -397,6 +454,16 @@
         return;
       }
       rect = { x: x, y: y, width: w, height: h };
+      commitSelection();
+    }
+
+    /** 吸附窗口点击完成框选：rect 已按窗口边界设置，直接进入标注态。 */
+    function finishBySnap() {
+      commitSelection();
+    }
+
+    /** 选区完成后的公共收尾：显示选区框/工具栏/动作条，定位并请求主进程裁剪。 */
+    function commitSelection() {
       sel.classList.remove('hidden');
       sel.classList.add('interactive');
       sel.style.display = 'block';

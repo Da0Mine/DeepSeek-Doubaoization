@@ -104,7 +104,7 @@ export class UpdatePromptWindow {
       const localPath = await this.update.downloadInstaller(asset, (p) => {
         if (!wc.isDestroyed()) wc.send(IPC.UPDATE_DOWNLOAD_PROGRESS, { ...p, receiver: 'prompt' });
       });
-      await this.update.launchInstaller(localPath);
+      await this.update.launchInstallerAndQuit(localPath);
       this.close();
     } catch {
       if (!wc.isDestroyed()) {

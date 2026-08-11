@@ -2,7 +2,7 @@
  * 主窗口：自绘标题栏（加载 titlebar.html）+ WebContentsView 内嵌 chat.deepseek.com。
  * 所有窗口共享 session.defaultSession，登录态自动持久化跨启动。
  */
-import { app, BrowserWindow, WebContentsView, nativeTheme, screen } from 'electron';
+import { BrowserWindow, WebContentsView, nativeTheme, screen } from 'electron';
 import {
   DEEPSEEK_URL,
   SHELL_PRELOAD,
@@ -16,6 +16,7 @@ import { ThemeManager } from '../theme/ThemeManager';
 import type { ConfigStore } from '../config/ConfigStore';
 import { installLinkOpenHandler } from './browserWindow';
 import { logf } from '../logger';
+import { getLoginItem } from '../loginItem';
 
 /** 依据配置主题 + 系统深浅，计算窗口底色（首帧防白屏）。 */
 function resolveBackgroundColor(config: ConfigStore): string {
@@ -96,6 +97,70 @@ function ensureDisplayMetricsListener(): void {
 }
 
 /**
+ * 窗口显示（show）时自动聚焦聊天输入框，实现「打开窗口即可直接输入」。
+ * 主窗口 / 副窗口 / B 窗口共用。
+ *
+ * 可靠性设计：
+ *  - 挂在 win.on('show') 上：首次显示与再次显示（托盘唤出 / 截图重开）都会触发。
+ *  - 注入脚本内部轮询最长约 6 秒：SPA 的 chat DOM 加载有延迟，窗口先显示、输入框后出现也能补上。
+ *  - 若 executeJavaScript 直接失败（页面尚未建立 JS 上下文，如首次启动加载中），
+ *    等 did-finish-load 后再注入一次；已销毁则放弃。
+ */
+export function focusChatInputOnShow(wc: Electron.WebContents): void {
+  if (!wc || wc.isDestroyed()) return;
+  // 关键：先把键盘焦点给 chat 视图本身（WebContentsView 架构下，窗口 focus 时焦点
+  // 默认落在外壳标题栏 webContents；不 focus 视图则输入框的 DOM focus 无效——无光标、
+  // 按键无响应）。主副切换重建的视图是全新 webContents，从未获得过焦点，必须显式 focus。
+  try {
+    wc.focus();
+  } catch {
+    /* 忽略 */
+  }
+  const code = `(() => {
+    try {
+      // 优先 DeepSeek 聊天输入框（aria-label/placeholder 含「发送消息」）；
+      // 回退：按「附近按钮最多的候选」定位聊天输入框，避免页面底部搜索框抢注通用 textarea。
+      function findChatInput() {
+        var sp = document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], [contenteditable][aria-label*="发送消息"]');
+        if (sp) return sp;
+        var cands = document.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]');
+        var best = null, bestN = -1;
+        for (var ci = 0; ci < cands.length; ci++) {
+          var el = cands[ci];
+          var p = el.parentElement, chain = [];
+          for (var i = 0; i < 6 && p; i++) { chain.push(p); p = p.parentElement; }
+          var maxN = -1;
+          for (var j = 0; j < chain.length; j++) {
+            var n = chain[j].querySelectorAll('button').length;
+            if (n > maxN) maxN = n;
+          }
+          if (maxN > bestN) { bestN = maxN; best = el; }
+        }
+        return best;
+      }
+      function tryFocus(t) {
+        if (t <= 0) return;
+        var el = findChatInput();
+        if (el) {
+          try { el.focus(); } catch (e) {}
+          try { el.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+          return;
+        }
+        setTimeout(function () { tryFocus(t - 1); }, 300);
+      }
+      tryFocus(20);
+    } catch (e) {}
+  })()`;
+  wc.executeJavaScript(code).catch(() => {
+    // 页面尚未建立 JS 上下文（首次启动加载中）：等加载完成后再聚焦一次。
+    wc.once('did-finish-load', () => {
+      if (wc.isDestroyed()) return;
+      wc.executeJavaScript(code).catch(() => {});
+    });
+  });
+}
+
+/**
  * 创建内嵌 chat.deepseek.com 的 WebContentsView 并挂到指定窗口。
  * getView 在窗口 resize 时读取「当前」视图引用——主副切换（swapMainSub）会以
  * 「原地重建视图」的方式迁移对话，此时 entry.view 已被替换；用闭包持有旧 view 会在
@@ -114,6 +179,11 @@ export function createChatView(win: BrowserWindow, getView: () => WebContentsVie
   win.contentView.addChildView(view);
   view.webContents.loadURL(DEEPSEEK_URL);
   layoutView(win, view);
+  // 页面完整加载后聚焦输入框（show 聚焦是快速路径；若 show 发生在页面加载中，
+  // 注入脚本的 setTimeout 会随导航销毁，did-finish-load 兜底可靠聚焦）。
+  view.webContents.on('did-finish-load', () => {
+    if (!view.webContents.isDestroyed()) focusChatInputOnShow(view.webContents);
+  });
   // 链接打开方式（内置浏览器窗口 / 系统默认浏览器）
   installLinkOpenHandler(view.webContents);
 
@@ -142,6 +212,12 @@ export function createChatView(win: BrowserWindow, getView: () => WebContentsVie
   win.on('enter-full-screen', relayout);
   win.on('leave-full-screen', relayout);
   win.on('show', relayout);
+  // 打开窗口即可直接输入：show 时聚焦聊天输入框（主窗口 / 副窗口共用本视图创建逻辑）。
+  // 用 getView() 取「当前」视图（主副切换会原地重建视图，闭包捕获的旧 view 已销毁）。
+  win.on('show', () => {
+    const v = getView();
+    if (v && !v.webContents.isDestroyed()) focusChatInputOnShow(v.webContents);
+  });
   return view;
 }
 
@@ -205,7 +281,7 @@ export function createMainWindow(
     // 开机自启（startAtLogin）时始终最小化到托盘，不显示主界面；
     // 手动启动时按 minimizeToTrayOnStart 设置决定是否显示。
     // 注意：托盘禁用时（trayEnabled=false）无法最小化到托盘，开机自启也正常显示窗口。
-    if (app.getLoginItemSettings().wasOpenedAtLogin && config.get('trayEnabled')) {
+    if (getLoginItem().wasOpenedAtLogin && config.get('trayEnabled')) {
       // 开机自启且托盘启用：不显示主窗口，直接最小化到托盘
       // 不执行 win.show()
     } else if (!config.get('minimizeToTrayOnStart') || !config.get('trayEnabled')) {
