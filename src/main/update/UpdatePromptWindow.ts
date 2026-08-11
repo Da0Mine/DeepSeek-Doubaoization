@@ -4,7 +4,7 @@
  * 「立即更新」复用 UpdateChecker 下载安装包（进度实时推送到弹框），
  * 完成后自动唤起安装程序并关闭弹框。
  */
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, screen } from 'electron';
 import { SHELL_PRELOAD, UPDATE_PROMPT_HTML } from '../constants';
 import { IPC } from '../ipc/channels';
 import type { ConfigStore } from '../config/ConfigStore';
@@ -29,18 +29,22 @@ export class UpdatePromptWindow {
     return !!(this.win && !this.win.isDestroyed());
   }
 
-  /** 弹出更新提示（透明覆盖主窗口，居中卡片）。 */
+  /** 弹出更新提示（透明覆盖主窗口所在显示器工作区，卡片居中）。 */
   public open(info: UpdateInfo): void {
     const main = this.windows.getMainWindow();
     if (!main || !main.win || main.win.isDestroyed() || this.isOpen()) return;
     const host = main.win;
-    const b = host.getBounds();
+    // 不能用 host.getBounds() 作为覆盖区域：Windows 上最大化（frame:false）窗口的
+    // getBounds() 返回的是「恢复（restore）矩形」而非当前实际区域；若主窗口最大化、
+    // 贴边或被拖到屏幕边缘，覆盖窗口会建在错误位置，卡片只显示一半。
+    // 改为始终覆盖主窗口所在显示器的整个工作区，卡片即位于屏幕正中央。
+    const area = screen.getDisplayMatching(host.getBounds()).workArea;
     const win = new BrowserWindow({
       parent: host,
-      x: b.x,
-      y: b.y,
-      width: b.width,
-      height: b.height,
+      x: area.x,
+      y: area.y,
+      width: area.width,
+      height: area.height,
       frame: false,
       transparent: true,
       resizable: false,
@@ -126,14 +130,15 @@ export class UpdatePromptWindow {
     this.installing = false;
   }
 
-  /** 主窗口移动 / 缩放同步（防抖）。 */
+  /** 主窗口移动 / 缩放同步（防抖）：始终对齐主窗口所在显示器的工作区。 */
   private syncBounds = (): void => {
     if (this.syncTimer) clearTimeout(this.syncTimer);
     this.syncTimer = setTimeout(() => {
       const host = this.windows.getMainWindow()?.win;
       const win = this.win;
       if (!host || host.isDestroyed() || !win || win.isDestroyed()) return;
-      win.setBounds(host.getBounds());
+      const area = screen.getDisplayMatching(host.getBounds()).workArea;
+      win.setBounds(area);
     }, 0);
   };
 }
