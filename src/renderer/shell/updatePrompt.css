@@ -95,6 +95,20 @@ html[data-theme='dark'] {
   line-height: 1.7;
   color: var(--up-body-fg);
 }
+
+/* 与设置面板同款滚动条：6px 细条 + 圆角，悬浮变主题蓝 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 3px;
+  transition: background 0.15s ease;
+}
+::-webkit-scrollbar-thumb:hover { background: #3370ff; }
+html[data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+html[data-theme='dark'] ::-webkit-scrollbar-thumb:hover { background: #3370ff; }
 .up-notes-h {
   font-size: 15px;
   font-weight: 600;

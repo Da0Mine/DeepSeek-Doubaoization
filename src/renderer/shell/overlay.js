@@ -26,6 +26,10 @@
 
     var isSelecting = false;
     var selStartX = 0, selStartY = 0;
+    // 点击 vs 拖拽区分：记录按下位置与「按下时吸附的窗口」，移动超过阈值才视为拖拽框选，
+    // 原地松开则按吸附窗口点击框选（修复：悬浮吸附时 mousedown 立即框选，导致无法长按拖拽）。
+    var pressX = 0, pressY = 0, pressSnap = null, dragging = false;
+    var DRAG_THRESHOLD = 4;
 
     var isDrawing = false;
     var drawStart = null; // {x,y} 相对选区
@@ -149,17 +153,28 @@
     }
 
     // ---- 窗口吸附 ----
-    // 命中规则：在「包含鼠标点的所有窗口」中选面积最小者。
-    // 原因：列表顺序（GetTopWindow 链）与真实可见 Z 序不一致，若按顺序取第一个，
-    // 最大化/全屏窗口会吞掉所有命中（表现为吸附框固定在左上角的全屏），小窗口永远吸附不到。
+    // 命中规则：选「链序最顶层（z 最小）且包含鼠标点」的窗口——即鼠标能实际接触到的窗口。
+    // 若鼠标点上方有别的窗口（z 更小）挡住，则该窗口不可选（全屏窗口不再误选背后的窗口）。
+    // 枚举已在主进程跳过 owned/工具/壳窗口，GetTopWindow 链序即真实可见 Z 序。
+    // 兜底：z 数据缺失（旧枚举/异常）时回退「面积最小」。
     function findSnapAt(cx, cy) {
-      var best = null;
-      var bestArea = Infinity;
+      var hits = [];
       for (var i = 0; i < snapRects.length; i++) {
         var r = snapRects[i];
-        if (cx >= r.x && cx <= r.x + r.width && cy >= r.y && cy <= r.y + r.height) {
-          var a = r.width * r.height;
-          if (a < bestArea) { bestArea = a; best = r; }
+        if (cx >= r.x && cx <= r.x + r.width && cy >= r.y && cy <= r.y + r.height) hits.push(r);
+      }
+      if (!hits.length) return null;
+      var best = null;
+      for (var j = 0; j < hits.length; j++) {
+        if (typeof hits[j].z !== 'number') continue;
+        if (!best || hits[j].z < best.z) best = hits[j];
+      }
+      if (!best) {
+        best = hits[0];
+        var minA = best.width * best.height;
+        for (var m = 1; m < hits.length; m++) {
+          var a = hits[m].width * hits[m].height;
+          if (a < minA) { minA = a; best = hits[m]; }
         }
       }
       return best;
@@ -328,21 +343,18 @@
         e.clientY >= rect.y && e.clientY <= rect.y + rect.height;
 
       if (state === 'selecting') {
-        // 悬浮吸附到窗口时：点击即按窗口边界完成框选，无需拖拽
-        if (snapActive) {
-          e.preventDefault();
-          rect = { x: snapActive.x, y: snapActive.y, width: snapActive.width, height: snapActive.height };
-          hideSnap();
-          finishBySnap();
-          return;
-        }
+        // 按下时记录吸附目标与位置，不立即框选：移动超阈值 = 拖拽框选；原地松开 = 点击吸附窗口框选
+        pressX = e.clientX;
+        pressY = e.clientY;
+        pressSnap = snapActive;
+        dragging = false;
         // 仅首次框选阶段可拉新框；选区一旦完成，点击选区外不再唤起新一轮截图
         startNewSelection();
         isSelecting = true;
-        selStartX = e.clientX;
-        selStartY = e.clientY;
+        selStartX = pressX;
+        selStartY = pressY;
         sel.style.display = 'block';
-        updateSelection(e.clientX, e.clientY);
+        updateSelection(pressX, pressY);
       } else if (rect && insideRegion) {
         if (currentTool === 'move') {
           // 默认移动模式：拖拽选区内任意位置 = 移动整个选区
@@ -374,7 +386,11 @@
         return;
       }
       if (isSelecting) {
-        updateSelection(e.clientX, e.clientY);
+        // 移动超过阈值才进入拖拽框选（区分「点击吸附窗口」与「长按拖拽」）
+        if (!dragging && (Math.abs(e.clientX - pressX) > DRAG_THRESHOLD || Math.abs(e.clientY - pressY) > DRAG_THRESHOLD)) {
+          dragging = true;
+        }
+        if (dragging) updateSelection(e.clientX, e.clientY);
       } else if (isDrawing && rect) {
         var rx = e.clientX - rect.x;
         var ry = e.clientY - rect.y;
@@ -405,7 +421,20 @@
       }
       if (isSelecting) {
         isSelecting = false;
-        finishSelection();
+        if (dragging) {
+          // 拖拽框选完成
+          dragging = false;
+          finishSelection();
+        } else if (pressSnap) {
+          // 原地点击：按吸附的窗口边界完成框选
+          rect = { x: pressSnap.x, y: pressSnap.y, width: pressSnap.width, height: pressSnap.height };
+          hideSnap();
+          finishBySnap();
+        } else {
+          // 无吸附目标且未拖拽：取消本次按下，保持选择态
+          sel.style.display = 'none';
+          applyShade(null);
+        }
       } else if (isDrawing) {
         isDrawing = false;
         if (currentStroke && isValidStroke(currentStroke)) {

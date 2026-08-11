@@ -14,6 +14,8 @@ export interface SnapRect {
   height: number;
   /** 窗口句柄（数字），用于排除遮罩自身等窗口；渲染层忽略。 */
   h?: number;
+  /** 链序（Z 序从顶到底递增）：GetTopWindow 链中由顶到底的序号，渲染层用于「全屏窗口 vs 可见小窗口」裁决。 */
+  z?: number;
 }
 
 /** PowerShell 输出的原始窗口（物理像素）。 */
@@ -23,6 +25,7 @@ interface RawWindow {
   y: number;
   w: number;
   h: number;
+  z: number;
 }
 
 // PowerShell 脚本：内联 C#（user32）按真实 Z 序（从顶到底）遍历可见顶层窗口矩形，输出 JSON。
@@ -65,7 +68,12 @@ while ($h -ne [IntPtr]::Zero) {
       $cn = $sb.ToString()
       if ($cn -notin @('Progman','WorkerW','Shell_TrayWnd','Shell_SecondaryTrayWnd','DV2ControlHost','TaskListThumbnailWnd','MultitaskingViewFrame','ImmersiveLauncher','Windows.UI.Core.CoreWindow','DummyDWMListenerWindow','ThumbnailDeviceHelperWnd')) {
         if (([WinSnap]::GetExStyle($h) -band 0x80) -eq 0) {
-          [void]$list.Add([pscustomobject]@{ hw=('0x{0:X}' -f $h.ToInt64()); x=$r.Left; y=$r.Top; w=$w; h=$ht })
+          # 跳过 owned 窗口（如右键菜单、组合框下拉、Electron 辅助窗口）：
+          # 它们不是真正的顶层窗口，会污染 GetTopWindow 链序，导致链序与真实可见 Z 序不一致。
+          $own = [WinSnap]::GetWindow($h, 4)
+          if ($own -eq [IntPtr]::Zero) {
+            [void]$list.Add([pscustomobject]@{ hw=('0x{0:X}' -f $h.ToInt64()); x=$r.Left; y=$r.Top; w=$w; h=$ht; z=$list.Count })
+          }
         }
       }
     }
@@ -138,6 +146,7 @@ export async function enumWindowSnapRects(skipHandles: number[] = []): Promise<S
       width: (cw / physW) * primary.bounds.width,
       height: (ch / physH) * primary.bounds.height,
       h: hwnd,
+      z: r.z,
     });
   }
   return out;
