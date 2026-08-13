@@ -96,14 +96,25 @@ const dsApi = {
     }
   },
 
-  /** 探测登录态：无登录按钮且存在输入框视为已登录（待实机验证）。 */
+  /** 探测登录态：无登录按钮且存在输入框视为已登录；「退出登录」菜单项直接视为已登录。 */
   detectLogin(): boolean {
     try {
       const texts = LOGIN_BUTTON_TEXTS;
       const btns = Array.from(document.querySelectorAll('button, a'));
-      const hasLogin = btns.some((b) =>
-        texts.some((t) => (b.textContent || '').trim().toLowerCase().includes(t.toLowerCase()))
-      );
+      const txtOf = (b: Element): string =>
+        ((b.textContent || b.getAttribute('aria-label') || '') as string).trim().toLowerCase();
+      const isLogout = (t: string): boolean =>
+        t.includes('退出登录') || t.includes('注销') || t.includes('log out') || t.includes('sign out');
+      // 登录/注册按钮精确匹配：避免「注册表/注册码」等正文内容被「注册」误命中
+      const isLoginBtn = (t: string): boolean =>
+        texts.some((k) => t === k || t.startsWith(k + ' ') || t.startsWith(k + '账号'));
+      // 已登录页面常驻「退出登录」菜单项：命中即视为已登录
+      if (btns.some((b) => isLogout(txtOf(b)))) return true;
+      const hasLogin = btns.some((b) => {
+        const t = txtOf(b);
+        if (!t || isLogout(t)) return false;
+        return isLoginBtn(t);
+      });
       const input = document.querySelector('textarea, [contenteditable="true"], [role="textbox"]');
       return !hasLogin && !!input;
     } catch (e) {

@@ -113,14 +113,14 @@ html[data-theme='dark'] {
 .ob-demo-tbtn {
   padding: 4px 12px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--ob-body-fg);
   background: rgba(51, 112, 255, 0.1);
 }
 .ob-demo-text {
   margin: 0;
-  font-size: 16px;
-  line-height: 1.9;
+  font-size: var(--text-title);
+  line-height: var(--lh-prose);
   color: var(--ob-text-fg);
 }
 .ob-demo-text mark {
@@ -150,8 +150,8 @@ html[data-theme='dark'] {
   display: flex;
   align-items: center;
   padding: 8px 12px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-label);
+  font-weight: var(--fw-semibold);
   color: #3370ff;
   background: var(--ob-sub-title-bg);
   border-bottom: 1px solid var(--ob-sub-border);
@@ -210,8 +210,8 @@ html[data-theme='dark'] {
   margin-bottom: 10px;
 }
 .ob-step {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-caption);
+  font-weight: var(--fw-medium);
   letter-spacing: 0.5px;
   color: var(--ob-step-fg);
 }
@@ -219,7 +219,7 @@ html[data-theme='dark'] {
   border: none;
   background: transparent;
   color: var(--ob-end-fg);
-  font-size: 12px;
+  font-size: var(--text-caption);
   cursor: pointer;
   padding: 4px 10px;
   border-radius: 8px;
@@ -233,15 +233,16 @@ html[data-theme='dark'] {
 
 /* 标题 / 正文 */
 .ob-title {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: var(--text-h2);
+  font-weight: var(--fw-semibold);
   color: var(--ob-title-fg);
   margin-bottom: 8px;
   letter-spacing: 0.2px;
+  line-height: var(--lh-tight);
 }
 .ob-body {
-  font-size: 13px;
-  line-height: 1.75;
+  font-size: var(--text-label);
+  line-height: var(--lh-relaxed);
   color: var(--ob-body-fg);
   margin-bottom: 16px;
 }
@@ -259,7 +260,7 @@ html[data-theme='dark'] {
   border: 1px solid var(--ob-btn-border);
   background: var(--ob-btn-bg);
   color: var(--ob-btn-fg);
-  font-size: 14px;
+  font-size: var(--text-body);
   cursor: pointer;
   font-family: inherit;
   transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.08s ease;

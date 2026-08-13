@@ -38,6 +38,8 @@ html, body {
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #1f1f1f);
   padding: 0 8px;
+  font-size: var(--text-label);
+  font-family: inherit;
 }
 
 .swap { color: var(--ds-accent, #3370ff); font-weight: 600; }
@@ -57,8 +59,8 @@ html, body {
   padding: 10px;
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #1f1f1f);
-  font-size: var(--ds-font-size, 14px);
-  line-height: 1.5;
+  font-size: var(--text-body);
+  line-height: var(--lh-body);
 }
 
 .editor:focus { outline: 2px solid var(--ds-accent, #3370ff); }
@@ -72,7 +74,7 @@ html, body {
   gap: 10px;
 }
 
-.sync-toggle { font-size: 13px; color: var(--ds-fg, #555); }
+.sync-toggle { font-size: var(--text-label); color: var(--text-2); }
 
 .send-btn {
   border: none;
@@ -81,7 +83,9 @@ html, body {
   padding: 7px 16px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-body);
+  font-family: inherit;
+  font-weight: var(--fw-medium);
 }
 
 .send-btn:hover { opacity: 0.9; }

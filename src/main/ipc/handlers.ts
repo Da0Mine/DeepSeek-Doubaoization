@@ -165,7 +165,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
   });
 
   // ---------------- 截图 ----------------
-  ipcMain.on(IPC.SCREENSHOT_START, () => screenshot.startCapture());
+  ipcMain.on(IPC.SCREENSHOT_START, (e) => screenshot.startCapture(undefined, windows.findIdByWebContents(e.sender)));
 
   // 选区完成：裁剪对应屏截图并下发到遮罩用于冻结显示（I-03/I-04）
   ipcMain.on(IPC.OVERLAY_SELECT, (_e, rect: ScreenshotRect) => {
@@ -218,7 +218,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
         switch (action) {
           case 'clipboard':
             screenshot.copyToClipboard(img);
-            notify('已复制到剪贴板', '截图已写入剪贴板', 'screenshot');
+            notify('截图已复制', '已复制到剪贴板，可直接粘贴', 'screenshot');
             break;
           case 'chat': {
             const wc = windows.getScreenshotTarget();
@@ -242,45 +242,52 @@ export function registerHandlers(ctx: HandlerCtx): void {
             // 先把承载该对话的窗口呼出到前台并显示，确保用户能看到发送结果，而不是「发完就完」。
             const targetId = windows.findIdByWebContents(wc);
             if (targetId) windows.revealWindow(targetId);
+            // 发送到副窗口时同步「对话当前在副窗口」状态，避免之后主副切换方向错误
+            // （对话在副窗口却按主→副方向切换，把主窗口空视图覆盖到副窗口上）。
+            if (targetId && targetId !== 'main') windows.markConversationInSub(targetId);
             await injector.waitForAppReady(wc);
             await injector.uploadImageOnly(wc, screenshot.writeTempImage(img));
             break;
           }
           case 'sendNew': {
-            // 发送到一个「新开的副窗口」：每次新建一个 sub 窗口承载该截图对话。
-            // 用户要求：只上传原图，不切换模型、不自动点击发送。
-            // 问题 D 修复：复用/关闭上一个 sendNew 窗口避免竞态；先等页面真正就绪再显示，杜绝白屏。
-            const id = windows.createSendNewSubWindow();
-            if (!id) {
-              notify('无法创建新对话', '请重试');
-              return;
-            }
-            const wc = windows.getViewWebContents(id);
+            // 哪里截图发哪里：窗口内触发（剪刀按钮）→ 发送到该窗口的新对话（主窗口 → 主窗口，
+            // 副窗口 → 副窗口）；截图快捷键 → 固定发送到副窗口。原实现固定新建一个副窗口承载截图。
+            // 用户要求：只上传原图，不自动点击发送。
+            const targetId = windows.resolveSendNewTarget(screenshot.getCaptureOrigin());
+            const wc = windows.getViewWebContents(targetId);
             if (!wc) {
               notify('无法创建新对话', '请重试');
               return;
             }
-            // 先等待 chat 视图 DOM 挂载（文件框 + 输入框出现），再 reveal（置顶+显示+聚焦），
-            // 避免窗口提前显示却仍是空白（白屏）。
-            await injector.waitForAppReady(wc);
-            // Bug4 修复：截图「发送到新对话」强制图片兼容模式。
-            // 该窗口已标 skipDefaultModel（applyDefaultModelMode / 新建对话监听均不会动它），
-            // 故专家模式截图时不应切到 expert（expert 不支持图片）；若默认模型为 expert，
-            // 则映射到识图模式 vision（图片兼容模式，参考 B 窗口截图即切 vision），
-            // 删除图片后也保持此模式、不会被切回 expert。
-            if (config.get('defaultModelMode') === 'expert') {
-              await injector.switchModelMode(wc, 'vision').catch(() => {});
-            }
-            // 同步「深度思考」开关到当前设置（只读默认，不强行开启）
-            await injector.setDeepThink(wc, config.get('deepThinkEnabled') === true).catch(() => {});
-            // 窗口已通过 ready-to-show 原生显示（与其它窗口一致，避免 revealWindow 反复置顶切换
-            // 触发 Windhawk 等窗口修饰工具导致白屏）。此处仅简单聚焦到前台。
-            const sendNewWin = windows.getWinByWebContents(wc);
-            if (sendNewWin && !sendNewWin.isDestroyed()) {
-              try { sendNewWin.moveTop(); } catch { /* 忽略 */ }
-              sendNewWin.focus();
-            }
-            await injector.uploadImageOnly(wc, screenshot.writeTempImage(img));
+            // 发送目标是副窗口时，登记「对话当前在副窗口」，保证主副切换按钮方向正确
+            if (targetId !== 'main') windows.markConversationInSub(targetId);
+            // 截图发送新对话期间抑制默认模型自动应用（applyDefaultModelMode），
+            // 避免点击「新建对话」把模型抢先切走（如默认 expert 不支持图片），
+            // 与下方按截图设置显式切换模型竞争。
+            await windows.suppressDefaultModelFor(wc.id, async () => {
+              // 先等待 chat 视图 DOM 挂载（文件框 + 输入框出现）。
+              await injector.waitForAppReady(wc);
+              // 确保进入新对话：点击「新建对话」按钮（已在新建对话页时点击也幂等无害）。
+              const clickedNew = await injector.clickNewConversationButton(wc).catch(() => false);
+              if (clickedNew) {
+                // 点击后等 SPA 切到新对话页（URL 回到根路由）；点击未生效则跳过等待
+                await injector.waitForNewConversation(wc).catch(() => {});
+              }
+              // 等待新对话页面 DOM 就绪（文件框 + 输入框重新出现）。
+              await injector.waitForAppReady(wc);
+              // 截图「发送到新对话」的模型模式由设置控制（默认识图模式，可改为快速模式）。
+              if (config.get('screenshotSendNewMode') === 'vision') {
+                await injector.switchModelMode(wc, 'vision').catch(() => {});
+              } else {
+                await injector.switchModelMode(wc, 'simple').catch(() => {});
+              }
+              // 同步「深度思考」开关到当前设置（只读默认，不强行开启）
+              await injector.setDeepThink(wc, config.get('deepThinkEnabled') === true).catch(() => {});
+              // 呼出目标窗口到前台（截图期间窗口被隐藏，这里恢复并聚焦，确保用户看到发送结果）
+              windows.revealWindow(targetId);
+              // 只上传原图（不自动点击发送）
+              await injector.uploadImageOnly(wc, screenshot.writeTempImage(img));
+            });
             break;
           }
           case 'extract':
@@ -319,7 +326,7 @@ export function registerHandlers(ctx: HandlerCtx): void {
             break;
           }
           default:
-            notify('未知截图动作', String(action), 'screenshot');
+            notify('无法识别的截图操作', String(action), 'screenshot');
         }
       } catch (err) {
         console.error('[handlers] 截图动作执行失败:', err);
@@ -330,6 +337,25 @@ export function registerHandlers(ctx: HandlerCtx): void {
   // ---------------- 设置 / 副窗口 / 剪刀 ----------------
   ipcMain.on(IPC.SETTINGS_OPEN, () => settings.open());
   ipcMain.on(IPC.SETTINGS_CLOSE, () => settings.close());
+
+  // 标题栏更新图标 -> 打开设置并跳转到「更新」板块。
+  // 设置视图可能尚未加载完（监听未注册），此时先缓存，待 did-finish-load（settings.onReady）后补发。
+  let pendingSettingsGoto: { top: string; sub: string } | null = null;
+  const flushSettingsGoto = (): void => {
+    const wc = settings.getWebContents();
+    if (pendingSettingsGoto && wc && !wc.isDestroyed() && settings.isReady) {
+      wc.send(IPC.SETTINGS_GOTO, pendingSettingsGoto);
+      pendingSettingsGoto = null;
+    }
+  };
+  settings.onReady = flushSettingsGoto;
+  ipcMain.handle(IPC.UPDATE_OPEN_SETTINGS, () => {
+    windows.showMainWindow();
+    settings.open();
+    pendingSettingsGoto = { top: '应用', sub: '更新' };
+    flushSettingsGoto();
+    return true;
+  });
 
   // ---- 内置浏览器窗口（多标签） ----
   ipcMain.handle(IPC.BROWSER_GET_STATE, () => getBrowserWindowManager()?.getState() ?? { tabs: [], visible: false });
@@ -357,10 +383,11 @@ export function registerHandlers(ctx: HandlerCtx): void {
     logf('NEW_CONV', `收到网页新建对话事件 senderId=${e.sender?.id}`);
     windows.applyDefaultModelMode(e.sender);
   });
-  ipcMain.on(IPC.SCISSORS_TRIGGER, () => screenshot.startCapture());
+  // 网页内剪刀按钮 → 截图：origin = 发起截图的窗口（主窗口/副窗口，哪里截图发哪里）
+  ipcMain.on(IPC.SCISSORS_TRIGGER, (e) => screenshot.startCapture(undefined, windows.findIdByWebContents(e.sender)));
 
   // 网页内「+」按钮→截图提问（简化模式，仅发送到当前对话）
-  ipcMain.on(IPC.PLUS_SCREENSHOT_Q, () => screenshot.startCapture('question'));
+  ipcMain.on(IPC.PLUS_SCREENSHOT_Q, (e) => screenshot.startCapture('question', windows.findIdByWebContents(e.sender)));
 
   // 网页内「+」按钮→上传文件
   ipcMain.on(IPC.PLUS_UPLOAD_FILE, async () => {
@@ -846,6 +873,14 @@ export function registerHandlers(ctx: HandlerCtx): void {
           applyThinkCollapse(wc, Boolean(value));
         }
         break;
+      case 'answerScrollMode': {
+        // 回答滚动方式（跟随回答 / 停留开头）：实时同步到所有对话窗口
+        const mode = (value === 'follow' ? 'follow' : 'stay') as 'stay' | 'follow';
+        for (const wc of windows.getAllChatWebContents()) {
+          injector.updateAnswerScrollMode(wc, mode).catch(() => {});
+        }
+        break;
+      }
       case 'proxyEnabled':
       case 'proxyUrl':
         if (config.get('proxyEnabled') && config.get('proxyUrl')) {
@@ -956,8 +991,8 @@ export function registerHandlers(ctx: HandlerCtx): void {
 
     // 问问DeepSeek：引用模式，打开副窗口并填入引用文本
     if (btn.type === 'quote') {
-      // 打开副窗口
-      const subId = windows.toggleSubWindow();
+      // 确保副窗口打开（已开启时保持，不触发 toggle 关闭）
+      const subId = windows.ensureSubWindowVisible();
       if (!subId) {
         notify('无法创建副窗口', '请重试');
         return;

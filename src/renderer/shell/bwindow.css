@@ -38,7 +38,7 @@ html, body {
   min-width: 32px;
   padding: 0 10px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-label);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -75,7 +75,7 @@ html, body {
   -webkit-appearance: none;
   height: 100%;
   align-self: stretch;
-  font-size: 13px;
+  font-size: var(--text-label);
   padding: 0 6px;
   text-align: center;
   text-align-last: center;

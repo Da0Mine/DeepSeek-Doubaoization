@@ -17,6 +17,8 @@ export class SettingsWindow {
   private layoutTimer: ReturnType<typeof setTimeout> | null = null;
   /** 设置视图首次就绪回调（供主进程下发主题变量）。 */
   public onReady: (() => void) | null = null;
+  /** 设置视图是否已加载完成（did-finish-load 后为 true，close 时复位）。用于「跳转板块」消息发送时机判断。 */
+  public isReady = false;
 
   constructor(
     private readonly getMainWin: () => MainWindowRef,
@@ -91,6 +93,7 @@ export class SettingsWindow {
     });
     view.webContents.once('did-finish-load', () => {
       // 页面完全加载后通知主进程下发主题变量（settings.js 已注册监听）
+      this.isReady = true;
       if (this.onReady) this.onReady();
     });
     view.webContents.once('destroyed', () => {
@@ -199,5 +202,6 @@ export class SettingsWindow {
     this.setBaseDragRegion(true);
     this.view = null;
     this.host = null;
+    this.isReady = false;
   }
 }

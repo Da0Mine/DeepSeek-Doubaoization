@@ -74,8 +74,8 @@ html[data-theme='dark'] {
   margin-bottom: 14px;
 }
 .mr-badge {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: var(--fw-semibold);
   color: #ffffff;
   background: #3370ff;
   border-radius: 6px;
@@ -84,15 +84,15 @@ html[data-theme='dark'] {
 }
 
 .mr-message {
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.6;
+  font-size: var(--text-title);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-body);
   color: var(--mr-title-fg);
   margin-bottom: 8px;
 }
 .mr-detail {
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: var(--text-body);
+  line-height: var(--lh-relaxed);
   color: var(--mr-body-fg);
   margin-bottom: 18px;
 }
@@ -104,7 +104,7 @@ html[data-theme='dark'] {
   gap: 10px;
 }
 .mr-never {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--mr-muted);
   background: none;
   border: none;
@@ -125,7 +125,7 @@ html[data-theme='dark'] {
   border: 1px solid var(--mr-btn-border);
   background: var(--mr-btn-bg);
   color: var(--mr-btn-fg);
-  font-size: 14px;
+  font-size: var(--text-body);
   cursor: pointer;
   font-family: inherit;
   transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.08s ease;

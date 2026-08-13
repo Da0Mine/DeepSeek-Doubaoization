@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>翻译</title>
+    <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="titlebar.css" />
     <link rel="stylesheet" href="translate.css" />
   </head>
@@ -13,9 +14,9 @@
         <span class="tb-logo">DeepSeek 翻译</span>
       </div>
       <div class="tb-right">
-        <button id="btn-settings" class="tb-btn" title="设置">设置</button>
-        <button id="btn-pin" class="tb-btn" title="置顶">📌</button>
-        <button id="btn-swap" class="tb-btn" title="主副切换">⇄</button>
+        <button id="btn-settings" class="tb-btn" title="设置" aria-label="设置"><svg class="tb-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+        <button id="btn-pin" class="tb-btn tb-btn-pin" title="置顶" aria-label="置顶"><svg class="tb-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg></button>
+        <button id="btn-swap" class="tb-btn" title="主副窗口切换">⇄</button>
         <button id="btn-min" class="tb-btn" title="最小化">—</button>
         <button id="btn-max" class="tb-btn" title="最大化">▢</button>
         <button id="btn-close" class="tb-btn" title="关闭">✕</button>

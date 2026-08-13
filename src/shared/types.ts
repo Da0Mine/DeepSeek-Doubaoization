@@ -9,6 +9,9 @@ export type WindowType = 'main' | 'sub' | 'vision' | 'translate' | 'explain' | '
 /** 默认新建对话的模型模式。 */
 export type DefaultModelMode = 'simple' | 'expert' | 'vision';
 
+/** 截图「发送到新对话」窗口的模型模式：simple=快速模式，vision=识图模式。 */
+export type ScreenshotSendNewMode = 'simple' | 'vision';
+
 /** 主题模式。 */
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -94,6 +97,8 @@ export interface ConfigShape {
   subWindowShortcut: string;
   /** 默认新建对话的模型模式（simple=简单，expert=专家/深度思考，vision=识图）。 */
   defaultModelMode: DefaultModelMode;
+  /** 截图「发送到新对话」窗口的模型模式（simple=快速模式，vision=识图模式）。默认识图模式。 */
+  screenshotSendNewMode: ScreenshotSendNewMode;
   /** 点击「共享屏幕」时是否自动切换到识图模式（默认开启；关闭则仅按当前模式提示）。 */
   screenShareSwitchVision: boolean;
   /** 共享屏幕模式提示弹框总开关（专家/快速模式限制时弹提示）。默认开启；点「不再提醒」后关闭，可在设置中重新开启。 */
@@ -117,8 +122,10 @@ export interface ConfigShape {
   docSharePdfSaveInterval: number;
   /** 标注画笔色板（设置面板可编辑）。 */
   annotationColors: string[];
-  /** 默认折叠模型的思考过程（深度思考/思维链），true=折叠，false=展开。 */
+  /** 折叠思考过程：true=默认折叠深度思考过程，仅显示最终答案。 */
   collapseThinking: boolean;
+  /** AI 流式输出回答时的界面滚动方式：stay=停留开头（生成时保持当前位置），follow=跟随回答（自动滚动到最新输出）。默认停留开头。 */
+  answerScrollMode: 'stay' | 'follow';
   /** 截图翻译默认目标语言（如 '简体中文'、'English'）。 */
   defaultTranslateLang: string;
   /** 关闭 B 窗口时自动删除该对话记录。默认开启。 */

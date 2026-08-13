@@ -25,6 +25,8 @@ export class ScreenshotManager {
   private composeResolver: ((dataUrl: string) => void) | null = null;
   /** 截图模式：'normal'=标准带动作条，'question'=简化仅发送到当前对话。 */
   private screenshotMode: 'normal' | 'question' = 'normal';
+  /** 截图发起窗口 id（「哪里截图发哪里」：发送到新对话时定位目标窗口）。 */
+  private captureOriginId: string | null = null;
   /** 窗口吸附：截图时并行枚举的窗口边界列表（Promise 缓存，遮罩就绪后下发）。 */
   private windowSnapPromise: Promise<SnapRect[]> | null = null;
 
@@ -50,9 +52,18 @@ export class ScreenshotManager {
     return this.screenshotMode;
   }
 
-  /** 开始截图流程：先隐藏应用窗口，再采集屏幕，最后弹出遮罩。 */
-  public async startCapture(mode?: 'normal' | 'question'): Promise<void> {
+  /**
+   * 开始截图流程：先隐藏应用窗口，再采集屏幕，最后弹出遮罩。
+   * @param mode 截图模式：normal=标准带动作条，question=简化仅发送到当前对话。
+   * @param originId 截图发起窗口 id（哪里截图发哪里）。快捷键截图传 'sub'（固定发副窗口）；
+   *   窗口内按钮（剪刀等）传所在窗口 id；缺省时取最后一次聚焦的应用窗口。
+   */
+  public async startCapture(mode?: 'normal' | 'question', originId?: string | null): Promise<void> {
     if (mode) this.screenshotMode = mode;
+    // 记录截图发起窗口（哪里截图发哪里）。必须在隐藏窗口/弹出遮罩之前确定——
+    // 遮罩关闭后 restoreChatWindowsAfterScreenshot 会把主窗口带回到前台（focus 事件改写 activeId），
+    // 届时再读就不准了。
+    this.captureOriginId = originId !== undefined ? originId : (this.windows?.getActiveWindowId() ?? null);
     // 默认隐藏应用自身窗口，避免它们被截进图里；给 Windows 合成器一帧时间确保生效。
     // 「截图时保留窗口」开启时不隐藏（窗口照常显示在截图中）。
     if (!this.config.get('keepWindowsOnScreenshot')) {
@@ -68,6 +79,11 @@ export class ScreenshotManager {
     // 仅弹出遮罩；背景图不在此时发送——overlay 渲染进程就绪后会发 overlay:ready，
     // 主进程收到后才下发背景图，避免 webContents.send 早于监听器注册被丢弃（竞态会导致黑屏修复失效）。
     showOverlay(this.screenshotMode);
+  }
+
+  /** 返回本次截图的发起窗口 id（截图动作在 sendNew 时用于定位目标窗口）。 */
+  public getCaptureOrigin(): string | null {
+    return this.captureOriginId;
   }
 
   /** 枚举所有可见窗口边界（排除本应用自身窗口），供遮罩吸附；失败返回空数组。 */

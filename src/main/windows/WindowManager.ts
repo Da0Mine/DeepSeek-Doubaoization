@@ -7,15 +7,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { ConfigStore } from '../config/ConfigStore';
 import type { DefaultModelMode, ScreenshotRect, SubWindowRole, WindowType } from '../../shared/types';
-import { WEBVIEW_PRELOAD, DEEPSEEK_URL } from '../constants';
-import { createMainWindow, layoutView, createChatView, focusChatInputOnShow } from './mainWindow';
+import { createMainWindow, layoutView, createChatView } from './mainWindow';
 import { createSubWindow } from './subWindow';
 import { createBWindow as createBWindowFactory } from './bWindow';
 import { IPC } from '../ipc/channels';
+import { TITLEBAR_HEIGHT } from '../constants';
 import { applyThinkCollapse } from '../inject/thinkCollapse';
 import type { Injector } from '../inject/Injector';
 import type { ScreenShareManager } from '../screenShare/ScreenShareManager';
-import { installLinkOpenHandler } from './browserWindow';
 import { logf } from '../logger';
 
 /** 调试日志开关：项目根目录存在 .debug-autolog 时，终端才打印注入脚本的诊断 dump
@@ -50,8 +49,6 @@ export class WindowManager {
   private counter = 0;
   private currentSubId: string | null = null;
   private currentBId: string | null = null;
-  /** 上一个「截图发送到新对话」创建的副窗口 id（用于复用/关闭，避免堆积与竞态）。 */
-  private lastSendNewId: string | null = null;
   /** 截图期间被隐藏的窗口及其原可见性，用于恢复。 */
   private screenshotHidden: { id: string; visible: boolean }[] = [];
   /** B 窗口创建前主窗口是否可见：B 窗口关闭后按此恢复主窗口（截图呼出 B 窗口会最小化/隐藏主窗口）。 */
@@ -71,6 +68,9 @@ export class WindowManager {
   private screenShare: ScreenShareManager | null = null;
   /** 正在退出标志：置 true 后所有窗口的 close 拦截放行，使 app.quit() 能真正关闭窗口。 */
   private quitting = false;
+  /** 临时抑制默认模型应用的 webContents id 集合（截图「发送到新对话」期间使用，
+   *  避免点击「新建对话」触发的 applyDefaultModelMode 与截图模式切换竞争）。 */
+  private suppressDefaultModelWc = new Set<number>();
   /** 已接线 webContents 集合：防止 attachWebViewReady 被重复调用时叠加事件监听器（内存泄漏）。 */
   private wiredWebContents = new WeakSet<WebContents>();
 
@@ -204,6 +204,7 @@ export class WindowManager {
       injectAnswerWatch();
       detectConversationChange();
       if (this.injector) this.injector.injectPinToBottom(view.webContents).catch(() => {});
+      injectorAnswerScroll(view.webContents);
     });
     view.webContents.on('did-navigate-in-page', () => {
       fire();
@@ -222,6 +223,7 @@ export class WindowManager {
       injectWatcher();
       injectAnswerWatch();
       if (this.injector) this.injector.injectPinToBottom(view.webContents).catch(() => {});
+      injectorAnswerScroll(view.webContents);
     });
     // 注入「新建对话」监听（Bug2 修复）：点击新建对话后由页面经 IPC 通知主进程自动切换默认模型。
     // 仅对带模型选择器的对话窗口（main/sub/vision）注入；translate/explain/extract/B 窗口、
@@ -250,6 +252,14 @@ export class WindowManager {
         .then((ok) => logf('inject', `注入回答状态监听 wcId=${view.webContents.id} ok=${ok} type=${type}`))
         .catch(() => logf('inject', `注入回答状态监听失败 wcId=${view.webContents.id}`));
     };
+    // 注入「回答滚动方式」控制（跟随回答 / 停留开头）：页面重建后重新注入，读当前配置。
+    // const 箭头函数捕获外层 this；供 did-finish-load / did-navigate 回调使用（回调执行时已定义）。
+    const injectorAnswerScroll = (wc: WebContents): void => {
+      if (!this.injector || !wc || wc.isDestroyed()) return;
+      this.injector
+        .injectAnswerScroll(wc, this.config.get('answerScrollMode'))
+        .catch(() => {});
+    };
     injectWatcher();
     injectAnswerWatch();
     this.attachWebConsole(view);
@@ -269,6 +279,12 @@ export class WindowManager {
    */
   public async applyDefaultModelMode(wc: WebContents): Promise<void> {
     if (!this.injector || !wc || wc.isDestroyed()) return;
+    // 截图「发送到新对话」期间抑制：该流程按 screenshotSendNewMode 显式切换模型，
+    // 不应被「新建对话」触发的默认模型应用抢先切走（如默认 expert 不支持图片）。
+    if (this.suppressDefaultModelWc.has(wc.id)) {
+      logf('applyDefault', `抑制跳过：截图发送新对话期间 wcId=${wc.id}`);
+      return;
+    }
     const id = this.findIdByWebContents(wc);
     const entryType = id ? this.entries.get(id)?.type : undefined;
     if (id) {
@@ -732,14 +748,47 @@ export class WindowManager {
   }
 
   /**
+   * 确保副窗口可见（非 toggle）：已创建且可见 → 保持并聚焦；已创建但隐藏 → 重新显示；
+   * 未创建 → 新建。用于「问问DeepSeek」等需要把内容填入副窗口的场景，
+   * 避免副窗口已开启时被 toggleSubWindow() 误隐藏（Bug：划词引用导致副窗口关闭）。
+   */
+  public ensureSubWindowVisible(): string | null {
+    const keepOnTop = this.config.get('alwaysOnTop') === true;
+    if (this.currentSubId) {
+      const e = this.entries.get(this.currentSubId);
+      if (e && !e.win.isDestroyed()) {
+        if (!e.win.isVisible()) {
+          // 不可见：重新定位到右侧再显示（避免停留上次被移走的异常位置）
+          this.placeSubWindowRight(e.win);
+          e.win.setAlwaysOnTop(keepOnTop, keepOnTop ? 'screen-saver' : 'normal');
+          e.win.show();
+          try { e.win.moveTop(); } catch { /* 忽略 */ }
+        }
+        e.win.focus();
+        return this.currentSubId;
+      }
+    }
+    // 未创建则新建并靠右
+    const id = this.createSubWindow('sub');
+    this.currentSubId = id;
+    const sub = this.entries.get(id);
+    if (sub && !sub.win.isDestroyed()) {
+      this.placeSubWindowRight(sub.win);
+      sub.win.setAlwaysOnTop(keepOnTop, keepOnTop ? 'screen-saver' : 'normal');
+    }
+    return id;
+  }
+
+  /**
    * 主副切换（I-08）：把当前对话在主窗口与指定副窗口之间迁移，
    * 并隐藏「迁出」的那个窗口（对话搬到哪、哪就显示，另一个隐藏）。
    * 不交换窗口身份/标题，main 始终是大窗、sub 始终是 9:16 小窗。
    *
-   * 关键修复（Bug1）：旧实现把「同一个 WebContentsView」在多个窗口间反复 removeChildView/addChildView，
-   * 多次切换后 Electron 渲染面丢失导致黑屏。现改为「原地重建目标窗口视图并载入相同会话 URL」，
-   * 任何窗口的视图对象都不再跨窗口搬移，彻底规避 WebContentsView 生命周期问题；
-   * 同时每个窗口始终持有自己的视图，不会产生幽灵视图或重复副窗口。
+   * 实现（用户要求）：直接把「对话所在窗口」的 chat 视图（WebContentsView 对象）整体搬到目标窗口，
+   * 与目标窗口原视图「对调」——页面不重建、不 reload、不迁移文字/附件/模型模式，
+   * 渲染好的内容（对话、输入框文字、附件、模型模式、滚动位置）原样跟随窗口切换。
+   * 黑屏规避（Bug1 复盘）：搬移同步完成（remove → add 同一 tick 无异步间隙）、搬移后立即布局
+   * 并断言可见、绝不 close 搬移中的 webContents；两个窗口始终各持有一个视图。
    *
    * @param subId 要交换的副窗口 id；缺省时回退为 currentSubId（快捷键等场景）。
    */
@@ -763,36 +812,25 @@ export class WindowManager {
     // 锁定本次交换的副窗口（后续切换仍针对该窗口）
     this.currentSubId = targetId;
 
-    // 以「重建目标窗口视图」的方式迁移对话（不移动同一个 WebContentsView 对象）
+    // 判定「对话所在窗口」（src）：
+    // - 用户从副窗口标题栏发起（sender 为副窗口）：正在使用副窗口的对话 → 对话在副窗口；
+    // - 否则（主窗口按钮 / 无 sender 兜底）按 conversationInSub 状态判断。
+    // 修复用户反馈的 Bug：在副窗口里截图发送/手动输入后，conversationInSub 仍为 false，
+    // 若仍按状态判定会把主窗口的空视图搬过来显示，覆盖副窗口已有的对话内容。
+    const fromSub = !!subId && subId !== 'main' && targetId === subId;
+    const srcEntry = fromSub || this.conversationInSub ? sub : main;
+    const dstEntry = fromSub || this.conversationInSub ? main : sub;
+
+    // 直接把对话所在窗口的 chat 视图与目标窗口的视图「对调」（同一 WebContentsView 对象搬移）。
+    // 不重建页面、不 reload、不迁移文字/附件/模型模式——渲染好的内容原样跟随窗口切换。
     try {
-      const srcEntry = this.conversationInSub ? sub : main;
-      const dstEntry = this.conversationInSub ? main : sub;
-
-      // 迁移前，记住源窗口输入框的文字（迁移后页面重建会丢失）
-      let draftText = '';
-      if (this.injector && srcEntry.view && !srcEntry.view.webContents.isDestroyed()) {
-        draftText = await this.injector.readInputText(srcEntry.view.webContents).catch(() => '');
-      }
-
-      this.migrateConversationToWindow(dstEntry, srcEntry);
-
-      // 迁移后，源窗口的旧视图不再需要保留对话——重置为全新对话（DEEPSEEK_URL），
-      // 避免切到副窗口后点击托盘唤出主窗口时主窗口仍显示旧对话（用户要求）。
-      const srcView = srcEntry.view;
-      if (srcView && !srcView.webContents.isDestroyed()) {
-        srcView.webContents.loadURL(DEEPSEEK_URL).catch(() => {});
-      }
-
-      // 把源窗口的输入框文字同步到目标窗口
-      if (draftText && this.injector && dstEntry.view && !dstEntry.view.webContents.isDestroyed()) {
-        this.injector.setInputText(dstEntry.view.webContents, draftText).catch(() => {});
-      }
+      this.moveChatView(srcEntry, dstEntry);
     } catch (e) {
-      console.error('[WindowManager] swapMainSub 对话迁移失败:', e);
+      console.error('[WindowManager] swapMainSub 视图搬移失败:', e);
       return false;
     }
 
-    if (!this.conversationInSub) {
+    if (dstEntry === sub) {
       // 对话搬到副窗口：隐藏主窗口，只留副窗口显示对话
       main.win.hide();
       sub.win.show();
@@ -816,77 +854,70 @@ export class WindowManager {
   }
 
   /**
-   * 把 src 窗口当前对话「迁移」到 dst 窗口：在 dst 窗口原位销毁旧视图并重建一个全新
-   * WebContentsView，载入 src 当前会话 URL（共享 session，登录态一致），再重新接线就绪钩子
-   * 与默认模型。目标窗口若已显示同一会话（URL 一致）则跳过重建，避免无谓重载闪烁。
-   * 这样任何窗口的视图对象都只存活于所属窗口内，解决反复搬移导致的黑屏（Bug1）。
+   * 把 src 窗口的 chat 视图与 dst 窗口的 chat 视图「对调」（同一 WebContentsView 对象跨窗口搬移）。
+   * 页面不重建、不 reload：对话内容、输入框文字/附件、模型模式、滚动位置全部原样保留。
+   *
+   * 黑屏规避（Bug1 复盘）：搬移必须同步完成（remove → add 同一 tick，无 await 间隙）；
+   * add 后立即 setBounds（Electron 搬移后视图 bounds 会被重置为 0，延迟布局会造成一帧黑屏）
+   * 并断言可见；绝不在搬移前后 close 任何 webContents。两个窗口始终各持有一个视图，
+   * 不会出现「搬走后的窗口没有 view」的空白。视图的 resize 布局经 createChatView 注册的
+   * getView() 闭包读取 entries[winId].view，对调后各窗口布局的始终是各自当前持有的视图。
    */
-  private migrateConversationToWindow(dst: WindowEntry, src: WindowEntry): void {
-    let url: string | null = null;
+  private moveChatView(src: WindowEntry, dst: WindowEntry): void {
+    const sv = src.view;
+    if (!sv || sv.webContents.isDestroyed()) return;
+    const dv = dst.view;
+
+    // 1. 从各自窗口摘下（同步执行，无异步间隙）
     try {
-      if (src.view && !src.view.webContents.isDestroyed()) {
-        url = src.view.webContents.getURL();
-      }
+      src.win.contentView.removeChildView(sv);
     } catch {
-      url = null;
+      /* 视图可能已 detach，忽略 */
     }
-
-    // 目标窗口已显示同一会话（URL 一致）则无需重建，避免无谓重载闪烁。
-    if (dst.view && !dst.view.webContents.isDestroyed()) {
+    if (dv && !dv.webContents.isDestroyed()) {
       try {
-        if (url && dst.view.webContents.getURL() === url) {
-          return;
-        }
-      } catch {
-        /* 读取失败则继续重建 */
-      }
-    }
-
-    // 销毁目标窗口旧视图（避免视图叠加 / 幽灵视图），并在原位重建新视图。
-    if (dst.view) {
-      try {
-        dst.win.contentView.removeChildView(dst.view);
-      } catch {
-        /* 视图可能已 detach，忽略 */
-      }
-      try {
-        dst.view.webContents.close();
+        dst.win.contentView.removeChildView(dv);
       } catch {
         /* 忽略 */
       }
-      dst.view = null;
     }
 
-    const view = new WebContentsView({
-      webPreferences: {
-        preload: WEBVIEW_PRELOAD,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: false,
-      },
-    });
-    dst.win.contentView.addChildView(view);
-    const target = url && url.length > 0 && url !== DEEPSEEK_URL ? url : DEEPSEEK_URL;
-    view.webContents
-      .loadURL(target)
-      .catch(() => {
-        try {
-          view.webContents.loadURL(DEEPSEEK_URL);
-        } catch {
-          /* 忽略 */
-        }
-      });
-    layoutView(dst.win, view);
-    // 页面完整加载后聚焦输入框（切换重建视图时 show 可能发生在加载中，
-    // 注入到即将导航卸载的 document 里的 setTimeout 轮询会随导航销毁，故以 did-finish-load 兜底）。
-    view.webContents.on('did-finish-load', () => {
-      if (!view.webContents.isDestroyed()) focusChatInputOnShow(view.webContents);
-    });
-    // 重新接线：剪刀按钮 / 新建对话监听 / 默认模型（did-finish-load 时自动应用）
-    this.attachWebViewReady(view, dst.type);
-    // 链接打开方式（内置浏览器窗口 / 系统默认浏览器）
-    installLinkOpenHandler(view.webContents);
-    dst.view = view;
+    // 2. dst 的原视图挂到 src（对调），src 始终有视图
+    if (dv && !dv.webContents.isDestroyed()) {
+      src.win.contentView.addChildView(dv);
+      src.view = dv;
+      this.relayoutChatView(src.win, dv);
+      try {
+        dv.setVisible(true);
+      } catch {
+        /* 个别平台不支持，忽略 */
+      }
+    } else {
+      src.view = null;
+    }
+
+    // 3. 对话所在窗口的视图挂到目标窗口
+    dst.win.contentView.addChildView(sv);
+    dst.view = sv;
+    this.relayoutChatView(dst.win, sv);
+    try {
+      sv.setVisible(true);
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  /** 搬移视图后立即布局（先直接 setBounds 消除一帧黑屏，再延迟布局兜底 resize 场景）。 */
+  private relayoutChatView(win: BrowserWindow, view: WebContentsView): void {
+    try {
+      const { width, height } = win.getContentBounds();
+      if (width > 0 && height > 0) {
+        view.setBounds({ x: 0, y: TITLEBAR_HEIGHT, width, height: Math.max(0, height - TITLEBAR_HEIGHT) });
+      }
+    } catch {
+      /* 忽略 */
+    }
+    layoutView(win, view);
   }
 
   /** 返回当前截图动作目标的 webContents（优先 B 窗口视图，否则活动窗口）。 */
@@ -988,34 +1019,52 @@ export class WindowManager {
   }
 
   /**
-   * 截图「发送到新对话」专用：关闭上一个 sendNew 创建的副窗口（避免堆积与竞态），
-   * 新建一个副窗口并默认摆在屏幕右侧（用户要求），返回其 id。
-   * 新窗口采用 showOnReady=false，由调用方等页面就绪后再 revealWindow，杜绝白屏；
-   * 同时挂一个「视图加载完成即显示」的兜底，保证任何情况下副窗口都能被唤出（问题 3）。
-   * 该窗口标 skipDefaultModel：用户要求「只上传原图，不切换模型、不自动点击发送」。
+   * 截图「发送到新对话」目标窗口解析（哪里截图发哪里）：
+   *  - 窗口内触发（剪刀按钮等）：originId = 所在窗口 id → 发到该窗口的新对话
+   *    （主窗口 → 主窗口；常驻副窗口 → 该副窗口）；
+   *  - 截图快捷键（originId='sub'）或未知来源：固定发到副窗口（无副窗口则新建）。
+   *  - B 类暂态窗口（transient，用途单一：翻译/解释/提取）不作为目标，回退副窗口。
    */
-  public createSendNewSubWindow(): string {
-    if (this.lastSendNewId) {
-      const prev = this.entries.get(this.lastSendNewId);
-      if (prev && !prev.win.isDestroyed()) {
-        try {
-          // 用 destroy 而非 close：closeToTray 开启时 close 只会隐藏而非销毁，
-          // 会导致隐藏窗口堆积（竞态/资源泄漏）。destroy 立即释放。
-          prev.win.destroy();
-        } catch {
-          /* 忽略 */
-        }
+  public resolveSendNewTarget(originId: string | null): string {
+    if (originId && originId !== 'sub') {
+      const e = this.entries.get(originId);
+      if (e && !e.win.isDestroyed()) {
+        if (e.type === 'main') return originId;
+        if (e.type === 'sub' && !e.transient) return originId;
       }
-      this.entries.delete(this.lastSendNewId);
-      this.lastSendNewId = null;
     }
-    const id = this.createSubWindow('sub', true, true);
-    this.lastSendNewId = id;
-    const e = this.entries.get(id);
-    if (e && !e.win.isDestroyed()) {
-      this.placeSubWindowRight(e.win);
+    // 快捷键 / 未知来源 / 暂态窗口：发送到副窗口（已存在则复用之，否则新建并靠右显示）
+    if (this.currentSubId) {
+      const e = this.entries.get(this.currentSubId);
+      if (e && !e.win.isDestroyed() && !e.transient) return this.currentSubId;
     }
-    return id;
+    return this.summonSubWindow();
+  }
+
+  /**
+   * 记录「对话当前在指定副窗口」（截图发送到副窗口新对话后调用）。
+   * 保持 conversationInSub / currentSubId 与用户实际所见一致，
+   * 使「主副切换」按钮第一次点击即按正确方向处理（副→主：隐藏副窗口、唤出主窗口）。
+   */
+  public markConversationInSub(subId: string): void {
+    const e = this.entries.get(subId);
+    if (!e || e.win.isDestroyed() || e.transient) return;
+    this.currentSubId = subId;
+    this.conversationInSub = true;
+  }
+
+  /**
+   * 在 fn 执行期间临时抑制该 webContents 的默认模型应用（完成后自动恢复）。
+   * 截图「发送到新对话」流程用它包住「点击新建对话 + 切换截图模式」，
+   * 防止 applyDefaultModelMode 抢先把模型切走（如默认 expert 不支持图片）。
+   */
+  public async suppressDefaultModelFor(wcId: number, fn: () => Promise<void>): Promise<void> {
+    this.suppressDefaultModelWc.add(wcId);
+    try {
+      await fn();
+    } finally {
+      this.suppressDefaultModelWc.delete(wcId);
+    }
   }
 
   /**
@@ -1065,6 +1114,11 @@ export class WindowManager {
   /** 取当前常驻副窗口 id（供标题栏判断按钮可用性）。 */
   public getCurrentSubId(): string | null {
     return this.currentSubId;
+  }
+
+  /** 返回最后一次聚焦的应用窗口 id（截图「哪里截图发哪里」的发起窗口判定）。 */
+  public getActiveWindowId(): string | null {
+    return this.activeId;
   }
 
   /** 获取主窗口（未创建或已销毁则 null）。设置面板内嵌等场景使用。 */

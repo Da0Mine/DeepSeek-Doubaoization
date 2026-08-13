@@ -53,7 +53,7 @@
           label: '窗口', icon: SUB_ICONS['窗口'],
           keys: ['alwaysOnTop', 'closeToTray', 'startAtLogin', 'minimizeToTrayOnStart'],
           items: [
-            { key: 'alwaysOnTop', label: '副窗口默认置顶', type: 'checkbox', hint: '副窗口和临时窗口（B 窗口）始终置顶显示，主窗口不受影响。' },
+            { key: 'alwaysOnTop', label: '副窗口默认置顶', type: 'checkbox', hint: '副窗口与 B 窗口（临时窗口）始终置顶显示，主窗口不受影响。' },
             { key: 'closeToTray', label: '关闭窗口时', type: 'select', options: [{ label: '退出程序', value: false }, { label: '最小化到系统托盘', value: true }], hint: '点击关闭按钮时退出程序，或最小化到系统托盘。' },
             { key: 'startAtLogin', label: '开机自启', type: 'checkbox', hint: '登录 Windows 时自动启动并最小化到系统托盘。' },
             { key: 'minimizeToTrayOnStart', label: '手动启动时最小化到托盘', type: 'checkbox', hint: '手动启动时直接最小化到系统托盘，不显示主窗口。' },
@@ -94,12 +94,13 @@
       children: [
         {
           label: '模型行为', icon: SUB_ICONS['模型行为'],
-          keys: ['deepThinkEnabled', 'smartSearchEnabled', 'collapseThinking', 'defaultModelMode'],
+          keys: ['deepThinkEnabled', 'smartSearchEnabled', 'collapseThinking', 'defaultModelMode', 'answerScrollMode'],
           items: [
             { key: 'deepThinkEnabled', label: '深度思考', type: 'checkbox', hint: 'AI 回答前进行深度思考，展示详细推理过程。' },
             { key: 'smartSearchEnabled', label: '智能搜索', type: 'checkbox', hint: 'AI 根据问题自动联网搜索最新信息。' },
             { key: 'collapseThinking', label: '折叠思考过程', type: 'checkbox', hint: '深度思考过程默认折叠，只显示最终答案。' },
             { key: 'defaultModelMode', label: '默认模型模式', type: 'select', options: [{ label: '快速模式', value: 'simple' }, { label: '专家模式', value: 'expert' }, { label: '识图模式', value: 'vision' }], hint: '新建对话默认的模型模式：快速响应最快，专家适合复杂任务，识图支持图片。' },
+            { key: 'answerScrollMode', label: '回答滚动方式', type: 'select', options: [{ label: '停留开头', value: 'stay' }, { label: '跟随回答', value: 'follow' }], hint: 'AI 流式输出回答时：停留开头 = 保持当前位置，自己下滑阅读；跟随回答 = 自动滚动跟随最新输出。' },
           ]
         },
         {
@@ -137,10 +138,11 @@
       children: [
         {
           label: '截图', icon: SUB_ICONS['截图'],
-          keys: ['annotationColors', 'keepWindowsOnScreenshot'],
+          keys: ['annotationColors', 'keepWindowsOnScreenshot', 'screenshotSendNewMode'],
           items: [
             { key: 'annotationColors', label: '标注画笔颜色', type: 'colorlist', hint: '设置截图标注画笔的默认颜色，可添加多个常用颜色。' },
             { key: 'keepWindowsOnScreenshot', label: '截图时保留窗口', type: 'checkbox', hint: '开启：截图时保留应用窗口（会截进图中）；关闭：截图前自动隐藏窗口。' },
+            { key: 'screenshotSendNewMode', label: '截图发送新对话模式', type: 'select', options: [{ label: '识图模式', value: 'vision' }, { label: '快速模式', value: 'simple' }], hint: '截图后「发送到新对话」时，新窗口使用的模型模式：识图模式可解析图片内容，快速模式响应最快。' },
           ]
         },
         {
@@ -366,6 +368,30 @@
     shell.onThemeVars(function (vars) { applyThemeVars(vars); });
     if (shell.requestThemeVars) {
       shell.requestThemeVars().then(function (vars) { applyThemeVars(vars); }).catch(function () {});
+    }
+
+    // 主进程请求跳转到指定板块（如标题栏更新图标 → 应用 › 更新）：
+    // 激活对应顶级菜单 + 子板块并渲染。
+    if (shell.onSettingsGoto) {
+      shell.onSettingsGoto(function (payload) {
+        if (!payload || !payload.top || !payload.sub) return;
+        var topIdx = -1, subIdx = -1;
+        MENU.forEach(function (top, ti) {
+          top.children.forEach(function (sub, si) {
+            if (sub.label === payload.sub && top.label === payload.top) {
+              topIdx = ti;
+              subIdx = si;
+            }
+          });
+        });
+        if (topIdx >= 0 && subIdx >= 0) {
+          expandedTops[topIdx] = true;
+          activeTopIdx = topIdx;
+          activeSubByTop[topIdx] = subIdx;
+          renderNormalNav();
+          setSubSection();
+        }
+      });
     }
 
     function accelFromEvent(e) {

@@ -75,8 +75,8 @@ html[data-theme='dark'] {
   margin-bottom: 14px;
 }
 .fr-badge {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: var(--fw-semibold);
   color: #ffffff;
   background: #3370ff;
   border-radius: 6px;
@@ -85,16 +85,16 @@ html[data-theme='dark'] {
 }
 
 .fr-title {
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.5;
+  font-size: var(--text-h2);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-body);
   color: var(--fr-title-fg);
   margin-bottom: 10px;
   letter-spacing: 0.2px;
 }
 .fr-body {
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: var(--text-body);
+  line-height: var(--lh-relaxed);
   color: var(--fr-body-fg);
   margin-bottom: 18px;
 }
@@ -104,8 +104,8 @@ html[data-theme='dark'] {
   max-height: 46vh;
   overflow-y: auto;
   overflow-x: hidden;
-  font-size: 13px;
-  line-height: 1.8;
+  font-size: var(--text-label);
+  line-height: var(--lh-prose);
   color: var(--fr-body-fg);
   padding-right: 8px;
   margin-bottom: 8px;
@@ -154,7 +154,7 @@ html[data-theme='dark'] .fr-notice-scroll::-webkit-scrollbar-thumb:hover {
   border: 1px solid var(--fr-btn-border);
   background: var(--fr-btn-bg);
   color: var(--fr-btn-fg);
-  font-size: 14px;
+  font-size: var(--text-body);
   cursor: pointer;
   font-family: inherit;
   transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.08s ease;

@@ -43,3 +43,6 @@ screen-dump.png
 preview-redw.html
 desktop-main.html
 
+# 设计工具本地目录（impeccable 内部状态，不入库）
+.impeccable/
+

@@ -46,7 +46,7 @@
 
     // ---- 轻量 markdown 渲染（标题 / 列表 / 段落） ----
     function renderNotes(md) {
-      if (!md) return '<p>该版本暂无更新说明。</p>';
+      if (!md) return '<p>暂无更新说明</p>';
       var lines = String(md).split(/\r?\n/);
       var html = '';
       var inList = false;

@@ -16,6 +16,7 @@ import { Injector } from './inject/Injector';
 import { PromptTemplates } from './prompts/promptTemplates';
 import { SettingsWindow } from './windows/settingsWindow';
 import { registerHandlers } from './ipc/handlers';
+import { IPC } from './ipc/channels';
 import { TextSelectionWatcher } from './textSelection/TextSelectionWatcher';
 import { GlobalInputHook } from './textSelection/GlobalInputHook';
 import { ScreenShareManager } from './screenShare/ScreenShareManager';
@@ -28,6 +29,7 @@ import { FirstRunDialog } from './firstRun/FirstRunDialog';
 import { AnswerReminder } from './reminder/AnswerReminder';
 import { initBrowserWindowManager } from './windows/browserWindow';
 import { setLoginItem } from './loginItem';
+import type { UpdateInfo } from '../shared/types';
 
 app.setName('DeepSeek');
 
@@ -68,21 +70,33 @@ function applyProxy(): void {
 }
 
 /**
- * 启动自动检查更新：有新版、版本未被忽略、且 Release 带安装包时，
- * 在主窗口弹出更新提醒（等待首次引导结束后再弹，避免两个覆盖层叠加）。
+ * 自动检查更新：发现新版本时，不再弹更新窗口，
+ * 而是通知主窗口标题栏显示「更新」图标（点击跳转设置更新板块）。
  */
 async function autoCheckUpdate(): Promise<void> {
   const info = await update.check(false);
   if (!info.hasUpdate || !info.latestVersion) return;
   // 用户点过「暂不更新」的版本不再提醒，等待下一个版本
   if (info.latestVersion === config.get('ignoredUpdateVersion')) return;
-  // 无安装包资产（仅发文字版更新说明）时不自动弹框，由设置面板手动处理
+  // 无安装包资产（仅发文字版更新说明）时不显示图标，由设置面板手动处理
   if (!update.findInstaller()) return;
   while (firstRunDialog?.isOpen() || onboarding?.isOpen()) {
     await new Promise((r) => setTimeout(r, 500));
   }
-  if (updatePrompt && !updatePrompt.isOpen()) {
-    updatePrompt.open(info);
+  notifyUpdateAvailable(info);
+}
+
+/** 通知主窗口标题栏显示「发现新版本」更新图标（替代原自动弹窗）。 */
+function notifyUpdateAvailable(info: UpdateInfo): void {
+  try {
+    const main = windows.getMainWindow();
+    if (!main || !main.win || main.win.isDestroyed()) return;
+    const wc = main.win.webContents; // 标题栏是主窗口自身 webContents
+    if (wc && !wc.isDestroyed()) {
+      wc.send(IPC.UPDATE_AVAILABLE, { latestVersion: info.latestVersion ?? '' });
+    }
+  } catch (e) {
+    console.error('[main] 通知更新图标失败:', e);
   }
 }
 
@@ -183,7 +197,8 @@ app.whenReady().then(() => {
   // 快捷键
   shortcuts = new ShortcutManager();
   shortcuts.onScreenshot = () => {
-    screenshot.startCapture();
+    // 截图快捷键：非窗口内触发，按用户要求「发送到新对话」固定发到副窗口（origin='sub'）
+    screenshot.startCapture(undefined, 'sub');
   };
   shortcuts.onSummonSub = () => windows.toggleSubWindow();
   shortcuts.onToggleTextSelection = () => {
@@ -302,7 +317,7 @@ app.whenReady().then(() => {
   // 「清除本地配置数据」后也会重新触发，见 CONFIG_FACTORY_RESET 处理器）。
   startFirstRunFlow();
 
-  // 启动自动检查更新（可在设置中关闭，默认开启）：发现新版本弹框提醒。
+  // 启动自动检查更新（可在设置中关闭，默认开启）：发现新版本时标题栏显示更新图标，不再弹窗。
   if (config.get('autoCheckUpdate')) {
     setTimeout(() => {
       autoCheckUpdate().catch(() => {});

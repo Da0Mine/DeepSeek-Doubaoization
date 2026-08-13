@@ -6,14 +6,74 @@
  *  1. 检测鼠标按下位置（mousedown）
  *  2. 检测鼠标释放位置（mouseup），若距离 > 5px 视为拖拽选择
  *  3. 自动模拟 Ctrl+C 将选中文本复制到剪贴板
- *  4. 读取剪贴板文本，弹出划词工具栏
+ *  4. 读取剪贴板文本后【立即还原原剪贴板内容】——内部取词不污染用户剪贴板；
+ *     只有点击工具栏「复制」按钮时才真正写入剪贴板。
+ *  5. 弹出划词工具栏
  *  整个过程无需用户手动按任何快捷键。
  */
 import { uIOhook, UiohookMouseEvent, UiohookKey } from 'uiohook-napi';
-import { clipboard } from 'electron';
+import { clipboard, type NativeImage } from 'electron';
 import { logf } from '../logger';
 
 export type InputSelectionCallback = (text: string, mouseDownPos?: { x: number; y: number }) => void;
+
+/** 剪贴板内容快照（文本 / 富文本 / 图片 / 文件），用于取词后还原。 */
+interface ClipboardSnapshot {
+  text: string;
+  html: string;
+  rtf: string;
+  image: NativeImage | null;
+  files: string[];
+}
+
+/** 读取剪贴板文件列表（FileNameW 格式：UTF-16LE，路径以 \0 分隔，双 \0 结尾）。 */
+function readFileList(): string[] {
+  try {
+    const buf = clipboard.readBuffer('FileNameW');
+    if (!buf || buf.length === 0) return [];
+    const str = buf.toString('utf16le');
+    return str.split('\0').filter((s) => s.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+/** 快照当前剪贴板（自动取词前调用）。 */
+function snapshotClipboard(): ClipboardSnapshot {
+  try {
+    return {
+      text: clipboard.readText(),
+      html: clipboard.readHTML(),
+      rtf: clipboard.readRTF(),
+      image: clipboard.readImage(),
+      files: readFileList(),
+    };
+  } catch {
+    return { text: '', html: '', rtf: '', image: null, files: [] };
+  }
+}
+
+/** 还原剪贴板快照（取词后调用，避免污染用户剪贴板）。优先级：图片 > 文件 > 富文本 > 文本。 */
+function restoreClipboard(s: ClipboardSnapshot): void {
+  try {
+    if (s.image && !s.image.isEmpty()) {
+      clipboard.writeImage(s.image);
+      return;
+    }
+    if (s.files && s.files.length > 0) {
+      // 文件列表格式（FileNameW：UTF-16LE，路径以 \0 分隔，双 \0 结尾）
+      const data = Buffer.from(s.files.join('\0') + '\0\0', 'utf16le');
+      clipboard.writeBuffer('FileNameW', data);
+      clipboard.writeBuffer('FileName', data);
+      return;
+    }
+    if (s.html) clipboard.writeHTML(s.html);
+    else if (s.rtf) clipboard.writeRTF(s.rtf);
+    else if (s.text) clipboard.writeText(s.text);
+  } catch {
+    /* 还原失败忽略 */
+  }
+}
 
 export class GlobalInputHook {
   private running = false;
@@ -56,6 +116,8 @@ export class GlobalInputHook {
 
       // 保存当前剪贴板文本，用于后续比较
       const prevClip = this.lastText;
+      // 快照原剪贴板：取词后立即还原，避免自动复制污染用户剪贴板
+      const snapshot = snapshotClipboard();
 
       // 模拟 Ctrl+C：将选中文本复制到系统剪贴板
       try {
@@ -73,6 +135,9 @@ export class GlobalInputHook {
           if (text && text !== prevClip && text.length > 0) {
             logf('INPUT_HOOK', `检测到选中文本: "${text.slice(0, 40)}..."`);
             this.lastText = text;
+            // 关键：取词后立即还原用户原剪贴板内容——
+            // 内部取词不污染剪贴板，只有点击工具栏「复制」按钮时才真正写入。
+            restoreClipboard(snapshot);
             this.onTextSelected?.(text, { ...this.mouseDownPos });
           }
         } catch {

@@ -161,6 +161,12 @@ export const IPC = {
   UPDATE_PROMPT_INFO: 'update:promptInfo',
   /** 更新弹框 -> 主：按钮操作（payload: { action: 'later' | 'install' }）。 */
   UPDATE_PROMPT_ACTION: 'update:promptAction',
+  /** 主 -> 标题栏：发现新版本（payload: { latestVersion?: string }），标题栏显示更新图标（替代原自动弹窗）。 */
+  UPDATE_AVAILABLE: 'update:available',
+  /** 标题栏 -> 主（invoke）：打开设置并跳转到「更新」板块。 */
+  UPDATE_OPEN_SETTINGS: 'update:openSettings',
+  /** 主 -> 设置面板：跳转到指定板块（payload: { top: string; sub: string }）。 */
+  SETTINGS_GOTO: 'settings:goto',
 
   // ---- 共享屏幕模式提示弹框 ----
   /** 主 -> 模式提示弹框：下发提示类型（payload: { type: 'expert' | 'simple' }）。 */

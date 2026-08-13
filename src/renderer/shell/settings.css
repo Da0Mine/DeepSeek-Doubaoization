@@ -25,6 +25,7 @@ html, body {
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-size: var(--ds-font-size, 14px);
+  line-height: var(--lh-body);
   background: var(--ds-bg, #f5f6fa);
   color: var(--ds-fg, #1f1f1f);
 }
@@ -48,7 +49,7 @@ html, body {
 }
 .tb-left { display: flex; align-items: center; gap: 10px; }
 .tb-logo {
-  font-weight: 600; font-size: calc(14px + var(--ds-font-offset, 0) * 1px);
+  font-weight: 600; font-size: var(--text-body);
   display: inline-flex; align-items: center; gap: 7px;
   color: var(--ds-tb-fg, #333);
   opacity: 0.85;
@@ -58,7 +59,7 @@ html, body {
 .tb-btn {
   -webkit-app-region: no-drag;
   border: none; background: transparent; color: var(--ds-tb-fg, #555);
-  height: 30px; min-width: 34px; padding: 0 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: calc(14px + var(--ds-font-offset, 0) * 1px);
+  height: 30px; min-width: 34px; padding: 0 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--text-body);
   display: inline-flex; align-items: center; justify-content: center; align-self: center;
   transition: background var(--transition-speed) ease, transform 0.08s ease;
 }
@@ -95,9 +96,9 @@ html, body {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--ds-fg, #555);
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
-  font-weight: 550;
+  color: var(--text-2);
+  font-size: var(--text-label);
+  font-weight: 600;
   cursor: pointer;
   transition: background var(--transition-speed) ease, color var(--transition-speed) ease, transform 0.12s ease;
   display: flex;
@@ -127,8 +128,8 @@ html, body {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--ds-fg, #666);
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
+  color: var(--text-2);
+  font-size: var(--text-caption);
   cursor: pointer;
   transition: background var(--transition-speed) ease, color var(--transition-speed) ease, transform 0.12s ease;
   display: flex;
@@ -174,7 +175,7 @@ html, body {
   padding: 6px 10px;
   border: 1px solid var(--ds-border, rgba(0,0,0,0.08));
   border-radius: 6px;
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   outline: none;
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #333);
@@ -186,7 +187,7 @@ html, body {
   box-shadow: 0 0 0 2px rgba(51,112,255,0.12);
 }
 .sidebar-search-input::placeholder {
-  color: #aaa;
+  color: var(--text-disabled);
 }
 .sidebar-search-results {
   position: absolute;
@@ -219,18 +220,18 @@ html, body {
   color: rgba(255,255,255,0.7);
 }
 .search-result-label {
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   font-weight: 500;
 }
 .search-result-path {
-  font-size: calc(11px + var(--ds-font-offset, 0) * 1px);
-  color: #999;
+  font-size: var(--text-caption);
+  color: var(--text-3);
 }
 .search-no-result {
   padding: 12px 10px;
   text-align: center;
-  color: #999;
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
+  color: var(--text-3);
+  font-size: var(--text-caption);
 }
 
 /* ===== 右侧面板 ===== */
@@ -274,7 +275,7 @@ html, body {
   display: flex; align-items: center; justify-content: center;
 }
 .panel-header-text {
-  font-size: calc(16px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-title);
   font-weight: 600;
   color: var(--ds-fg, #1f1f1f);
   letter-spacing: 0.3px;
@@ -304,7 +305,7 @@ html, body {
   position: relative;
 }
 .field:hover {
-  background: var(--ds-border, rgba(0,0,0,0.025));
+  background: var(--bg-soft);
 }
 
 /* ===== 通知板块层级：总开关突出 + 分类开关缩进分组 ===== */
@@ -321,7 +322,7 @@ html, body {
 }
 .field-primary label::after {
   content: '（总控）';
-  font-size: calc(11px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   font-weight: 400;
   color: var(--ds-fg, #999);
   margin-left: 6px;
@@ -336,7 +337,7 @@ html, body {
 .doc-rounds-group {
   border: 1px solid var(--ds-border, rgba(0,0,0,0.1));
   border-radius: var(--radius-md);
-  background: var(--ds-bg-soft, rgba(128,128,128,0.03));
+  background: var(--bg-soft);
   padding: 16px 14px 4px;
   margin: 18px 0 12px;
   position: relative;
@@ -349,7 +350,7 @@ html, body {
   align-items: center;
   gap: 5px;
   padding: 1px 10px;
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   font-weight: 600;
   color: var(--ds-accent, #3370ff);
   background: var(--ds-bg, #fff);
@@ -359,7 +360,7 @@ html, body {
   z-index: 3; /* 悬浮变白效果不会盖住标题 */
 }
 .doc-rounds-title .hint-icon {
-  font-size: calc(11px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   margin-top: 0;
 }
 .doc-round-row {
@@ -380,7 +381,7 @@ html, body {
 .doc-round-name {
   flex: 0 0 88px;
   font-weight: 600;
-  font-size: 0.95em;
+  font-size: var(--text-body);
   color: var(--ds-fg, #333);
   user-select: none;
 }
@@ -393,8 +394,8 @@ html, body {
 }
 .doc-round-field label {
   flex: 0 0 auto;
-  font-size: 0.88em;
-  color: var(--ds-fg, #666);
+  font-size: var(--text-label);
+  color: var(--text-2);
   user-select: none;
 }
 .doc-round-field input[type="number"] {
@@ -406,7 +407,7 @@ html, body {
   border-radius: var(--radius-sm);
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #1f1f1f);
-  font-size: 0.93em;
+  font-size: var(--text-body);
   font-family: inherit;
   outline: none;
   transition: border-color var(--transition-speed) ease, box-shadow var(--transition-speed) ease;
@@ -419,13 +420,13 @@ html, body {
   flex: 0 0 auto;
   min-width: 170px;
   white-space: nowrap;
-  font-size: 0.93em;
+  font-size: var(--text-body);
   padding-top: 7px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   color: var(--ds-fg, #333);
-  font-weight: 450;
+  font-weight: 500;
   user-select: none;
 }
 
@@ -439,7 +440,7 @@ html, body {
   border-radius: var(--radius-sm);
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #1f1f1f);
-  font-size: 0.93em;
+  font-size: var(--text-body);
   font-family: inherit;
   transition: border-color var(--transition-speed) ease, box-shadow var(--transition-speed) ease;
   outline: none;
@@ -450,7 +451,7 @@ html, body {
   border-color: var(--ds-accent, #3370ff);
   box-shadow: 0 0 0 3px rgba(51,112,255,0.1);
 }
-.field textarea { min-height: 72px; resize: vertical; line-height: 1.5; }
+.field textarea { min-height: 72px; resize: vertical; line-height: var(--lh-body); }
 
 /* 自定义复选框 */
 .field input[type="checkbox"] {
@@ -502,9 +503,9 @@ html, body {
   border-radius: var(--radius-sm);
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #1f1f1f);
-  font-size: 0.93em;
+  font-size: var(--text-body);
   font-family: inherit;
-  font-weight: 450;
+  font-weight: 500;
   transition: border-color var(--transition-speed) ease, box-shadow var(--transition-speed) ease, background var(--transition-speed) ease;
   outline: none;
   max-width: 260px;
@@ -519,7 +520,7 @@ html, body {
 }
 .field select:hover {
   border-color: var(--ds-accent, #3370ff);
-  background: var(--ds-bg-hover, rgba(51,112,255,0.02));
+  background: var(--bg-hover);
 }
 .field select:focus {
   border-color: var(--ds-accent, #3370ff);
@@ -549,9 +550,9 @@ html, body {
   border-radius: var(--radius-sm);
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #1f1f1f);
-  font-size: 0.93em;
+  font-size: var(--text-body);
   font-family: inherit;
-  font-weight: 450;
+  font-weight: 500;
   transition: border-color var(--transition-speed) ease, box-shadow var(--transition-speed) ease, background var(--transition-speed) ease;
   outline: none;
   box-shadow: 0 1px 2px rgba(0,0,0,0.02);
@@ -559,7 +560,7 @@ html, body {
 
 .ds-select-trigger:hover {
   border-color: var(--ds-accent, #3370ff);
-  background: var(--ds-bg-hover, rgba(51,112,255,0.02));
+  background: var(--bg-hover);
 }
 
 .ds-select-trigger:focus-visible {
@@ -618,7 +619,7 @@ html, body {
   border: 1px solid transparent;
   background: transparent;
   color: #e6e6e6;
-  font-size: 0.92em;
+  font-size: var(--text-label);
   cursor: pointer;
   text-align: left;
   white-space: nowrap;
@@ -652,7 +653,7 @@ html, body {
   border-radius: 50%;
   background: #fff;
   color: #bbb;
-  font-size: calc(10px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   font-weight: 700;
   cursor: help;
   border: 1px solid #ddd;
@@ -673,13 +674,13 @@ html, body {
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   color: #fff;
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   padding: 8px 12px;
   border-radius: var(--radius-sm, 8px);
   white-space: normal;
   max-width: 280px;
   width: max-content;
-  line-height: 1.5;
+  line-height: var(--lh-body);
   font-weight: 400;
   box-shadow: 0 4px 16px rgba(0,0,0,0.15);
   border: 1px solid rgba(255,255,255,0.06);
@@ -701,7 +702,7 @@ html, body {
   border-radius: var(--radius-sm);
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #1f1f1f);
-  font-size: 0.93em;
+  font-size: var(--text-body);
   cursor: pointer;
   min-height: 32px;
   font-family: inherit;
@@ -709,7 +710,7 @@ html, body {
   max-width: 260px;
 }
 .shortcut-btn:hover { border-color: var(--ds-accent, #3370ff); }
-.shortcut-btn.empty { color: #aaa; }
+.shortcut-btn.empty { color: var(--text-disabled); }
 .shortcut-btn.recording {
   border-color: var(--ds-accent, #3370ff);
   color: var(--ds-accent, #3370ff);
@@ -747,7 +748,7 @@ html, body {
   color: #c62828;
   border: none;
   background: none;
-  font-size: calc(14px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-body);
   padding: 0 3px;
   opacity: 0.5;
   transition: opacity var(--transition-speed) ease;
@@ -757,10 +758,10 @@ html, body {
   cursor: pointer;
   border: 1px dashed var(--ds-border, #bbb);
   background: none;
-  color: var(--ds-fg, #666);
+  color: var(--text-2);
   border-radius: var(--radius-sm);
   padding: 4px 10px;
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   transition: border-color var(--transition-speed) ease, color var(--transition-speed) ease, background var(--transition-speed) ease;
 }
 #add-color:hover {
@@ -784,7 +785,7 @@ html, body {
   border-radius: var(--radius-sm);
   padding: 7px 16px;
   cursor: pointer;
-  font-size: 0.93em;
+  font-size: var(--text-body);
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #444);
   display: inline-flex;
@@ -801,7 +802,7 @@ html, body {
 #actions .primary { background: var(--ds-accent, #3370ff); color: #fff; border-color: var(--ds-accent, #3370ff); }
 #actions .primary:hover { opacity: 0.9; }
 #status {
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   color: var(--ds-accent, #3370ff);
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -823,7 +824,7 @@ html, body {
   border: none;
   background: transparent;
   color: var(--ds-fg, #999);
-  font-size: calc(11px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -860,7 +861,7 @@ html, body {
   padding: 6px;
   border: 1px solid var(--ds-border, rgba(0,0,0,0.08));
   border-radius: var(--radius-sm);
-  background: var(--ds-bg, #fafafa);
+  background: var(--bg-soft);
 }
 .ts-button-row:hover {
   border-color: var(--ds-accent, #3370ff);
@@ -872,7 +873,7 @@ html, body {
   border-radius: var(--radius-sm);
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #1f1f1f);
-  font-size: 0.86em;
+  font-size: var(--text-label);
   font-family: inherit;
   outline: none;
   transition: border-color var(--transition-speed) ease;
@@ -888,11 +889,11 @@ html, body {
   border-radius: var(--radius-sm);
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #1f1f1f);
-  font-size: 0.86em;
+  font-size: var(--text-label);
   font-family: inherit;
   resize: vertical;
   outline: none;
-  line-height: 1.4;
+  line-height: var(--lh-body);
   transition: border-color var(--transition-speed) ease;
 }
 .ts-btn-prompt:focus {
@@ -922,10 +923,10 @@ html, body {
 .ts-btn-add {
   border: 1px dashed var(--ds-border, #bbb);
   background: none;
-  color: var(--ds-fg, #666);
+  color: var(--text-2);
   border-radius: var(--radius-sm);
   padding: 5px 12px;
-  font-size: 0.86em;
+  font-size: var(--text-label);
   cursor: pointer;
   transition: border-color var(--transition-speed) ease, color var(--transition-speed) ease, background var(--transition-speed) ease;
   align-self: flex-start;
@@ -960,8 +961,8 @@ html, body {
 }
 .ts-btn-quote-hint {
   flex: 1;
-  font-size: calc(11px + var(--ds-font-offset, 0) * 1px);
-  color: #999;
+  font-size: var(--text-caption);
+  color: var(--text-3);
   padding: 5px 8px;
   min-width: 0;
   font-style: italic;
@@ -986,7 +987,7 @@ html, body {
   border: none;
   background: transparent;
   color: var(--ds-fg, #1f1f1f);
-  font-size: calc(16px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-title);
   cursor: pointer;
   transition: background 0.15s;
   user-select: none;
@@ -1007,7 +1008,7 @@ html, body {
   min-width: 48px;
   height: 32px;
   padding: 0 8px;
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   color: var(--ds-fg, #1f1f1f);
   border-left: 1px solid var(--ds-border, rgba(0,0,0,0.12));
   border-right: 1px solid var(--ds-border, rgba(0,0,0,0.12));
@@ -1030,7 +1031,7 @@ html, body {
   border-radius: var(--radius-sm);
   padding: 7px 16px;
   cursor: pointer;
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   background: var(--ds-bg, #fff);
   color: var(--ds-fg, #444);
   display: inline-flex;
@@ -1054,7 +1055,7 @@ html, body {
 /* ===== 信息展示值 ===== */
 .info-value {
   padding: 7px 12px;
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   border-radius: var(--radius-sm);
   background: var(--ds-bg, #f5f6fa);
   border: 1px solid var(--ds-border, rgba(0,0,0,0.06));
@@ -1112,21 +1113,21 @@ html, body {
   min-width: 0;
 }
 .update-hero-name {
-  font-size: 12.5px;
-  color: var(--ds-fg, #888);
+  font-size: var(--text-label);
+  color: var(--text-3);
 }
 .update-hero-ver {
-  font-size: calc(21px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-hero);
   font-weight: 700;
   color: var(--ds-fg, #1f1f1f);
   letter-spacing: 0.3px;
-  line-height: 1.2;
+  line-height: var(--lh-tight);
 }
 .update-hero-state {
   margin-left: auto;
   flex: none;
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
-  color: var(--ds-fg, #777);
+  font-size: var(--text-caption);
+  color: var(--text-2);
   background: var(--ds-border, rgba(0,0,0,0.05));
   border: 1px solid var(--ds-border, rgba(0,0,0,0.06));
   padding: 5px 12px;
@@ -1149,7 +1150,7 @@ html, body {
   color: #ffffff;
   padding: 9px 20px;
   border-radius: var(--radius-sm);
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   font-weight: 500;
   cursor: pointer;
   font-family: inherit;
@@ -1168,7 +1169,7 @@ html, body {
   color: var(--ds-fg, #444);
   padding: 9px 20px;
   border-radius: var(--radius-sm);
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   cursor: pointer;
   font-family: inherit;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.08s ease;
@@ -1184,10 +1185,10 @@ html, body {
 .update-result-card {
   border-radius: var(--radius-md);
   padding: 16px 18px;
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
-  line-height: 1.65;
+  font-size: var(--text-label);
+  line-height: var(--lh-relaxed);
   border: 1px solid var(--ds-border, rgba(0,0,0,0.08));
-  background: var(--ds-bg, #fafbfc);
+  background: var(--bg-soft);
 }
 .update-result-ok {
   color: #34c759;
@@ -1215,19 +1216,19 @@ html, body {
   font-weight: 600;
   color: var(--ds-accent, #3370ff);
   margin-bottom: 8px;
-  font-size: calc(15px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-title);
 }
 .update-notes {
   white-space: pre-wrap;
-  color: var(--ds-fg, #555);
-  font-size: 12.5px;
+  color: var(--text-2);
+  font-size: var(--text-label);
   margin-bottom: 12px;
   max-height: 180px;
   overflow-y: auto;
   word-break: break-word;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  background: var(--ds-border, rgba(0,0,0,0.025));
+  background: var(--bg-soft);
   border: 1px solid var(--ds-border, rgba(0,0,0,0.05));
 }
 .update-dl-btn {
@@ -1239,7 +1240,7 @@ html, body {
   color: #ffffff;
   padding: 8px 18px;
   border-radius: var(--radius-sm);
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   cursor: pointer;
   font-family: inherit;
   transition: opacity 0.2s ease, transform 0.08s ease, box-shadow 0.2s ease;
@@ -1267,10 +1268,10 @@ html, body {
   transition: width 0.2s ease;
 }
 .update-progress-text {
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
-  color: var(--ds-fg, #777);
+  font-size: var(--text-caption);
+  color: var(--text-2);
   margin-top: 6px;
-  line-height: 1.5;
+  line-height: var(--lh-body);
 }
 
 /* ===== 详细说明书（分类排版） ===== */
@@ -1286,7 +1287,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: calc(14px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--ds-fg, #1f1f1f);
   margin-bottom: 10px;
@@ -1321,7 +1322,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--ds-fg, #1f1f1f);
   margin-bottom: 5px;
@@ -1336,16 +1337,16 @@ html, body {
   flex: none;
 }
 .manual-item-desc {
-  font-size: calc(12px + var(--ds-font-offset, 0) * 1px);
-  line-height: 1.65;
-  color: var(--ds-fg, #555);
+  font-size: var(--text-caption);
+  line-height: var(--lh-relaxed);
+  color: var(--text-2);
   margin-bottom: 8px;
 }
 .manual-item-where {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: calc(11px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-caption);
   color: var(--ds-accent, #3370ff);
   opacity: 0.8;
 }
@@ -1373,7 +1374,7 @@ html, body {
   color: var(--ds-fg, #444);
   padding: 7px 14px;
   border-radius: var(--radius-sm);
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   cursor: pointer;
   font-family: inherit;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.08s ease;
@@ -1385,7 +1386,7 @@ html, body {
 }
 .manual-back-btn:active { transform: scale(0.97); }
 .manual-head-title {
-  font-size: calc(16px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-title);
   font-weight: 600;
   color: var(--ds-fg, #1f1f1f);
   letter-spacing: 0.3px;
@@ -1398,7 +1399,7 @@ html, body {
   border-radius: var(--radius-sm);
   background: var(--ds-bg, #ffffff);
   color: var(--ds-fg, #1f1f1f);
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   font-family: inherit;
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -1408,7 +1409,7 @@ html, body {
   box-shadow: 0 0 0 3px rgba(51,112,255,0.1);
 }
 .manual-search-input::placeholder {
-  color: #aaa;
+  color: var(--text-disabled);
 }
 
 /* 「看不懂，问问AI？」：把说明书提交给副窗口快速模式对话，AI 帮忙解读 */
@@ -1421,7 +1422,7 @@ html, body {
   color: var(--ds-accent, #3370ff);
   padding: 7px 14px;
   border-radius: var(--radius-sm);
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   font-family: inherit;
   font-weight: 500;
   cursor: pointer;
@@ -1460,15 +1461,15 @@ html, body {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
 }
 .ds-confirm-title {
-  font-size: calc(15px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-title);
   font-weight: 600;
   color: var(--ds-fg, #1f1f1f);
   margin-bottom: 8px;
 }
 .ds-confirm-msg {
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
-  line-height: 1.6;
-  color: var(--ds-fg, #555);
+  font-size: var(--text-label);
+  line-height: var(--lh-body);
+  color: var(--text-2);
   margin-bottom: 16px;
 }
 .ds-confirm-actions {
@@ -1483,7 +1484,7 @@ html, body {
   padding: 7px 18px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: calc(13px + var(--ds-font-offset, 0) * 1px);
+  font-size: var(--text-label);
   font-family: inherit;
   transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.08s ease;
 }

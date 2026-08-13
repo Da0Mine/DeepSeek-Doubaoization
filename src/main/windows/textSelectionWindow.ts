@@ -9,11 +9,11 @@
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import * as path from 'path';
 import { IPC } from '../ipc/channels';
+import { logf } from '../logger';
 
 let toolbarWindow: BrowserWindow | null = null;
 let toolbarMouseX = 0;
 let toolbarMouseY = 0;
-let toolbarScale = 1;
 /** 工具栏当前是否可见（窗口对象可能隐藏但未销毁）。 */
 let toolbarVisible = false;
 /** 窗口首次加载完成前缓存的待显示数据。 */
@@ -103,27 +103,43 @@ function ensureToolbarWindow(): BrowserWindow | null {
   return toolbarWindow;
 }
 
-/** 定位工具栏：左边缘在鼠标位置左移 8px、上方 4px，并做屏幕边界校正。 */
+/** 定位工具栏：左边缘在鼠标位置左移 8px、上方 4px，并做屏幕边界校正（不越过屏幕边界）。
+ *  坐标系：mouseX/mouseY 为 DIP；setBounds 也接受 DIP。缩放环境 display.bounds
+ *  可能返回物理像素（L057），故用 size/bounds 比例把 workArea 统一换算成 DIP 再夹紧。 */
 function positionToolbar(width: number, mouseX: number, mouseY: number): void {
   const win = toolbarWindow;
   if (!win || win.isDestroyed()) return;
   const display = screen.getDisplayNearestPoint({ x: mouseX, y: mouseY });
-  const scale = display.scaleFactor || 1;
-  toolbarScale = scale;
-  const workArea = display.workArea;
+  // L057：缩放环境 display.bounds 可能返回物理像素，size 恒为物理像素；比例映射得到 DIP 工作区
+  const sizeW = display.size.width || 1;
+  const sizeH = display.size.height || 1;
+  const boundsW = display.bounds.width || 1;
+  const boundsH = display.bounds.height || 1;
+  const work = display.workArea;
+  const wa = {
+    x: (work.x / sizeW) * boundsW,
+    y: (work.y / sizeH) * boundsH,
+    width: (work.width / sizeW) * boundsW,
+    height: (work.height / sizeH) * boundsH,
+  };
   const toolbarHeight = 34;
-  let winX = Math.round(mouseX / scale - 8);
-  let winY = Math.round(mouseY / scale - toolbarHeight - 4);
-  if (winX < workArea.x) winX = workArea.x + 4;
-  if (winX + width > workArea.x + workArea.width) {
-    winX = workArea.x + workArea.width - width - 4;
+  let winX = Math.round(mouseX - 8);
+  let winY = Math.round(mouseY - toolbarHeight - 4);
+  // 左右边界夹紧：不越过屏幕左右两边
+  if (winX < wa.x) winX = wa.x + 4;
+  if (winX + width > wa.x + wa.width) {
+    winX = wa.x + wa.width - width - 4;
   }
-  if (winY < workArea.y) winY = workArea.y + 4;
+  // 上下边界夹紧：不越过任务栏上方 / 顶部
+  if (winY < wa.y) winY = wa.y + 4;
+  if (winY + toolbarHeight > wa.y + wa.height) {
+    winY = wa.y + wa.height - toolbarHeight - 4;
+  }
   win.setBounds({
-    x: Math.round(winX * scale),
-    y: Math.round(winY * scale),
-    width: Math.round(width * scale),
-    height: Math.round(toolbarHeight * scale),
+    x: winX,
+    y: winY,
+    width: Math.round(width),
+    height: toolbarHeight,
   });
 }
 
@@ -155,16 +171,25 @@ export function showToolbarAt(
   // 已加载：立即更新内容并显示（窗口复用，无需重建）
   win.webContents.send(IPC.TOOLBAR_UPDATE, { buttons, text: selectedText });
   positionToolbar(120, mouseX, mouseY);
+  logf('TOOLBAR', `showToolbarAt text="${selectedText.slice(0, 20)}" visible=${win.isVisible()}`);
+  // 先正常显示（showInactive 不抢焦点），再提升层级：
+  // 注意顺序——moveTop 在 Windows 上会把隐藏窗口直接显示出来（副作用），
+  // 若在 showInactive 前调用会跳过正常显示逻辑导致悬浮框不出现。
   if (!win.isVisible()) win.showInactive();
+  try {
+    win.moveTop();
+  } catch {
+    /* 个别平台不支持 */
+  }
+  logf('TOOLBAR', `after show/moveTop visible=${win.isVisible()} destroyed=${win.isDestroyed()}`);
 }
 
 /** 滚动时重新定位工具栏（跟随选中文本移动）。
- *  uIOhook 的 rotation 值通常为 1/-1（每格滚轮），实际滚动距离约 40px，故乘以 40。 */
+ *  uIOhook 的 rotation 值通常为 1/-1（每格滚轮），实际滚动距离约 40px；bounds 为 DIP。 */
 export function repositionToolbar(deltaY: number): void {
   if (!toolbarWindow || toolbarWindow.isDestroyed() || !toolbarVisible) return;
   const bounds = toolbarWindow.getBounds();
-  // 乘以 40 映射到实际像素滚动距离，并考虑屏幕缩放
-  const newY = bounds.y + Math.round(deltaY * 40 * toolbarScale);
+  const newY = bounds.y + Math.round(deltaY * 40);
   toolbarWindow.setPosition(bounds.x, newY);
 }
 
@@ -174,6 +199,12 @@ ipcMain.on(IPC.TOOLBAR_RESIZE, (e, { width }: { width: number }) => {
   const w = Math.max(40, Math.round(Number(width) || 120));
   positionToolbar(w, toolbarMouseX, toolbarMouseY);
   if (toolbarVisible && !toolbarWindow.isVisible()) {
+    // 先正常显示再提升层级（moveTop 会直接显示隐藏窗口，顺序不能反）
     toolbarWindow.showInactive();
+    try {
+      toolbarWindow.moveTop();
+    } catch {
+      /* 忽略 */
+    }
   }
 });

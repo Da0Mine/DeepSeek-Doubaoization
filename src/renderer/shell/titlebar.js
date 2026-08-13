@@ -15,6 +15,7 @@
     }
 
     var btnSettings = document.getElementById('btn-settings');
+    var btnUpdate = document.getElementById('btn-update');
     var btnPin = document.getElementById('btn-pin');
     var btnSwap = document.getElementById('btn-swap');
     var btnMin = document.getElementById('btn-min');
@@ -22,6 +23,22 @@
     var btnClose = document.getElementById('btn-close');
 
     if (btnSettings) btnSettings.onclick = function () { shell.openSettings(); };
+    // 更新图标按钮：仅主窗口需要；收到「发现新版本」后显示，点击打开设置并跳转到「更新」板块。
+    if (shell.windowType !== 'main') {
+      if (btnUpdate) btnUpdate.style.display = 'none';
+    } else {
+      if (btnUpdate && shell.onUpdateAvailable) {
+        shell.onUpdateAvailable(function (info) {
+          btnUpdate.style.display = '';
+          if (info && info.latestVersion) {
+            btnUpdate.title = '发现新版本 v' + info.latestVersion;
+          }
+        });
+        btnUpdate.onclick = function () {
+          if (shell.openUpdateSettings) shell.openUpdateSettings();
+        };
+      }
+    }
     function setPinIcon(pinned) {
       if (!btnPin) return;
       if (pinned) btnPin.classList.add('pinned');

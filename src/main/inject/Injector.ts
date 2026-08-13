@@ -1205,6 +1205,10 @@ export class Injector {
     this.sendMouse(wc, 'mouseDown', cx, cy);
     await sleep(60);
     this.sendMouse(wc, 'mouseUp', cx, cy);
+    // 点击完成后立即恢复原始 setPointerCapture——
+    // 若等到「下次用户 pointerdown」才恢复，期间任何依赖 pointer capture 的
+    // React 交互（如下拉菜单、拖拽）都会静默失效（表现为点击无反应）。
+    await this.restorePointerCapture(wc);
   }
 
   /** 轮询 vision radio 的 aria-checked 是否为 true（最多 2 秒）。 */
@@ -1257,7 +1261,19 @@ export class Injector {
     }
   }
 
-  /** 用 wc.sendInputEvent 派发可信鼠标事件（坐标相对 webContents 视口）。 */
+  /** 立即恢复 Element.prototype.setPointerCapture 为原始函数（可信点击完成后调用）。 */
+  private async restorePointerCapture(wc: WebContents): Promise<void> {
+    try {
+      await wc.executeJavaScript(`(() => {
+        try {
+          if (window.__dsSPCOriginal) Element.prototype.setPointerCapture = window.__dsSPCOriginal;
+          window.__dsSPCResetArmed = false;
+        } catch (e) {}
+      })()`);
+    } catch (e) {
+      /* ignore */
+    }
+  }
   private sendMouse(wc: WebContents, type: 'mouseMove' | 'mouseDown' | 'mouseUp', x: number, y: number): void {
     try {
       wc.sendInputEvent({ type, x, y, button: 'left', clickCount: type === 'mouseDown' ? 1 : 0 } as any);
@@ -1313,6 +1329,25 @@ export class Injector {
     } catch (e) {
       return false;
     }
+  }
+
+  /**
+   * 等待 SPA 切换到「新建对话」页（点击新建对话按钮后调用）：
+   * 轮询 URL 不再是历史会话页（DeepSeek 点新建对话后 URL 回到根路由，不带 /a/chat/<id>）。
+   * 点击未生效时 URL 不变，会等到超时返回 false，由调用方继续后续流程（不阻塞上传）。
+   */
+  public async waitForNewConversation(wc: WebContents, timeoutMs = 3000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const url = wc.getURL().split('#')[0];
+        if (!/\/a\/chat\/.+/.test(url)) return true;
+      } catch {
+        /* ignore */
+      }
+      await sleep(200);
+    }
+    return false;
   }
 
   /** 提取图片文字：切换视觉模型 + 发送提取提示词（附图）。 */
@@ -1745,6 +1780,20 @@ export class Injector {
         window.__dsAnswerWatcherBound = true;
         var lastLen = 0, stableTicks = 0, generating = false;
         var first = true;
+        // 「用户已发送提问」标志：只有回车 / 点击发送按钮后才开始监测本会话。
+        // 根治「切换会话的初始渲染被误判为生成中 → 误报回答完成」的问题——
+        // 不发送提问时不做任何状态判定，切换会话的渲染变化不再触发误报。
+        var armed = false;
+        // 生成中切走时记录的会话 id：切回时恢复监测补报（主进程追踪不取消）。
+        var pendingSessionId = null;
+        function currentSessionId() {
+          // ⚠️ 模板字符串中 \/ 会被 TS 解码成 /，正则字面量会被 / 截断（Invalid regexp flags），
+          // 故用 RegExp 字符串构造（正则里的 / 无需转义）
+          var re = new RegExp('(?:/a/chat/s/|/a/chat/|/c/)([^/?#]+)');
+          var m = location.href.match(re);
+          return m ? m[1] : null;
+        }
+        var lastSessionId = currentSessionId();
         function findStop() {
           var els = document.querySelectorAll('button, [role="button"], [class*="stop" i], [class*="abort" i]');
           for (var i = 0; i < els.length; i++) {
@@ -1794,13 +1843,62 @@ export class Injector {
           lastLen = m ? m.text.length : 0;
           stableTicks = 0;
         }
+        // 用户发送提问 → 开始监测本会话
+        function arm() {
+          if (armed) return;
+          armed = true;
+          generating = false;
+          stableTicks = 0;
+          console.log('[AnswerWatch] 用户发送提问，开始监测');
+        }
+        // 回车发送（输入框内按 Enter）
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' && !e.shiftKey && e.isComposing !== true) {
+            var ta = document.querySelector('textarea[aria-label*="\u53d1\u9001\u6d88\u606f"], textarea[placeholder*="\u53d1\u9001\u6d88\u606f"], textarea');
+            if (ta && document.activeElement === ta) arm();
+          }
+        }, true);
+        // 点击发送按钮
+        document.addEventListener('click', function (e) {
+          var node = e.target;
+          while (node && node !== document.body) {
+            if (node.getAttribute) {
+              var a = (node.getAttribute('aria-label') || '');
+              if (a.indexOf('\u53d1\u9001') >= 0 || a.indexOf('send') >= 0) { arm(); return; }
+            }
+            node = node.parentElement;
+          }
+        }, true);
         function sync() {
           try {
-            // 会话切换（URL 变化）：通知主进程取消跟踪（不提醒），并重置文本基线
+            // 会话切换（URL 变化）
             if (location.href !== window.__dsAnswerUrl) {
+              var oldId = lastSessionId;
+              var wasGenerating = generating;
+              lastSessionId = currentSessionId();
               window.__dsAnswerUrl = location.href;
               resetBaseline();
-              reportSwitched();
+              if (pendingSessionId && lastSessionId === pendingSessionId) {
+                // 切回「生成中切走」的原会话：恢复监测补报，不取消主进程追踪
+                pendingSessionId = null;
+                armed = true;
+                console.log('[AnswerWatch] 切回生成中的会话，恢复监测');
+              } else if (wasGenerating) {
+                // 正在生成时切走：保留主进程追踪，等切回补报（切走期间无法检测原会话）
+                pendingSessionId = oldId;
+                console.log('[AnswerWatch] 生成中切走，保留追踪 session=' + oldId);
+              } else if (!pendingSessionId) {
+                // 未在生成也非生成中切走：取消追踪（无记录时无副作用）
+                reportSwitched();
+              }
+              armed = false;
+              generating = false;
+              stableTicks = 0;
+              return;
+            }
+            // 未发送提问：不监测（只追文本基线），切换会话的渲染变化不会误判
+            if (!armed) {
+              resetBaseline();
               return;
             }
             var stop = findStop();
@@ -1835,6 +1933,191 @@ export class Injector {
     } catch (e) {
       console.error('[Injector] injectAnswerWatcher 失败:', e);
       return false;
+    }
+  }
+
+  /**
+   * 注入「回答滚动方式」控制（设置 → 对话 → 模型行为 → 回答滚动方式）：
+   *   - stay（停留开头，默认）：AI 生成回答时不干预滚动，用户保持当前位置；
+   *   - follow（跟随回答）：AI 生成时持续滚动到底部，始终显示最新输出（复刻简单模式体验）。
+   * 生成状态检测复用 AnswerWatcher 思路（停止按钮 / 最后一条 AI 文本长度变化）。
+   * 用户主动滚动（wheel/触控/键盘）会暂停跟随，直到下一次生成开始重新跟随。
+   * 幂等：同 document 只绑定一次；完整导航重建 document 后需重新注入。
+   * 运行时可通过 updateAnswerScrollMode 更新模式（window.__dsSetAnswerScrollMode）。
+   */
+  public async injectAnswerScroll(wc: WebContents, mode: 'stay' | 'follow'): Promise<boolean> {
+    const code = `(() => {
+      try {
+        if (window.__dsAnswerScrollBound) return true;
+        window.__dsAnswerScrollBound = true;
+        var mode = ${JSON.stringify(mode)};
+        // 暴露给 injectPinToBottom 读取：stay 模式 + 生成中 → 停止初始钉底，避免 URL 变化钉底覆盖「停留开头」
+        window.__dsAnswerScrollMode = mode;
+        var generating = false;
+        var userScrolled = false;
+        var rafId = 0;
+        var lastLen = 0, stableTicks = 0;
+        var first = true;
+        // stay 模式抑制网页原生自动滚动：生成开始时记录锚点，网页把滚动条自动滚走时拉回锚点
+        var anchorTop = 0;
+        var lastUserAction = 0;
+
+        // 运行时切换模式（设置变更）：立即生效
+        function setMode(m) {
+          mode = m;
+          window.__dsAnswerScrollMode = m;
+          if (!generating && rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+          if (generating && mode === 'follow') {
+            userScrolled = false;
+            rafId = requestAnimationFrame(tick);
+          }
+        }
+        window.__dsSetAnswerScrollMode = setMode;
+
+        // 用户主动滚动 → 记录操作时间与接管位置（仅影响当前生成；下次生成开始时重置）
+        function markUser() {
+          if (!generating) return;
+          lastUserAction = Date.now();
+          userScrolled = true;
+          var c = findContainer();
+          if (c) anchorTop = c.scrollTop;
+        }
+        window.addEventListener('wheel', markUser, { passive: true, capture: true });
+        window.addEventListener('touchstart', markUser, { passive: true, capture: true });
+        window.addEventListener('keydown', function (e) {
+          var k = e.key || '';
+          if (k.indexOf('Arrow') === 0 || k === 'PageDown' || k === 'PageUp' || k === 'Home' || k === 'End' || k === ' ') markUser();
+        }, true);
+        // stay 模式：抑制网页自动滚动——滚动条被自动改走（非用户操作）时拉回锚点
+        window.addEventListener('scroll', function () {
+          if (mode !== 'stay' || !generating) return;
+          if (Date.now() - lastUserAction < 400) return; // 用户刚操作，放行
+          var c = findContainer();
+          if (!c || !(c.scrollHeight > c.clientHeight)) return;
+          if (c.scrollTop !== anchorTop) c.scrollTop = anchorTop;
+        }, true);
+
+        // 消息滚动容器：从最后一条 AI 消息向上找「最近的可滚动祖先」
+        function findContainer() {
+          var marks = document.querySelectorAll('.ds-markdown');
+          if (!marks || !marks.length) return null;
+          var el = marks[marks.length - 1].parentElement;
+          for (var d = 0; d < 20 && el; d++, el = el.parentElement) {
+            try {
+              var cs = window.getComputedStyle(el);
+              if (!/(auto|scroll|overlay)/.test(cs.overflowY)) continue;
+            } catch (e2) { continue; }
+            if (el.scrollHeight > el.clientHeight + 10 && el.clientHeight > 50) return el;
+          }
+          return null;
+        }
+
+        function tick() {
+          rafId = 0;
+          if (mode !== 'follow' || !generating || userScrolled) return;
+          var c = findContainer();
+          if (c && c.scrollHeight > c.clientHeight) {
+            c.scrollTop = c.scrollHeight;
+          } else {
+            try {
+              var last = document.querySelectorAll('.ds-markdown');
+              if (last && last.length) last[last.length - 1].scrollIntoView({ block: 'end' });
+            } catch (e3) {}
+          }
+          rafId = requestAnimationFrame(tick);
+        }
+
+        // ---- 生成状态检测（复用 AnswerWatcher 思路） ----
+        function findStop() {
+          var els = document.querySelectorAll('button, [role="button"], [class*="stop" i], [class*="abort" i]');
+          for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            var a = ((el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title') || '')) || '').toLowerCase();
+            var t = ((el.textContent || '').trim()).toLowerCase();
+            var cls = (el.className && el.className.toString ? el.className.toString().toLowerCase() : '');
+            if (a.indexOf('\u505c\u6b62') >= 0 || a.indexOf('stop') >= 0 ||
+                t.indexOf('\u505c\u6b62') >= 0 || t.indexOf('stop') >= 0 ||
+                cls.indexOf('stop') >= 0 || cls.indexOf('abort') >= 0) return el;
+          }
+          return null;
+        }
+        function readLastAI() {
+          var main = document.querySelectorAll('.ds-markdown.ds-assistant-message-main-content');
+          if (main && main.length) return { text: (main[main.length - 1].textContent || '') };
+          var all = document.querySelectorAll('.ds-markdown');
+          if (all && all.length) return { text: (all[all.length - 1].textContent || '') };
+          return null;
+        }
+        function setState(g) {
+          if (g === generating) return;
+          generating = g;
+          if (g) {
+            // 开始生成：重置用户滚动标记；记录锚点（生成开始时位置），stay 模式据此拉回自动滚动
+            userScrolled = false;
+            lastUserAction = 0;
+            var c0 = findContainer();
+            anchorTop = c0 ? c0.scrollTop : 0;
+            if (mode === 'follow' && !rafId) rafId = requestAnimationFrame(tick);
+          } else {
+            if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+          }
+        }
+        function resetBaseline() {
+          var m = readLastAI();
+          lastLen = m ? m.text.length : 0;
+          stableTicks = 0;
+        }
+        function sync() {
+          try {
+            if (location.href !== window.__dsAnswerScrollUrl) {
+              window.__dsAnswerScrollUrl = location.href;
+              resetBaseline();
+              setState(false);
+              return;
+            }
+            var stop = findStop();
+            var m = readLastAI();
+            if (first) { first = false; resetBaseline(); return; }
+            if (!m) { setState(!!stop); return; }
+            var changed = m.text.length !== lastLen;
+            lastLen = m.text.length;
+            if (stop || changed) {
+              stableTicks = 0;
+              setState(true);
+            } else if (generating) {
+              stableTicks++;
+              if (stableTicks >= 6) { stableTicks = 0; setState(false); }
+            } else {
+              setState(false);
+            }
+          } catch (e2) {}
+        }
+        window.__dsAnswerScrollUrl = location.href;
+        sync();
+        var mo = new MutationObserver(sync);
+        mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+        window.__dsAnswerScrollMO = mo;
+        window.__dsAnswerScrollTimer = setInterval(sync, 500);
+        console.log('[AnswerScroll] 已安装 mode=' + mode);
+        return true;
+      } catch (e) { return false; }
+    })()`;
+    try {
+      return Boolean(await wc.executeJavaScript(code));
+    } catch (e) {
+      console.error('[Injector] injectAnswerScroll 失败:', e);
+      return false;
+    }
+  }
+
+  /** 运行时更新「回答滚动方式」（设置变更时调用）：切换到新模式并立即生效。 */
+  public async updateAnswerScrollMode(wc: WebContents, mode: 'stay' | 'follow'): Promise<void> {
+    try {
+      await wc.executeJavaScript(
+        `(function () { try { if (typeof window.__dsSetAnswerScrollMode === 'function') { window.__dsSetAnswerScrollMode(${JSON.stringify(mode)}); return true; } return false; } catch (e) { return false; } })()`
+      );
+    } catch {
+      /* 页面不可用则忽略 */
     }
   }
 
@@ -1895,6 +2178,20 @@ export class Injector {
           if (d && d.scrollHeight > d.clientHeight) { d.scrollTop = d.scrollHeight; return true; }
           return false;
         }
+        // 检测回答生成中（停止按钮存在）：供 stay 模式停止钉底
+        function findStop() {
+          var els = document.querySelectorAll('button, [role="button"], [class*="stop" i], [class*="abort" i]');
+          for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            var a = ((el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title') || '')) || '').toLowerCase();
+            var t = ((el.textContent || '').trim()).toLowerCase();
+            var cls = (el.className && el.className.toString ? el.className.toString().toLowerCase() : '');
+            if (a.indexOf('\u505c\u6b62') >= 0 || a.indexOf('stop') >= 0 ||
+                t.indexOf('\u505c\u6b62') >= 0 || t.indexOf('stop') >= 0 ||
+                cls.indexOf('stop') >= 0 || cls.indexOf('abort') >= 0) return el;
+          }
+          return null;
+        }
         function onUrlChange() {
           // 新会话 = 新的上下文：重置用户滚动标记，保证每次都尝试钉底
           userScrolled = false;
@@ -1906,6 +2203,10 @@ export class Injector {
           var count = 0, lastH = -1, hStable = 0;
           function tick() {
             if (gen !== generation) return; // 已被新一代取代
+            // 停留开头（stay）+ 回答生成中：停止钉底——发送消息会触发 URL 变化
+            // （新建对话 → /a/chat/<id>），若继续钉底会把「停留开头」变成跟随；
+            // 切换会话（无生成）时仍正常钉底，符合「打开对话自动到最低端」。
+            if (window.__dsAnswerScrollMode === 'stay' && findStop()) return;
             count++;
             var c = findContainer();
             var atBottom = scrollBottom(c);
@@ -1950,7 +2251,18 @@ export class Injector {
       try {
         const texts = ${loginTexts};
         const btns = Array.from(document.querySelectorAll('button, a'));
-        const hasLogin = btns.some(b => texts.some(t => (b.textContent || '').trim().toLowerCase().includes(t.toLowerCase())));
+        const txtOf = (b) => ((b.textContent || b.getAttribute('aria-label') || '')).trim().toLowerCase();
+        const isLogout = (t) => t.includes('退出登录') || t.includes('注销') || t.includes('log out') || t.includes('sign out');
+        // 登录/注册按钮精确匹配：文本等于登录词，或以「登录词 + 空格/账号」开头，
+        // 避免「注册表/注册码」等正文内容被「注册」误命中（实测 chat.deepseek.com 对话正文含「注册表项」即触发误判）
+        const isLoginBtn = (t) => texts.some((k) => t === k || t.startsWith(k + ' ') || t.startsWith(k + '账号'));
+        // 已登录页面常驻「退出登录」菜单项：命中即视为已登录（修复「退出登录」被误判为登录按钮的 Bug）
+        if (btns.some((b) => isLogout(txtOf(b)))) return true;
+        const hasLogin = btns.some((b) => {
+          const t = txtOf(b);
+          if (!t || isLogout(t)) return false;
+          return isLoginBtn(t);
+        });
         const input = document.querySelector('textarea, [contenteditable="true"], [role="textbox"]');
         return !hasLogin && !!input;
       } catch (e) { return false; }

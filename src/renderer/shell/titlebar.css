@@ -47,12 +47,13 @@ body {
 }
 
 .tb-status {
-  font-size: 12px;
+  font-size: var(--text-caption);
   padding: 1px 6px;
   border-radius: 8px;
   background: var(--ds-border, #e0e0e0);
   color: var(--ds-tb-fg, #555);
   white-space: nowrap;
+  line-height: var(--lh-body);
 }
 
 .tb-status.ok {
@@ -82,7 +83,7 @@ body {
   min-width: 36px;
   padding: 0 12px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-body);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -108,6 +109,21 @@ body {
 
 .tb-btn:active {
   transform: translateY(1px);
+}
+
+/* 更新图标按钮：发现新版本时显示，右上角带红点角标提示 */
+.tb-btn-update {
+  position: relative;
+}
+.tb-update-dot {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff3b30;
+  border: 1px solid var(--ds-tb-bg, #f3f3f3);
 }
 
 /* 置顶按钮状态：置顶时图标实心填充 */

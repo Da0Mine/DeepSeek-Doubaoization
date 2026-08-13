@@ -169,6 +169,16 @@ const shellApi = {
   onUpdatePromptInfo: (cb: (info: UpdatePromptInfo) => void): void => {
     ipcRenderer.on(IPC.UPDATE_PROMPT_INFO, (_e, info: UpdatePromptInfo) => cb(info));
   },
+  /** 主 -> 标题栏：发现新版本，显示更新图标（替代原自动弹窗）。 */
+  onUpdateAvailable: (cb: (info: { latestVersion?: string }) => void): void => {
+    ipcRenderer.on(IPC.UPDATE_AVAILABLE, (_e, info: { latestVersion?: string }) => cb(info || {}));
+  },
+  /** 标题栏 -> 主（invoke）：打开设置并跳转到「更新」板块。 */
+  openUpdateSettings: (): Promise<boolean> => ipcRenderer.invoke(IPC.UPDATE_OPEN_SETTINGS),
+  /** 主 -> 设置面板：跳转到指定板块（payload: { top: string; sub: string }）。 */
+  onSettingsGoto: (cb: (payload: { top: string; sub: string }) => void): void => {
+    ipcRenderer.on(IPC.SETTINGS_GOTO, (_e, payload: { top: string; sub: string }) => cb(payload));
+  },
   /** 主 -> 模式提示弹框：订阅提示类型下发（payload: { type: 'expert' | 'simple' }）。 */
   onModeReminderInfo: (cb: (info: { type: 'expert' | 'simple' }) => void): void => {
     ipcRenderer.on(IPC.MODE_REMINDER_INFO, (_e, info: { type: 'expert' | 'simple' }) => cb(info));

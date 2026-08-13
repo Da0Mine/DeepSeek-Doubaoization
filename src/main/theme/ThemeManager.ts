@@ -46,6 +46,12 @@ export class ThemeManager {
       '--ds-border': dark ? '#3a3a3a' : '#e0e0e0',
       '--ds-accent': dark ? '#4f8cff' : '#3370ff',
       '--ds-overlay': dark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.35)',
+      // 文字色阶梯（tokens.css 派生）：次级正文 / 辅助 / 禁用，深浅色分别满足对比度
+      '--ds-text-2': dark ? '#b3b8c2' : '#5f6368',
+      '--ds-text-3': dark ? '#7c8290' : '#8a8f98',
+      '--ds-text-disabled': dark ? '#5c6270' : '#b0b3b8',
+      // 焦点环（无障碍）：键盘导航时可见
+      '--ds-focus': dark ? 'rgba(79,140,255,0.38)' : 'rgba(51,112,255,0.3)',
     };
   }
 

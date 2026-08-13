@@ -43,6 +43,8 @@ const DEFAULT_CONFIG: ConfigShape = {
   notificationReplyDone: true,
   subWindowShortcut: 'Alt+Space',
   defaultModelMode: 'simple',
+  /** 截图「发送到新对话」窗口的模型模式：默认识图模式（用户要求，可改为快速模式）。 */
+  screenshotSendNewMode: 'vision',
   screenShareSwitchVision: true,
   /** 共享屏幕模式提示弹框：默认开启。点击「不再提醒」后置 false，可在设置中重新开启。 */
   screenShareModeReminder: true,
@@ -65,6 +67,8 @@ const DEFAULT_CONFIG: ConfigShape = {
   annotationColors: ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#ffffff'],
   /** 默认折叠模型的思考过程（深度思考/思维链），默认开启。 */
   collapseThinking: true,
+  /** AI 流式输出回答时的界面滚动方式：stay=停留开头（默认），follow=跟随回答。 */
+  answerScrollMode: 'stay',
   /** 截图翻译默认目标语言。 */
   defaultTranslateLang: '简体中文',
   /** 关闭 B 窗口时自动删除该对话记录。默认开启。 */

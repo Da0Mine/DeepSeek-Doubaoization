@@ -75,7 +75,8 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 150px;
-  font-size: 12px;
+  font-size: var(--text-caption);
+  line-height: var(--lh-tight);
 }
 
 .tab-close {
@@ -87,7 +88,7 @@ body {
   height: 18px;
   border-radius: 50%;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-caption);
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -111,7 +112,7 @@ body {
   height: 26px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--text-title);
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -140,7 +141,7 @@ body {
   min-width: 36px;
   padding: 0 12px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-body);
   display: inline-flex;
   align-items: center;
   justify-content: center;
