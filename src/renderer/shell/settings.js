@@ -390,7 +390,9 @@
           expandedTops[topIdx] = true;
           activeTopIdx = topIdx;
           activeSubByTop[topIdx] = subIdx;
-          renderNormalNav();
+          // 注意：renderNormalNav 是 renderSidebar 的内部局部函数，顶层不可见；
+          // 必须调用顶层函数 renderSidebar()（内部会重建导航），再渲染板块内容。
+          renderSidebar();
           setSubSection();
         }
       });

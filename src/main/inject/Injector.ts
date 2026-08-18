@@ -24,26 +24,48 @@ import { logf } from '../logger';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** WPS 启动程序路径（用于提取程序图标）。 */
+/** WPS 启动程序路径（本机装有 WPS 时用于提取程序图标，可选增强）。 */
 const WPS_LAUNCH_EXE = 'D:\\wps\\wps64位\\WPS Office\\ksolaunch.exe';
+
+/** 内置 WPS logo（随安装包分发，任何电脑都能读到，不依赖 WPS 安装路径）。
+ * 相对本文件：dist/main/inject -> dist/renderer/assets/icons/wps-logo.png（与 getDocIconDataUrls 同级）。 */
+const WPS_LOGO_PNG = path.join(__dirname, '..', '..', 'renderer', 'assets', 'icons', 'wps-logo.png');
 
 let wpsIconDataUrlCache: string | null = null;
 
 /**
- * 提取 WPS 程序图标（ksolaunch.exe）为 16×16 PNG data URL，供「+」菜单共享项使用。
- * 提取失败（如文件不存在）返回 null，调用方回退到原 SVG 图标；结果模块级缓存。
+ * 提取 WPS 图标为 PNG data URL，供「+」菜单共享项使用。结果模块级缓存。
+ * 优先级：
+ *  1. 内置 wps-logo.png（随安装包分发，跨电脑稳定——解决「打包到其他电脑后图标不显示」）；
+ *  2. 本机 WPS 安装路径提取程序图标（装有 WPS 时更贴近真实图标）。
+ * 全部失败返回 null，调用方回退到原 SVG 图标。
  */
 async function getWpsIconDataUrl(): Promise<string | null> {
   if (wpsIconDataUrlCache) return wpsIconDataUrlCache;
+  // 1) 内置 wps-logo.png：不依赖 WPS 安装路径，打包后任何电脑均可用
   try {
-    const img = await app.getFileIcon(WPS_LAUNCH_EXE, { size: 'normal' });
-    if (img.isEmpty()) return null;
-    const resized = img.resize({ width: 16, height: 16 });
-    wpsIconDataUrlCache = resized.toDataURL();
-    return wpsIconDataUrlCache;
+    if (fs.existsSync(WPS_LOGO_PNG)) {
+      const buf = fs.readFileSync(WPS_LOGO_PNG);
+      wpsIconDataUrlCache = 'data:image/png;base64,' + buf.toString('base64');
+      return wpsIconDataUrlCache;
+    }
   } catch (e) {
-    return null;
+    /* 内置图标缺失则继续尝试 exe 提取 */
   }
+  // 2) 本机 WPS 安装路径提取程序图标（可选增强，失败不影响）
+  try {
+    if (fs.existsSync(WPS_LAUNCH_EXE)) {
+      const img = await app.getFileIcon(WPS_LAUNCH_EXE, { size: 'normal' });
+      if (!img.isEmpty()) {
+        const resized = img.resize({ width: 16, height: 16 });
+        wpsIconDataUrlCache = resized.toDataURL();
+        return wpsIconDataUrlCache;
+      }
+    }
+  } catch (e) {
+    /* 忽略 */
+  }
+  return null;
 }
 
 /** 文档格式图标的 data URL 缓存（docx/xlsx/pdf/pptx）。 */
