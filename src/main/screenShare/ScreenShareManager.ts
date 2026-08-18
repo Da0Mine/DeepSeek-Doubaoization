@@ -278,6 +278,8 @@ export class ScreenShareManager {
       // 同时在 document 捕获阶段拦截（兜底，防止事件冒泡到 React 委托）
       document.addEventListener('keydown', function(e) {
         if (!window.__dsScreenShareActive || window.__dsScreenShareVersion !== ver) return;
+        // 页面内查找栏（Ctrl+F）输入框里的 Enter（查找下一个）不拦截
+        if (e.target && e.target.closest && e.target.closest('#ds-find-bar')) return;
         if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
         // 处理锁：防止并发重复提交
         if (window.__dsScreenShareProcessing) return;

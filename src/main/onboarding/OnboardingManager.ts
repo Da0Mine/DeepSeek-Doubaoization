@@ -37,7 +37,7 @@ interface OnboardingStep {
 /** 引导步骤（顺序推进）。 */
 const STEPS: OnboardingStep[] = [
   {
-    title: '欢迎使用 DeepSeek 桌面版',
+    title: '欢迎使用 DeepSeek-Doubaoization 桌面端',
     body: '接下来用几步带你认识核心功能，让日常使用更顺手。点击「下一步」继续，随时可点「结束」跳过。',
   },
   {
@@ -284,8 +284,11 @@ export class OnboardingManager {
 
   /**
    * 共享屏幕演示：读取加号按钮坐标 → 点击加号展开菜单 →
-   * 定位「共享」相关菜单项（共享WPS Word/Excel/PDF + 共享屏幕）坐标并取并集框住它们；
+   * 定位「共享」相关菜单项（共享文档 + 共享屏幕）坐标并取并集框住它们；
    * 菜单未展开时回退高亮加号按钮本身。
+   * 注意：TARGET_TYPES 必须与 Injector 中「+」菜单的 data-ds-type 一致——
+   * 菜单现已合并为「共享文档」(shareDocAll) +「共享屏幕」(shareScreen) 两项，
+   * 旧结构（shareDoc/shareExcel/sharePdf 分开）已废弃，否则轮询超时回退导致高亮框卡在加号上。
    */
   private async getScreenShareFocus(): Promise<{
     fromRect: { x: number; y: number; width: number; height: number };
@@ -295,13 +298,15 @@ export class OnboardingManager {
     const v = main?.view;
     if (!v || v.webContents.isDestroyed()) throw new Error('聊天视图不存在');
     const vb = v.getBounds();
-    const zoom = await this.getViewZoom(v.webContents);
+    // 网页字号缩放（CSS zoom 注入 html）只缩放渲染：getBoundingClientRect 返回的已是
+    // view 视口内「显示/DIP」坐标（实测 elementFromPoint 命中区 = rect 显示区）。
+    // 直接加 view 偏移即窗口坐标，无需再乘 zoom（旧代码乘 zoom 会重复放大，高亮框偏移）。
     const plusRect = await this.readElementRect(v.webContents, `document.getElementById('ds-plus-btn')`);
     const fromRect = {
-      x: plusRect.x * zoom + vb.x,
-      y: plusRect.y * zoom + vb.y,
-      width: plusRect.width * zoom,
-      height: plusRect.height * zoom,
+      x: plusRect.x + vb.x,
+      y: plusRect.y + vb.y,
+      width: plusRect.width,
+      height: plusRect.height,
     };
     // 演示：点击加号按钮展开下拉菜单（幂等：菜单已展开则不再点击，避免收起）
     try {
@@ -317,8 +322,8 @@ export class OnboardingManager {
     } catch {
       /* 页面未就绪则忽略 */
     }
-    // 轮询查找「共享」相关菜单项（共享WPS Word/Excel/PDF + 共享屏幕），全部出现后计算并集
-    const TARGET_TYPES = ['shareDoc', 'shareExcel', 'sharePdf', 'shareScreen'];
+    // 轮询查找「共享」相关菜单项（共享文档 + 共享屏幕），全部出现后计算并集
+    const TARGET_TYPES = ['shareDocAll', 'shareScreen'];
     const deadline = Date.now() + 4000;
     for (;;) {
       const found = await v.webContents
@@ -355,10 +360,10 @@ export class OnboardingManager {
         return {
           fromRect,
           rect: {
-            x: minX * zoom + vb.x,
-            y: minY * zoom + vb.y,
-            width: (maxX - minX) * zoom,
-            height: (maxY - minY) * zoom,
+            x: minX + vb.x,
+            y: minY + vb.y,
+            width: maxX - minX,
+            height: maxY - minY,
           },
         };
       }
@@ -369,14 +374,13 @@ export class OnboardingManager {
     return { fromRect, rect: fromRect };
   }
 
-  /** 读取聊天视图当前页面缩放系数（字号跟随设置），用于把 CSS 坐标换算为窗口 DIP 坐标。 */
-  private async getViewZoom(wc: Electron.WebContents): Promise<number> {
-    try {
-      const z = await wc.getZoomFactor();
-      return typeof z === 'number' && z > 0 ? z : 1;
-    } catch {
-      return 1;
-    }
+  /** 读取聊天视图当前页面缩放系数（字号跟随设置），用于把 CSS 坐标换算为窗口 DIP 坐标。
+   *  已废弃：网页字号现为 CSS zoom 注入，getBoundingClientRect 直接返回显示/DIP 坐标，
+   *  无需换算（保留方法避免误用，勿再调用）。 */
+  private async getViewZoom(_wc: Electron.WebContents): Promise<number> {
+    const g = Number(this.config.get('fontSize')) || 0;
+    const m = Number(this.config.get('fontSizeMain')) || 0;
+    return 1.05 + (g + m) * 0.05;
   }
 
   /** 计算高亮区域（引导层与主窗口重合，坐标即主窗口内坐标）。 */
@@ -394,14 +398,14 @@ export class OnboardingManager {
       const v = main.view;
       if (!v || v.webContents.isDestroyed()) throw new Error('聊天视图不存在');
       const vb = v.getBounds();
-      const zoom = await this.getViewZoom(v.webContents);
       const r = await this.readElementRect(v.webContents, `document.getElementById(${JSON.stringify(h.id)})`);
-      // 聊天视图按全局字号设置了页面缩放（zoomFactor），CSS 坐标需换算到窗口 DIP 坐标，否则高亮框偏移
+      // 网页字号缩放（CSS zoom）只缩放渲染：getBoundingClientRect 返回的已是 view 视口内
+      // 显示/DIP 坐标，直接加 view 偏移即窗口坐标（无需乘 zoom）。
       return {
-        x: r.x * zoom + vb.x,
-        y: r.y * zoom + vb.y,
-        width: r.width * zoom,
-        height: r.height * zoom,
+        x: r.x + vb.x,
+        y: r.y + vb.y,
+        width: r.width,
+        height: r.height,
       };
     }
     throw new Error('未知高亮类型');

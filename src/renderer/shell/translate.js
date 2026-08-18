@@ -22,7 +22,11 @@
     var btnClose = document.getElementById('btn-close');
     if (btnSettings) btnSettings.onclick = function () { shell.openSettings(); };
     if (btnPin) btnPin.onclick = function () { shell.alwaysOnTop(); };
-    if (btnSwap) btnSwap.onclick = function () { shell.swapMainSub(); };
+    if (btnSwap) {
+      // 悬浮提示：主窗口 → 切换为副窗口；副窗口（及 B 类窗口）→ 切换为主窗口
+      btnSwap.title = shell.windowType === 'main' ? '切换为副窗口' : '切换为主窗口';
+      btnSwap.onclick = function () { shell.swapMainSub(); };
+    }
     if (btnMin) btnMin.onclick = function () { shell.minimize(); };
     if (btnMax) btnMax.onclick = function () { shell.toggleMax(); };
     if (btnClose) btnClose.onclick = function () { shell.close(); };

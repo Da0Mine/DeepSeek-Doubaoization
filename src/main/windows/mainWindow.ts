@@ -2,7 +2,7 @@
  * 主窗口：自绘标题栏（加载 titlebar.html）+ WebContentsView 内嵌 chat.deepseek.com。
  * 所有窗口共享 session.defaultSession，登录态自动持久化跨启动。
  */
-import { BrowserWindow, WebContentsView, nativeTheme, screen } from 'electron';
+import { BrowserWindow, type WebContents, WebContentsView, nativeTheme, screen } from 'electron';
 import {
   DEEPSEEK_URL,
   SHELL_PRELOAD,
@@ -161,6 +161,37 @@ export function focusChatInputOnShow(wc: Electron.WebContents): void {
 }
 
 /**
+ * 为 WebContentsView 安装内嵌页快捷键：
+ * - Ctrl+R / Ctrl+Shift+R：重载/强制重载 DeepSeek 页面。
+ *   （移除默认菜单后，默认菜单的 reload 加速器指向标题栏而非内嵌页，需手动处理）
+ * - Ctrl+F：唤起页面内查找栏（preload 注入的 window.__ds.showFindBar，window.find 原生高亮）。
+ * 输入法组合态（isComposing）时放行，避免 Ctrl+F 打断 IME。
+ */
+export function installWebShortcuts(wc: WebContents, view: WebContentsView): void {
+  wc.on('before-input-event', (event, input) => {
+    const ctrlLike = input.control || input.meta;
+    if (!ctrlLike || input.alt || input.isComposing) return;
+    const key = input.key.toLowerCase();
+    if (key === 'r') {
+      if (!view.webContents.isDestroyed()) {
+        if (input.shift) {
+          view.webContents.reloadIgnoringCache();
+        } else {
+          view.webContents.reload();
+        }
+      }
+    } else if (key === 'f' && !input.shift) {
+      event.preventDefault();
+      if (!view.webContents.isDestroyed()) {
+        view.webContents
+          .executeJavaScript(`window.__ds && window.__ds.showFindBar && window.__ds.showFindBar()`)
+          .catch(() => {});
+      }
+    }
+  });
+}
+
+/**
  * 创建内嵌 chat.deepseek.com 的 WebContentsView 并挂到指定窗口。
  * getView 在窗口 resize 时读取「当前」视图引用——主副切换（swapMainSub）会以
  * 「原地重建视图」的方式迁移对话，此时 entry.view 已被替换；用闭包持有旧 view 会在
@@ -186,6 +217,8 @@ export function createChatView(win: BrowserWindow, getView: () => WebContentsVie
   });
   // 链接打开方式（内置浏览器窗口 / 系统默认浏览器）
   installLinkOpenHandler(view.webContents);
+  // 内嵌页快捷键：Ctrl+R 重载 / Ctrl+F 页面查找
+  installWebShortcuts(view.webContents, view);
 
   // 注册该窗口，供 DPI / 显示器变化时统一重新布局。
   chatWindows.set(win, getView);
@@ -273,7 +306,9 @@ export function createMainWindow(
     try {
       const theme = new ThemeManager();
       const vars = theme.getCssVars();
-      vars['--ds-font-size'] = `${15 + (config.get('fontSize') || 0)}px`;
+      // 主窗口字号 = 全局 + 主窗口细分
+      vars['--ds-font-size'] = `${15 + (config.get('fontSize') || 0) + (config.get('fontSizeMain') || 0)}px`;
+      vars['--ds-font-offset'] = String((config.get('fontSize') || 0) + (config.get('fontSizeMain') || 0));
       win.webContents.send(IPC.THEME_VARS, vars);
     } catch (e) {
       console.error('[mainWindow] 补发主题变量失败:', e);

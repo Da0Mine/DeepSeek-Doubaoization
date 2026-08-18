@@ -42,10 +42,15 @@
       children: [
         {
           label: '常规', icon: SUB_ICONS['常规'],
-          keys: ['theme', 'fontSize', 'linkOpenMode'],
+          keys: ['theme', 'fontSize', 'fontSizeMain', 'fontSizeSettings', 'fontSizeSub', 'fontSizeB', 'linkOpenMode'],
           items: [
             { key: 'theme', label: '外观主题', type: 'select', options: [{ label: '浅色', value: 'light' }, { label: '深色', value: 'dark' }, { label: '跟随系统', value: 'system' }], hint: '选择应用界面的外观主题：浅色、深色，或跟随操作系统自动切换。' },
-            { key: 'fontSize', label: '界面字号', type: 'fontsize', hint: '调整应用界面（标题栏、设置面板等）的文字大小。' },
+            { key: 'fontSize', label: '界面字号', type: 'fontsize-group', hint: '整体调整所有界面字号；展开下拉可单独控制主窗口、设置界面、副窗口与 B 类窗口的字号（在整体基础上再微调，覆盖该窗口的全部文字）。', subs: [
+              { key: 'fontSizeMain', label: '主窗口', hint: '仅控制主窗口（含标题栏与内嵌网页对话）的全部文字。' },
+              { key: 'fontSizeSettings', label: '设置界面', hint: '仅控制设置面板的全部文字。' },
+              { key: 'fontSizeSub', label: '副窗口', hint: '仅控制副窗口（快捷键呼出的常驻对话小窗）的全部文字。' },
+              { key: 'fontSizeB', label: 'B 类窗口', hint: '仅控制 B 类临时窗口（截图/划词呼出的翻译、解释、提取等小窗）的全部文字。' },
+            ] },
             { key: 'linkOpenMode', label: '链接打开方式', type: 'select', options: [{ label: '内置浏览器窗口', value: 'internal' }, { label: '系统默认浏览器', value: 'external' }], hint: '点击链接时在应用内打开，或调用系统默认浏览器。' },
           ]
         },
@@ -61,11 +66,14 @@
         },
         {
           label: '快捷键', icon: SUB_ICONS['快捷键'],
-          keys: ['screenshotShortcut', 'subWindowShortcut', 'textSelectionShortcut'],
+          keys: ['screenshotShortcut', 'subWindowShortcut', 'screenShareShortcut', 'docShareShortcut'],
           items: [
-            { key: 'screenshotShortcut', label: '截图快捷键', type: 'shortcut', hint: '一键唤起截图功能，默认 左 Alt + C。' },
-            { key: 'subWindowShortcut', label: '副窗口呼出快捷键', type: 'shortcut', hint: '一键呼出/隐藏副窗口，默认 左 Alt + 空格。' },
-            { key: 'textSelectionShortcut', label: '划词功能快捷键', type: 'shortcut', hint: '按快捷键一键开启/关闭划词功能（默认空）。' },
+            { key: 'screenshotShortcut', label: '一键截图', type: 'shortcut', hint: '一键唤起截图功能，默认 左 Alt + C。' },
+            { key: 'subWindowShortcut', label: '呼出副窗口', type: 'shortcut', hint: '一键呼出/隐藏副窗口，默认 左 Alt + 空格。' },
+            { key: 'screenShareShortcut', label: '屏幕共享', type: 'shortcut', hint: '一键开启/关闭屏幕共享（默认空）。开启时自动打开副窗口并按需切换识图模式，再次按下关闭共享。' },
+            { key: 'docShareShortcut', label: '共享文档', type: 'shortcut', hint: '一键呼出「共享WPS文档」选择器（默认空）。' },
+            { key: '_lockedFind', label: '页面查找', type: 'locked-shortcut', value: 'Ctrl + F', hint: '在对话页面中查找关键字（固定快捷键，不可更改，仅作介绍）。' },
+            { key: '_lockedReload', label: '刷新页面', type: 'locked-shortcut', value: 'Ctrl + R', hint: '刷新当前对话页面，用于恢复卡死或注入异常（固定快捷键，不可更改，仅作介绍）。' },
           ]
         },
         {
@@ -76,7 +84,7 @@
             { key: 'notificationScreenshot', label: '截图操作通知', type: 'checkbox', hint: '截图成功复制、截图失败、未知截图动作等提示。' },
             { key: 'notificationOperation', label: '功能操作通知', type: 'checkbox', hint: '上传/翻译失败、创建副窗口失败等提示。' },
             { key: 'notificationTextSelection', label: '划词操作通知', type: 'checkbox', hint: '划词失败等提示。' },
-            { key: 'notificationShortcut', label: '快捷键状态通知', type: 'checkbox', hint: '快捷键注册失败或被系统占用等提示。' },
+            { key: 'notificationShortcut', label: '快捷键提醒', type: 'checkbox', hint: '快捷键注册失败或被系统占用等提示。' },
             { key: 'notificationReplyDone', label: '回答完成提醒', type: 'checkbox', hint: 'AI 回答完成且窗口不在前台时弹通知，点击可跳回原会话。' },
           ]
         },
@@ -96,8 +104,8 @@
           label: '模型行为', icon: SUB_ICONS['模型行为'],
           keys: ['deepThinkEnabled', 'smartSearchEnabled', 'collapseThinking', 'defaultModelMode', 'answerScrollMode'],
           items: [
-            { key: 'deepThinkEnabled', label: '深度思考', type: 'checkbox', hint: 'AI 回答前进行深度思考，展示详细推理过程。' },
-            { key: 'smartSearchEnabled', label: '智能搜索', type: 'checkbox', hint: 'AI 根据问题自动联网搜索最新信息。' },
+            { key: 'deepThinkEnabled', label: '深度思考', type: 'checkbox', hint: '新建对话时自动打开网页的深度思考。' },
+            { key: 'smartSearchEnabled', label: '智能搜索', type: 'checkbox', hint: '新建对话时自动打开网页的智能搜索。' },
             { key: 'collapseThinking', label: '折叠思考过程', type: 'checkbox', hint: '深度思考过程默认折叠，只显示最终答案。' },
             { key: 'defaultModelMode', label: '默认模型模式', type: 'select', options: [{ label: '快速模式', value: 'simple' }, { label: '专家模式', value: 'expert' }, { label: '识图模式', value: 'vision' }], hint: '新建对话默认的模型模式：快速响应最快，专家适合复杂任务，识图支持图片。' },
             { key: 'answerScrollMode', label: '回答滚动方式', type: 'select', options: [{ label: '停留开头', value: 'stay' }, { label: '跟随回答', value: 'follow' }], hint: 'AI 流式输出回答时：停留开头 = 保持当前位置，自己下滑阅读；跟随回答 = 自动滚动跟随最新输出。' },
@@ -114,23 +122,7 @@
             { key: '_docShareRounds', label: '共享文件自动重提轮数', type: 'docshare-rounds', hint: '内容超过阈值时按设定轮数自动重新提交，检测到改动立即提交。Word 70 万字、Excel 10 万字、PDF 20 万。' },
           ]
         },
-        {
-          label: '对话管理', icon: SUB_ICONS['对话管理'],
-          keys: ['cleanBWindowHistory'],
-          items: [
-            { key: 'cleanBWindowHistory', label: '临时窗口记录自动清理', type: 'checkbox', hint: '关闭临时窗口（B 窗口）时自动删除该次对话记录。' },
-          ]
-        },
-        {
-          label: '提示词', icon: SUB_ICONS['提示词'],
-          keys: ['visionPromptTemplate', 'extractTextPromptTemplate', 'translatePromptTemplate', 'explainPromptTemplate'],
-          items: [
-            { key: 'visionPromptTemplate', label: '图片识别提示词', type: 'textarea', hint: '识图模式发送给 AI 的提示词模板，{content} 为内容占位符。' },
-            { key: 'extractTextPromptTemplate', label: '文字提取提示词', type: 'textarea', hint: '截图「提取文字」功能使用的提示词模板。' },
-            { key: 'translatePromptTemplate', label: '翻译提示词模板', type: 'textarea', hint: '翻译功能提示词模板：{content} 为内容，{targetLang} 为目标语言。' },
-            { key: 'explainPromptTemplate', label: '解释提示词模板', type: 'textarea', hint: '截图「解释」功能使用的提示词模板。' },
-          ]
-        },
+        // 已拆分到「划词」和「截图」板块（I-07 B 窗口记录自动清理）
       ]
     },
     {
@@ -138,44 +130,53 @@
       children: [
         {
           label: '截图', icon: SUB_ICONS['截图'],
-          keys: ['annotationColors', 'keepWindowsOnScreenshot', 'screenshotSendNewMode'],
+          keys: ['annotationColors', 'keepWindowsOnScreenshot', 'screenshotSendNewMode', 'cleanBWindowHistoryOnScreenshot', 'screenshotDeepThinkEnabled', 'screenshotSmartSearchEnabled', 'defaultTranslateLang', 'extractTextPromptTemplate', 'translatePromptTemplate', 'explainPromptTemplate'],
           items: [
             { key: 'annotationColors', label: '标注画笔颜色', type: 'colorlist', hint: '设置截图标注画笔的默认颜色，可添加多个常用颜色。' },
             { key: 'keepWindowsOnScreenshot', label: '截图时保留窗口', type: 'checkbox', hint: '开启：截图时保留应用窗口（会截进图中）；关闭：截图前自动隐藏窗口。' },
             { key: 'screenshotSendNewMode', label: '截图发送新对话模式', type: 'select', options: [{ label: '识图模式', value: 'vision' }, { label: '快速模式', value: 'simple' }], hint: '截图后「发送到新对话」时，新窗口使用的模型模式：识图模式可解析图片内容，快速模式响应最快。' },
+            { key: 'cleanBWindowHistoryOnScreenshot', label: '临时窗口记录自动清理', type: 'checkbox', hint: '关闭临时窗口（截图提取文字、翻译、解释）后自动清除本次对话记录。' },
+            { key: 'screenshotDeepThinkEnabled', label: '截图窗口深度思考', type: 'checkbox', hint: '截图临时窗口是否默认打开深度思考。默认关闭。' },
+            { key: 'screenshotSmartSearchEnabled', label: '截图窗口智能搜索', type: 'checkbox', hint: '截图临时窗口是否默认打开智能搜索。默认关闭。' },
+            {
+              key: 'promptGroup', label: '提示词管理', type: 'prompt-group', hint: '管理截图/识图/翻译/解释等功能的提示词模板，以及翻译默认目标语言。',
+              children: [
+                { key: 'defaultTranslateLang', label: '翻译默认目标语言', type: 'select', hint: '设置截图翻译、划词翻译等翻译功能默认输出的目标语言。', options: [
+                  { label: '简体中文', value: '简体中文' },
+                  { label: '繁體中文', value: '繁體中文' },
+                  { label: 'English', value: 'English' },
+                  { label: '日本語', value: '日本語' },
+                  { label: '한국어', value: '한국어' },
+                  { label: 'Français', value: 'Français' },
+                  { label: 'Deutsch', value: 'Deutsch' },
+                  { label: 'Español', value: 'Español' },
+                  { label: 'Português', value: 'Português' },
+                  { label: 'Русский', value: 'Русский' },
+                  { label: 'العربية', value: 'العربية' },
+                  { label: 'Italiano', value: 'Italiano' },
+                  { label: 'Nederlands', value: 'Nederlands' },
+                  { label: 'Polski', value: 'Polski' },
+                  { label: 'Tiếng Việt', value: 'Tiếng Việt' },
+                  { label: 'ภาษาไทย', value: 'ภาษาไทย' },
+                  { label: 'हिन्दी', value: 'हिन्दी' },
+                ] },
+                { key: 'extractTextPromptTemplate', label: '提取文字', type: 'textarea', hint: '截图「提取文字」功能使用的提示词模板。' },
+                { key: 'translatePromptTemplate', label: '翻译', type: 'textarea', hint: '翻译功能提示词模板：{content} 为内容，{targetLang} 为目标语言。' },
+                { key: 'explainPromptTemplate', label: '解释', type: 'textarea', hint: '截图「解释」功能使用的提示词模板。' },
+              ]
+            },
           ]
         },
         {
           label: '划词', icon: SUB_ICONS['划词'],
-          keys: ['textSelectionEnabled', 'textSelectionButtons'],
+          keys: ['textSelectionEnabled', 'textSelectionButtons', 'cleanBWindowHistoryOnTextSelection', 'textSelectionSendNewMode', 'textSelectionDeepThinkEnabled', 'textSelectionSmartSearchEnabled'],
           items: [
             { key: 'textSelectionEnabled', label: '启用划词功能', type: 'checkbox', hint: '选中文本并复制时自动弹出划词工具栏。' },
             { key: 'textSelectionButtons', label: '划词工具栏按钮', type: 'textselection-buttons', hint: '自定义划词工具栏按钮：可增删、拖拽排序、设置提示词。' },
-          ]
-        },
-        {
-          label: '翻译', icon: SUB_ICONS['翻译'],
-          keys: ['defaultTranslateLang'],
-          items: [
-            { key: 'defaultTranslateLang', label: '翻译默认目标语言', type: 'select', hint: '设置截图翻译、划词翻译等翻译功能默认输出的目标语言。', options: [
-              { label: '简体中文', value: '简体中文' },
-              { label: '繁體中文', value: '繁體中文' },
-              { label: 'English', value: 'English' },
-              { label: '日本語', value: '日本語' },
-              { label: '한국어', value: '한국어' },
-              { label: 'Français', value: 'Français' },
-              { label: 'Deutsch', value: 'Deutsch' },
-              { label: 'Español', value: 'Español' },
-              { label: 'Português', value: 'Português' },
-              { label: 'Русский', value: 'Русский' },
-              { label: 'العربية', value: 'العربية' },
-              { label: 'Italiano', value: 'Italiano' },
-              { label: 'Nederlands', value: 'Nederlands' },
-              { label: 'Polski', value: 'Polski' },
-              { label: 'Tiếng Việt', value: 'Tiếng Việt' },
-              { label: 'ภาษาไทย', value: 'ภาษาไทย' },
-              { label: 'हिन्दी', value: 'हिन्दी' },
-            ] },
+            { key: 'cleanBWindowHistoryOnTextSelection', label: '临时窗口记录自动清理', type: 'checkbox', hint: '关闭临时窗口（划词翻译、解释）后自动清除本次对话记录。' },
+            { key: 'textSelectionSendNewMode', label: '划词发送新对话模式', type: 'select', options: [{ label: '快速模式', value: 'simple' }, { label: '专家模式', value: 'expert' }], hint: '划词后「发送到新对话」时，新窗口使用的模型模式。' },
+            { key: 'textSelectionDeepThinkEnabled', label: '划词窗口深度思考', type: 'checkbox', hint: '划词临时窗口是否默认打开深度思考。默认关闭。' },
+            { key: 'textSelectionSmartSearchEnabled', label: '划词窗口智能搜索', type: 'checkbox', hint: '划词临时窗口是否默认打开智能搜索。默认关闭。' },
           ]
         },
       ]
@@ -287,6 +288,7 @@
       };
     }
     document.getElementById('btn-min').onclick = function () { shell.minimize(); };
+    document.getElementById('btn-max').onclick = function () { shell.toggleMax(); };
     document.getElementById('btn-close').onclick = function () { shell.close(); };
 
     // 二次确认弹窗：破坏性操作（如重置默认）点击后弹出自定义确认框，确定才执行。
@@ -598,6 +600,22 @@
       } else if (item.type === 'shortcut') {
         var sc = makeShortcutControl(function () { applyValue(item.key, sc.get()); });
         return sc;
+      } else if (item.type === 'locked-shortcut') {
+        // 固定快捷键：仅作介绍，锁定不可更改
+        var lk = document.createElement('button');
+        lk.type = 'button';
+        lk.className = 'shortcut-btn locked';
+        lk.disabled = true;
+        lk.title = '固定快捷键，不可更改';
+        var lockIcon = document.createElement('span');
+        lockIcon.className = 'locked-icon';
+        lockIcon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+        var lockLabel = document.createElement('span');
+        lockLabel.className = 'locked-label';
+        lockLabel.textContent = item.value || '';
+        lk.appendChild(lockIcon);
+        lk.appendChild(lockLabel);
+        return { btn: lk };
       } else if (item.type === 'textselection-buttons') {
         return makeTextSelectionButtonsControl();
       } else if (item.type === 'info') {
@@ -857,7 +875,12 @@
       hero.appendChild(heroIcon);
       hero.appendChild(heroMeta);
       hero.appendChild(heroState);
-      wrap.appendChild(hero);
+
+      // 卡片容器：hero / 操作按钮 / 结果卡片保持原宽度，粒子显示区单独铺满整个面板
+      var cards = document.createElement('div');
+      cards.className = 'update-cards';
+      wrap.appendChild(cards);
+      cards.appendChild(hero);
 
       // ---- 操作按钮行 ----
       var actions = document.createElement('div');
@@ -878,13 +901,224 @@
 
       actions.appendChild(checkBtn);
       actions.appendChild(openBtn);
-      wrap.appendChild(actions);
+      cards.appendChild(actions);
 
       // ---- 检查结果卡片 ----
       var result = document.createElement('div');
       result.className = 'update-result-card';
       result.style.display = 'none';
-      wrap.appendChild(result);
+      cards.appendChild(result);
+
+      // ---- 粒子文字特效卡片（参照 vibecoding：文字编译成点阵，鼠标靠近散开、离开聚拢） ----
+      var particleCard = document.createElement('div');
+      particleCard.className = 'update-particle';
+      var pCanvas = document.createElement('canvas');
+      pCanvas.className = 'update-particle-canvas';
+      particleCard.appendChild(pCanvas);
+      wrap.appendChild(particleCard);
+
+      // 粒子文字输入框：回车保存并重新编译点阵（宽度/高度见 .update-particle-input）
+      var particleInput = document.createElement('input');
+      particleInput.type = 'text';
+      particleInput.className = 'update-particle-input';
+      particleInput.placeholder = '输入文字后回车，编译成点阵…';
+      particleInput.maxLength = 20;
+      particleInput.autocomplete = 'off';
+      particleInput.spellcheck = false;
+      wrap.appendChild(particleInput);
+
+      // ---- 粒子动画实现 ----
+      // 透明画布：不涂任何背景色，面板底色完全透出 → 粒子背景与界面背景零色差
+      var pctx = pCanvas.getContext('2d', { alpha: true });
+      var P = [];                          // 粒子数组
+      var pDPR = 1, pW = 0, pH = 0, rafId = 0, started = false;
+      var pTEXT = 'DeepSeek-Doubaoization';
+      var mouse = { x: -9999, y: -9999, active: false };
+      var REPEL_RADIUS = 90;               // 鼠标排斥作用半径
+      var REPEL_FORCE = 1.1;               // 排斥强度
+      var SPRING = 0.02;                   // 回归原位弹力
+      var FRICTION = 0.86;                 // 阻尼
+      // 粒子效果：白色粒子（原版 vibecoding 配色），背景沿用面板主题底色（不搬原版黑底）
+      var P_FG = { r: 255, g: 255, b: 255 }; // 白色粒子
+
+      function hexToRgb(hex) {
+        var m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+        if (!m) return null;
+        var n = parseInt(m[1], 16);
+        return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+      }
+
+      // 读取主题背景色（画布底色 = 面板底色，完美融入界面）
+      function pThemeBg() {
+        var cs = getComputedStyle(document.documentElement);
+        return hexToRgb(cs.getPropertyValue('--ds-bg').trim()) || { r: 255, g: 255, b: 255 };
+      }
+
+      // 离屏画布采样文字像素 → 生成点阵（粒子初始即位于落点，直接成型）
+      function pBuild() {
+        if (pW <= 0 || pH <= 0) return;
+        var off = document.createElement('canvas');
+        var octx = off.getContext('2d');
+        off.width = pW;
+        off.height = pH;
+
+        // 字号尽量取大：长文本按 96% 宽度压缩后即为最终高度，短文本则尽量撑满高度
+        var fontSize = Math.max(24, Math.min(pH * 0.6, pW * 0.28));
+        var fontFamily = '"Arial Black", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif';
+        octx.fillStyle = '#fff';
+        octx.textAlign = 'center';
+        octx.textBaseline = 'middle';
+        octx.font = 'bold ' + fontSize + 'px ' + fontFamily;
+
+        var maxW = pW * 0.96;
+        var measured = octx.measureText(pTEXT).width;
+        if (measured > maxW) {
+          fontSize *= maxW / measured;
+          octx.font = 'bold ' + fontSize + 'px ' + fontFamily;
+        }
+        octx.fillText(pTEXT, pW / 2, pH / 2);
+
+        var img = octx.getImageData(0, 0, pW, pH).data;
+        var gap = Math.max(3, Math.round(fontSize / 20)); // 采样更密 → 文字更饱满
+        P = [];
+        for (var y = 0; y < pH; y += gap) {
+          for (var x = 0; x < pW; x += gap) {
+            if (img[(y * pW + x) * 4 + 3] > 128) {
+              P.push({ hx: x, hy: y, x: x, y: y, vx: 0, vy: 0 });
+            }
+          }
+        }
+      }
+
+      function pResize() {
+        var rect = pCanvas.getBoundingClientRect();
+        pW = Math.max(1, Math.floor(rect.width));
+        pH = Math.max(1, Math.floor(rect.height));
+        pDPR = Math.min(window.devicePixelRatio || 1, 2);
+        pCanvas.width = pW * pDPR;
+        pCanvas.height = pH * pDPR;
+        pctx.setTransform(pDPR, 0, 0, pDPR, 0, 0);
+        // 透明底：不涂背景，面板底色透出
+        pctx.clearRect(0, 0, pW, pH);
+        pBuild();
+      }
+
+      function pRender() {
+        if (!pCanvas.isConnected) {
+          // 尚未挂载（板块切换动画中）→ 等下一帧；已渲染过说明离开了板块 → 停止动画
+          if (started) { rafId = 0; return; }
+          rafId = requestAnimationFrame(pRender);
+          return;
+        }
+        started = true;
+        if (pW < 2 || pH < 2) pResize(); // 初次挂载/尺寸就绪后补初始化
+
+        // 拖尾：把上一帧向「透明」淡出（destination-out），不涂任何背景色 → 画布始终透明，
+        // 与面板背景完全一致；被推开的粒子余晖随帧衰减
+        pctx.globalCompositeOperation = 'destination-out';
+        pctx.fillStyle = 'rgba(0,0,0,0.30)';
+        pctx.fillRect(0, 0, pW, pH);
+
+        var bg = pThemeBg();
+        // 深色底用「加色混合」出白色光晕；浅色底普通混合，靠深色柔边保证白色粒子可见
+        var isDark = (0.2126 * bg.r + 0.7152 * bg.g + 0.0722 * bg.b) < 128;
+        pctx.globalCompositeOperation = isDark ? 'lighter' : 'source-over';
+
+        for (var i = 0; i < P.length; i++) {
+          var p = P[i];
+
+          // 鼠标排斥力：靠近鼠标的粒子被推开
+          if (mouse.active) {
+            var dx = p.x - mouse.x;
+            var dy = p.y - mouse.y;
+            var dist = Math.hypot(dx, dy);
+            if (dist < REPEL_RADIUS && dist > 0.0001) {
+              var force = (REPEL_RADIUS - dist) / REPEL_RADIUS;
+              var ang = Math.atan2(dy, dx);
+              p.vx += Math.cos(ang) * force * REPEL_FORCE;
+              p.vy += Math.sin(ang) * force * REPEL_FORCE;
+            }
+          }
+
+          // 弹簧回归 + 阻尼
+          p.vx += (p.hx - p.x) * SPRING;
+          p.vy += (p.hy - p.y) * SPRING;
+          p.vx *= FRICTION;
+          p.vy *= FRICTION;
+          p.x += p.vx;
+          p.y += p.vy;
+
+          // 位移量决定亮度与大小（被推开的粒子更亮更大）
+          var disp = Math.min(1, Math.hypot(p.x - p.hx, p.y - p.hy) / 45);
+          var r = 1.6 + disp * 2.8;
+          var a = 0.5 + disp * 0.5;
+
+          if (!isDark) {
+            // 浅色底：先画深色柔边，白色粒子才清晰可见
+            pctx.beginPath();
+            pctx.fillStyle = 'rgba(0,0,0,0.25)';
+            pctx.arc(p.x, p.y, r + 1.5, 0, Math.PI * 2);
+            pctx.fill();
+          }
+
+          pctx.beginPath();
+          pctx.fillStyle = 'rgba(255,255,255,' + a + ')';
+          pctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          pctx.fill();
+        }
+
+        pctx.globalCompositeOperation = 'source-over';
+        rafId = requestAnimationFrame(pRender);
+      }
+
+      // 鼠标交互：监听画布本身，离开板块时随 DOM 一起释放
+      pCanvas.addEventListener('mousemove', function (e) {
+        var rect = pCanvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+        mouse.active = true;
+      });
+      pCanvas.addEventListener('mouseleave', function () {
+        mouse.active = false;
+        mouse.x = -9999;
+        mouse.y = -9999;
+      });
+
+      // 画布尺寸跟随卡片变化（含板块切换、窗口缩放）
+      if (window.ResizeObserver) {
+        new ResizeObserver(pResize).observe(pCanvas);
+      } else {
+        window.addEventListener('resize', pResize);
+      }
+
+      // 回车保存文字并重新编译点阵
+      particleInput.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        var v = particleInput.value.trim();
+        if (v) {
+          pTEXT = v;
+          pBuild();
+          shell.setConfig('particleText', v).then(function () {
+            showStatus('已保存');
+          }).catch(function (err) {
+            showStatus('保存失败：' + err);
+          });
+        }
+        particleInput.blur();
+      });
+
+      // 初始文字：优先读取配置（默认 DeepSeek-Doubaoization）
+      shell.getConfig('particleText').then(function (val) {
+        if (val) {
+          pTEXT = String(val);
+          particleInput.value = pTEXT;
+          if (pW > 0) pBuild();
+        }
+      }).catch(function () {});
+
+      // 启动动画
+      pResize();
+      rafId = requestAnimationFrame(pRender);
 
       function setState(text) {
         heroState.textContent = text;
@@ -1059,18 +1293,26 @@
           ['手动启动时最小化到托盘', '开启后，手动打开程序时也直接最小化到系统托盘，不显示主窗口。', '设置 → 应用 → 窗口'],
         ]],
         ['快捷键', [
-          ['截图快捷键', '一键唤起截图（默认 左 Alt + C），截取后可翻译、提取文字、解释或向 AI 提问。', '设置 → 应用 → 快捷键'],
-          ['副窗口呼出快捷键', '一键呼出或隐藏副窗口（默认 左 Alt + 空格）。', '设置 → 应用 → 快捷键'],
-          ['划词功能快捷键', '一键开启或关闭划词功能，避免工作时误弹出。', '设置 → 应用 → 快捷键'],
+          ['一键截图', '一键唤起截图（默认 左 Alt + C），截取后可翻译、提取文字、解释或向 AI 提问。', '设置 → 应用 → 快捷键'],
+          ['呼出副窗口', '一键呼出或隐藏副窗口（默认 左 Alt + 空格）。', '设置 → 应用 → 快捷键'],
+          ['屏幕共享', '一键开启或关闭屏幕共享（默认空，可自行设置）。', '设置 → 应用 → 快捷键'],
+          ['共享文档', '一键呼出「共享WPS文档」选择器（默认空，可自行设置）。', '设置 → 应用 → 快捷键'],
         ]],
         ['截图与识图', [
           ['一键截图提问', '按快捷键或点击聊天框旁的剪刀按钮，截取屏幕选区，直接向 AI 提问。', '左 Alt + C 或剪刀按钮'],
           ['标注画笔', '截图时可用画笔、矩形、椭圆标注重点，画笔颜色可自定义。', '设置 → 工具 → 截图'],
           ['识图模式', '新建对话默认使用识图模式后，AI 直接理解图片内容。', '设置 → 对话 → 模型行为'],
+          ['临时窗口记录自动清理', '关闭截图临时窗口（提取文字、翻译、解释）后自动清除本次对话记录，默认开启。', '设置 → 工具 → 截图'],
+          ['截图窗口深度思考', '截图临时窗口是否默认打开深度思考，回答前展示推理过程，默认关闭。', '设置 → 工具 → 截图'],
+          ['截图窗口智能搜索', '截图临时窗口是否默认打开智能搜索，自动联网搜索最新信息，默认关闭。', '设置 → 工具 → 截图'],
         ]],
         ['划词', [
           ['划词即用', '选中任意文字，无需任何快捷键，划词工具栏自动弹出。', '设置 → 工具 → 划词'],
           ['自定义按钮', '默认提供复制、翻译、解释、问问 DeepSeek，可增删、拖拽排序、自定义提示词。', '设置 → 工具 → 划词'],
+          ['临时窗口记录自动清理', '关闭划词临时窗口（翻译、解释）后自动清除本次对话记录，默认开启。', '设置 → 工具 → 划词'],
+          ['发送新对话模式', '划词后「发送到新对话」时使用的模型模式：快速 / 专家，默认快速。', '设置 → 工具 → 划词'],
+          ['划词窗口深度思考', '划词临时窗口是否默认打开深度思考，回答前展示推理过程，默认关闭。', '设置 → 工具 → 划词'],
+          ['划词窗口智能搜索', '划词临时窗口是否默认打开智能搜索，自动联网搜索最新信息，默认关闭。', '设置 → 工具 → 划词'],
         ]],
         ['对话', [
           ['深度思考', '回答前展示详细推理过程，适合复杂问题。', '设置 → 对话 → 模型行为'],
@@ -1078,7 +1320,6 @@
           ['折叠思考过程', '深度思考过程默认折叠收起，界面更简洁。', '设置 → 对话 → 模型行为'],
           ['默认模型模式', '快速 / 专家 / 识图三档，新建对话时自动应用。', '设置 → 对话 → 模型行为'],
           ['开关自动同步', '新建对话或切换会话时，深度思考与智能搜索自动按设置恢复。', '自动生效'],
-          ['临时窗口记录自动清理', '关闭临时窗口（B 窗口）时自动删除该次对话记录。', '设置 → 对话 → 对话管理'],
         ]],
         ['共享屏幕', [
           ['共享屏幕', '发送消息时自动附带当前屏幕截图，屏幕四角显示共享指示框。', '聊天框 + 按钮 → 共享屏幕'],
@@ -1091,12 +1332,12 @@
           ['共享空闲自动退出', '共享期间超时未发送消息自动退出，默认 10 分钟，0 = 不自动退出。', '设置 → 对话 → 共享设置'],
         ]],
         ['翻译', [
-          ['翻译默认目标语言', '设置截图翻译、划词翻译等翻译功能默认输出的目标语言。', '设置 → 工具 → 翻译'],
+          ['翻译默认目标语言', '设置截图翻译、划词翻译等翻译功能默认输出的目标语言。', '设置 → 工具 → 提示词管理'],
         ]],
         ['个性化', [
           ['外观主题', '浅色 / 深色 / 跟随系统三种模式，界面自动适配。', '设置 → 应用 → 常规'],
           ['界面字号', '界面字号整体微调（-10 ~ +10），设置界面与网页对话内容同步放大缩小。', '设置 → 应用 → 常规'],
-          ['提示词模板', '识图、提取文字、翻译、解释等功能的提示词均可自定义。', '设置 → 对话 → 提示词'],
+          ['提示词模板', '提取文字、翻译、解释等功能的提示词均可自定义。', '设置 → 工具 → 截图 → 提示词管理'],
         ]],
         ['通知与提醒', [
           ['通知总开关', '关闭后所有系统通知一律不再弹出。', '设置 → 应用 → 通知'],
@@ -1322,6 +1563,41 @@
       return group;
     }
 
+    /** 构建一个字号 +/- 控制条（− 当前值 +）。返回 { el, minus, plus, set, get }。 */
+    function makeFontSizeControl() {
+      var el = document.createElement('div');
+      el.className = 'fontsize-control';
+      var minus = document.createElement('button');
+      minus.type = 'button';
+      minus.className = 'fontsize-btn';
+      minus.textContent = '−';
+      minus.title = '缩小字号';
+      var display = document.createElement('span');
+      display.className = 'fontsize-display';
+      var plus = document.createElement('button');
+      plus.type = 'button';
+      plus.className = 'fontsize-btn';
+      plus.textContent = '+';
+      plus.title = '增大字号';
+      el.appendChild(minus);
+      el.appendChild(display);
+      el.appendChild(plus);
+      function set(val) {
+        var offset = Number(val) || 0;
+        if (offset === 0) display.textContent = '默认';
+        else if (offset > 0) display.textContent = '+' + offset;
+        else display.textContent = String(offset);
+        minus.disabled = offset <= -10;
+        plus.disabled = offset >= 10;
+      }
+      function get() {
+        var text = display.textContent;
+        if (text === '默认') return 0;
+        return parseInt(text, 10) || 0;
+      }
+      return { el: el, minus: minus, plus: plus, display: display, set: set, get: get };
+    }
+
     function buildField(item) {
       if (item.type === 'docshare-rounds') {
         return buildDocShareRoundsField(item);
@@ -1330,8 +1606,8 @@
       field.className = 'field';
       field.style.opacity = '0';
       field.style.transform = 'translateY(8px)';
-      // 更新板块为整行卡片式设计，不显示左侧固定宽度的标签
-      if (item.type !== 'update') {
+      // 更新板块为整行卡片式设计，不显示左侧固定宽度的标签；提示词管理分组自带折叠头
+      if (item.type !== 'update' && item.type !== 'prompt-group') {
         var label = document.createElement('label');
         label.textContent = item.label;
         field.appendChild(label);
@@ -1339,6 +1615,9 @@
         if (item.hint) {
           label.appendChild(makeHintIcon(item.hint));
         }
+      } else {
+        // 更新板块占满整个面板：粒子特效铺满剩余空间，输入框贴底
+        field.classList.add('field-update');
       }
 
       if (item.type === 'colorlist') {
@@ -1388,55 +1667,85 @@
         var ctrl = createControl(item);
         field.appendChild(ctrl);
         inputs[item.key] = ctrl;
-      } else if (item.type === 'fontsize') {
-        // 全局字号 +/- 按钮
-        var ctrl = document.createElement('div');
-        ctrl.className = 'fontsize-control';
-        var minusBtn = document.createElement('button');
-        minusBtn.className = 'fontsize-btn';
-        minusBtn.textContent = '−';
-        minusBtn.title = '缩小字号';
-        var display = document.createElement('span');
-        display.className = 'fontsize-display';
-        var plusBtn = document.createElement('button');
-        plusBtn.className = 'fontsize-btn';
-        plusBtn.textContent = '+';
-        plusBtn.title = '增大字号';
-        ctrl.appendChild(minusBtn);
-        ctrl.appendChild(display);
-        ctrl.appendChild(plusBtn);
-        field.appendChild(ctrl);
-        inputs[item.key] = {
-          element: ctrl,
-          setValue: function (val) {
-            var offset = Number(val);
-            if (offset === 0) display.textContent = '默认';
-            else if (offset > 0) display.textContent = '+' + offset;
-            else display.textContent = String(offset);
-            minusBtn.disabled = offset <= -10;
-            plusBtn.disabled = offset >= 10;
-          },
-          getValue: function () {
-            var text = display.textContent;
-            if (text === '默认') return 0;
-            return parseInt(text) || 0;
-          }
-        };
-        // 从配置读取初始值后设置
-        var initVal = item._value;
-        if (initVal !== undefined) inputs[item.key].setValue(initVal);
-        minusBtn.addEventListener('click', function () {
-          var cur = inputs[item.key].getValue();
-          var next = Math.max(-10, cur - 1);
-          inputs[item.key].setValue(next);
-          applyValue(item.key, next);
-        });
-        plusBtn.addEventListener('click', function () {
-          var cur = inputs[item.key].getValue();
-          var next = Math.min(10, cur + 1);
-          inputs[item.key].setValue(next);
-          applyValue(item.key, next);
-        });
+      } else if (item.type === 'fontsize' || item.type === 'fontsize-group') {
+        // 全体字号 +/- 按钮；fontsize-group 时额外带「细分窗口字号」下拉（主窗口/设置界面/副窗口/B 类窗口）
+        var fsCtrl = makeFontSizeControl();
+        if (item.type === 'fontsize') {
+          field.appendChild(fsCtrl.el);
+          inputs[item.key] = {
+            element: fsCtrl.el,
+            setValue: fsCtrl.set,
+            getValue: fsCtrl.get
+          };
+          fsCtrl.minus.addEventListener('click', function () {
+            var next = Math.max(-10, fsCtrl.get() - 1);
+            fsCtrl.set(next);
+            applyValue(item.key, next);
+          });
+          fsCtrl.plus.addEventListener('click', function () {
+            var next = Math.min(10, fsCtrl.get() + 1);
+            fsCtrl.set(next);
+            applyValue(item.key, next);
+          });
+        } else {
+          var groupEl = document.createElement('div');
+          groupEl.className = 'fs-group';
+          var bodyEl = document.createElement('div');
+          bodyEl.className = 'fs-group-body';
+          var topEl = document.createElement('div');
+          topEl.className = 'fs-group-top';
+          topEl.appendChild(fsCtrl.el);
+          var toggleBtn = document.createElement('button');
+          toggleBtn.type = 'button';
+          toggleBtn.className = 'fs-group-toggle';
+          toggleBtn.title = '展开/收起细分字号控制';
+          toggleBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+          topEl.appendChild(toggleBtn);
+          bodyEl.appendChild(topEl);
+          var dropEl = document.createElement('div');
+          dropEl.className = 'fs-group-dropdown';
+          var subCtrls = {};
+          (item.subs || []).forEach(function (sub) {
+            var row = document.createElement('div');
+            row.className = 'fs-sub-row';
+            var lab = document.createElement('span');
+            lab.className = 'fs-sub-label';
+            lab.textContent = sub.label;
+            if (sub.hint) lab.appendChild(makeHintIcon(sub.hint));
+            var subCtrl = makeFontSizeControl();
+            row.appendChild(lab);
+            row.appendChild(subCtrl.el);
+            dropEl.appendChild(row);
+            subCtrls[sub.key] = subCtrl;
+            subCtrl.minus.addEventListener('click', function () {
+              var next = Math.max(-10, subCtrl.get() - 1);
+              subCtrl.set(next);
+              applyValue(sub.key, next);
+            });
+            subCtrl.plus.addEventListener('click', function () {
+              var next = Math.min(10, subCtrl.get() + 1);
+              subCtrl.set(next);
+              applyValue(sub.key, next);
+            });
+          });
+          bodyEl.appendChild(dropEl);
+          groupEl.appendChild(bodyEl);
+          field.appendChild(groupEl);
+          toggleBtn.addEventListener('click', function () {
+            var open = dropEl.classList.toggle('open');
+            toggleBtn.classList.toggle('open', open);
+          });
+          inputs[item.key] = {
+            element: groupEl,
+            setGlobal: fsCtrl.set,
+            setSub: function (key, val) {
+              if (subCtrls[key]) subCtrls[key].set(val);
+            }
+          };
+          // 从配置读取初始值后设置
+          var initVal = item._value;
+          if (initVal !== undefined) inputs[item.key].setGlobal(initVal);
+        }
       } else if (item.type === 'manual-goto') {
         // 「详细使用说明」按钮：点击后在本面板内打开说明书子页（可返回上一级）
         var mBtn = document.createElement('button');
@@ -1449,9 +1758,45 @@
         var ctrl = makeUpdateControl();
         field.appendChild(ctrl);
         inputs[item.key] = ctrl;
+      } else if (item.type === 'prompt-group') {
+        // 「提示词管理」可展开分组：点击折叠头展开/收起内部子字段
+        var group = document.createElement('div');
+        group.className = 'prompt-group';
+        var head = document.createElement('div');
+        head.className = 'prompt-group-head';
+        var caret = document.createElement('span');
+        caret.className = 'prompt-group-caret';
+        caret.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+        var headLabel = document.createElement('span');
+        headLabel.className = 'prompt-group-label';
+        headLabel.textContent = item.label;
+        if (item.hint) headLabel.appendChild(makeHintIcon(item.hint));
+        head.appendChild(caret);
+        head.appendChild(headLabel);
+        var body = document.createElement('div');
+        body.className = 'prompt-group-body';
+        body.style.display = 'none';
+        (item.children || []).forEach(function (child) {
+          var childField = buildField(child);
+          // 子字段在展开时才显示，无需随板块入场动画，直接恢复可见
+          childField.style.opacity = '1';
+          childField.style.transform = 'none';
+          body.appendChild(childField);
+        });
+        head.addEventListener('click', function () {
+          var open = body.style.display !== 'none';
+          body.style.display = open ? 'none' : '';
+          caret.classList.toggle('open', !open);
+          if (!open && window.gsap) window.gsap.fromTo(body.children, { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.18, stagger: 0.03 });
+        });
+        group.appendChild(head);
+        group.appendChild(body);
+        field.appendChild(group);
+        // 分组本身不持有值，仅占位
+        inputs[item.key] = { element: group };
       } else {
         var ctrl = createControl(item);
-        if (item.type === 'shortcut') {
+        if (item.type === 'shortcut' || item.type === 'locked-shortcut') {
           field.appendChild(ctrl.btn);
           inputs[item.key] = ctrl;
         } else {
@@ -1530,8 +1875,20 @@
               subLabel: sub.label,
               sub: sub,
               item: item,
-              text: item.label + ' ' + sub.label + ' ' + top.label
+              text: item.label + ' ' + (item.value || '') + ' ' + sub.label + ' ' + top.label
             });
+            // 提示词管理分组：其子字段同样可搜索
+            if (item.type === 'prompt-group' && item.children) {
+              item.children.forEach(function (child) {
+                searchIndex.push({
+                  topLabel: top.label,
+                  subLabel: sub.label,
+                  sub: sub,
+                  item: child,
+                  text: child.label + ' ' + (child.value || '') + ' ' + sub.label + ' ' + top.label
+                });
+              });
+            }
           });
         });
       });
@@ -1734,7 +2091,20 @@
 
         // 加载当前 section 的值
         sec.items.forEach(function (item) {
-          if (item.type === 'info' || item.type === 'action' || item.type === 'update' || item.type === 'manual-goto' || item.type === 'docshare-rounds') return; // 特殊类型无需加载配置值
+          // 提示词管理分组：加载其子字段的值
+          if (item.type === 'prompt-group') {
+            (item.children || []).forEach(function (child) {
+              shell.getConfig(child.key).then(function (val) {
+                var el = inputs[child.key];
+                if (!el) return;
+                if (child.type === 'checkbox') el.checked = !!val;
+                else if (child.type === 'select') el.value = val == null ? '' : String(val);
+                else el.value = val == null ? '' : String(val);
+              }).catch(function () {});
+            });
+            return;
+          }
+          if (item.type === 'info' || item.type === 'action' || item.type === 'update' || item.type === 'manual-goto' || item.type === 'docshare-rounds' || item.type === 'locked-shortcut') return; // 特殊类型无需加载配置值（锁定快捷键为固定展示）
           shell.getConfig(item.key).then(function (val) {
             var el = inputs[item.key];
             if (!el) return;
@@ -1744,6 +2114,14 @@
               // 已由上面特殊处理
             } else if (item.type === 'fontsize') {
               if (el.setValue) el.setValue(val);
+            } else if (item.type === 'fontsize-group') {
+              // 全体字号 + 各细分窗口字号（主窗口/设置界面/副窗口/B 类窗口）
+              if (el.setGlobal) el.setGlobal(val);
+              (item.subs || []).forEach(function (sub) {
+                shell.getConfig(sub.key).then(function (subVal) {
+                  if (el.setSub) el.setSub(sub.key, subVal);
+                }).catch(function () {});
+              });
             } else el.value = val == null ? '' : String(val);
           }).catch(function () {});
         });

@@ -29,6 +29,14 @@ const DEFAULT_CONFIG: ConfigShape = {
   alwaysOnTop: true,
   /** 全局字号相对偏移（0=默认，-2~+2）。旧版为绝对 px 值，新版改为相对偏移。 */
   fontSize: 0,
+  /** 主窗口专属字号偏移（0=跟随全局）。 */
+  fontSizeMain: 0,
+  /** 设置界面专属字号偏移（0=跟随全局）。 */
+  fontSizeSettings: 0,
+  /** 副窗口专属字号偏移（0=跟随全局）。 */
+  fontSizeSub: 0,
+  /** B 类临时窗口专属字号偏移（0=跟随全局）。 */
+  fontSizeB: 0,
   visionPromptTemplate: '请识别并描述这张图片中的内容。',
   extractTextPromptTemplate: '请提取图片中的所有文字，保留原有排版。',
   translatePromptTemplate: '请将以下内容翻译为{targetLang}：\n{content}',
@@ -42,6 +50,10 @@ const DEFAULT_CONFIG: ConfigShape = {
   notificationShortcut: true,
   notificationReplyDone: true,
   subWindowShortcut: 'Alt+Space',
+  /** 一键开关屏幕共享的快捷键：默认空，由用户自行设置。 */
+  screenShareShortcut: '',
+  /** 一键呼出「共享WPS文档」选择器的快捷键：默认空，由用户自行设置。 */
+  docShareShortcut: '',
   defaultModelMode: 'simple',
   /** 截图「发送到新对话」窗口的模型模式：默认识图模式（用户要求，可改为快速模式）。 */
   screenshotSendNewMode: 'vision',
@@ -71,8 +83,20 @@ const DEFAULT_CONFIG: ConfigShape = {
   answerScrollMode: 'stay',
   /** 截图翻译默认目标语言。 */
   defaultTranslateLang: '简体中文',
-  /** 关闭 B 窗口时自动删除该对话记录。默认开启。 */
-  cleanBWindowHistory: true,
+  /** 关闭划词 B 窗口时自动删除该对话记录。默认开启。 */
+  cleanBWindowHistoryOnTextSelection: true,
+  /** 关闭截图 B 窗口时自动删除该对话记录。默认开启。 */
+  cleanBWindowHistoryOnScreenshot: true,
+  /** 划词发送新对话模型模式：simple=快速模式，expert=专家模式。默认 simple。 */
+  textSelectionSendNewMode: 'simple',
+  /** 划词 B 窗口是否开启深度思考。默认关闭。 */
+  textSelectionDeepThinkEnabled: false,
+  /** 划词 B 窗口是否开启智能搜索。默认关闭。 */
+  textSelectionSmartSearchEnabled: false,
+  /** 截图 B 窗口是否开启深度思考。默认关闭。 */
+  screenshotDeepThinkEnabled: false,
+  /** 截图 B 窗口是否开启智能搜索。默认关闭。 */
+  screenshotSmartSearchEnabled: false,
 
   // ---- 划词功能（I-12） ----
   textSelectionEnabled: true,
@@ -92,6 +116,8 @@ const DEFAULT_CONFIG: ConfigShape = {
   autoCheckUpdate: true,
   /** 已忽略的更新版本号：用户点「暂不更新」后记录，等待下一个版本再提醒。 */
   ignoredUpdateVersion: '',
+  /** 更新板块粒子文字特效显示的文本，默认 DeepSeek-Doubaoization。 */
+  particleText: 'DeepSeek-Doubaoization',
 };
 
 type Listener = (cfg: ConfigShape) => void;

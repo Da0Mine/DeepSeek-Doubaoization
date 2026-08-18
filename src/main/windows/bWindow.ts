@@ -16,7 +16,7 @@ import {
 } from '../constants';
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
-import { scheduleLayoutView, focusChatInputOnShow } from './mainWindow';
+import { scheduleLayoutView, focusChatInputOnShow, installWebShortcuts } from './mainWindow';
 import { installLinkOpenHandler } from './browserWindow';
 import { logf } from '../logger';
 import type { ConfigStore } from '../config/ConfigStore';
@@ -242,6 +242,8 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
   });
   // 链接打开方式（内置浏览器窗口 / 系统默认浏览器）
   installLinkOpenHandler(view.webContents);
+  // 内嵌页快捷键：Ctrl+R 重载 / Ctrl+F 页面查找
+  installWebShortcuts(view.webContents, view);
 
   // 去留白·层 1：完整页面滚动修复（overflow auto 注入 + 递归改回，1s/3s 重试）。
   // did-finish-load 与 SPA 路由（did-navigate-in-page）后都注入一次，覆盖重渲染丢样式。
@@ -276,7 +278,9 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
       try {
         const theme = new ThemeManager();
         const vars = theme.getCssVars();
-        vars['--ds-font-size'] = `${15 + (config.get('fontSize') || 0)}px`;
+        // B 类临时窗口字号 = 全局 + B 类窗口细分
+        vars['--ds-font-size'] = `${15 + (config.get('fontSize') || 0) + (config.get('fontSizeB') || 0)}px`;
+        vars['--ds-font-offset'] = String((config.get('fontSize') || 0) + (config.get('fontSizeB') || 0));
         win.webContents.send(IPC.THEME_VARS, vars);
       } catch (e) {
         console.error('[bWindow] 补发主题变量失败:', e);
@@ -292,12 +296,12 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
   });
 
   // B 窗口为临时窗口：关闭即销毁（不隐藏、不进托盘）。
+  // 注意：不在 close 中显式调用 view.webContents.close()，否则会抢在
+  // WindowManager 的 cleanBWindowHistory 处理器之前销毁 webContents，
+  // 导致 deleteConversation 因 wc.isDestroyed() 跳过，对话记录无法自动删除。
+  // Electron 销毁窗口时会自动清理子视图，不需要额外关闭 webContents。
   win.on('close', () => {
-    try {
-      if (!win.isDestroyed() && view.webContents) view.webContents.close();
-    } catch (e) {
-      // 忽略
-    }
+    // 无需显式关闭 webContents——交给 WindowManager 的生命周期管理或 Electron 默认清理。
   });
 
   return { win, view };

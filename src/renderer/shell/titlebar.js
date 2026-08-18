@@ -62,7 +62,15 @@
     if (shell.windowType !== 'main') {
       if (btnSettings) btnSettings.style.display = 'none';
     }
-    if (btnSwap) btnSwap.onclick = function () { shell.swapMainSub(); };
+    if (btnSwap) {
+      // 图标随窗口类型变化：主窗口小方块空心；副窗口（及 B 类窗口）小方块实心
+      if (shell.windowType !== 'main') {
+        btnSwap.innerHTML = '<svg class="tb-ico" viewBox="0 0 1024 1024" aria-hidden="true" style="fill:currentColor;stroke:none;"><path d="M921.6 12.8h-307.2A89.6 89.6 0 0 0 524.8 102.4v307.2c0 49.4592 40.1408 89.6 89.6 89.6h307.2A89.6 89.6 0 0 0 1011.2 409.6V102.4A89.6 89.6 0 0 0 921.6 12.8zM204.8 140.8h204.8a38.4 38.4 0 0 0 0-76.8H204.8A140.8 140.8 0 0 0 64 204.8v614.4A140.8 140.8 0 0 0 204.8 960h614.4A140.8 140.8 0 0 0 960 819.2v-204.8a38.4 38.4 0 0 0-76.8 0v204.8c0 35.328-28.672 64-64 64H204.8c-35.328 0-64-28.672-64-64V204.8c0-35.328 28.672-64 64-64z" fill="currentColor"/><path d="M601.6 115.2a12.8 12.8 0 0 1 12.8-12.8h281.6a12.8 12.8 0 0 1 12.8 12.8v281.6a12.8 12.8 0 0 1-12.8 12.8H614.4a12.8 12.8 0 0 1-12.8-12.8z" fill="currentColor"/></svg>';
+      }
+      // 悬浮提示：主窗口 → 切换为副窗口；副窗口（及 B 类窗口）→ 切换为主窗口
+      btnSwap.title = shell.windowType === 'main' ? '切换为副窗口' : '切换为主窗口';
+      btnSwap.onclick = function () { shell.swapMainSub(); };
+    }
     if (btnMin) btnMin.onclick = function () { shell.minimize(); };
     if (btnMax) btnMax.onclick = function () { shell.toggleMax(); };
     if (btnClose) btnClose.onclick = function () { shell.close(); };

@@ -31,9 +31,8 @@ html, body {
 }
 
 /* ===== 标题栏 ===== */
-/* 注意：设置面板是覆盖在主窗口上的 WebContentsView，这里不加 -webkit-app-region: drag ——
-   在 WebContentsView 中 drag 区域可能吞掉按钮点击（返回主界面无效），且设置面板作为临时浮层
-   无需拖拽窗口（关闭设置后可用主窗口标题栏拖拽）。 */
+/* 标题栏整条为拖拽区；按钮已设 no-drag，可正常点击（返回/最小化/关闭）。
+   早期曾为避免按钮被吞而不设 drag，导致设置打开期间窗口无法拖动，已恢复标准做法。 */
 #titlebar {
   height: var(--titlebar-height);
   display: flex;
@@ -46,6 +45,7 @@ html, body {
   backdrop-filter: blur(12px);
   position: relative;
   z-index: 10;
+  -webkit-app-region: drag;
 }
 .tb-left { display: flex; align-items: center; gap: 10px; }
 .tb-logo {
@@ -717,6 +717,30 @@ html, body {
   outline: none;
   box-shadow: 0 0 0 3px rgba(51,112,255,0.1);
 }
+/* 锁定快捷键（固定不可改，仅作介绍） */
+.shortcut-btn.locked {
+  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--ds-bg-muted, rgba(0,0,0,0.04));
+  color: var(--text-3, #8a8f98);
+  border-color: var(--ds-border, rgba(0,0,0,0.08));
+}
+.shortcut-btn.locked:hover {
+  border-color: var(--ds-border, rgba(0,0,0,0.08));
+  box-shadow: none;
+}
+.shortcut-btn.locked .locked-icon {
+  display: inline-flex;
+  opacity: 0.65;
+  flex-shrink: 0;
+}
+.shortcut-btn.locked .locked-label {
+  font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-size: 12.5px;
+  letter-spacing: 0.3px;
+}
 
 /* ===== 色板控件 ===== */
 .colors {
@@ -1015,6 +1039,74 @@ html, body {
   user-select: none;
 }
 
+/* ===== 界面字号分组（全体 + 细分窗口下拉） ===== */
+.fs-group {
+  flex: 1;
+  min-width: 0;
+}
+.fs-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.fs-group-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fs-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--ds-border, rgba(0,0,0,0.12));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ds-fg, #1f1f1f);
+  cursor: pointer;
+  padding: 0;
+  user-select: none;
+  transition: background 0.15s, transform 0.2s ease, color 0.15s;
+}
+.fs-group-toggle:hover {
+  background: var(--ds-border, rgba(0,0,0,0.06));
+}
+.fs-group-toggle.open {
+  transform: rotate(180deg);
+  color: var(--ds-accent, #3370ff);
+  border-color: var(--ds-accent, #3370ff);
+}
+.fs-group-dropdown {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--ds-border, rgba(0,0,0,0.08));
+  border-radius: var(--radius-sm);
+  background: var(--ds-bg, rgba(255,255,255,0.6));
+}
+.fs-group-dropdown.open {
+  display: flex;
+}
+.fs-sub-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.fs-sub-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-label);
+  color: var(--text-2);
+  user-select: none;
+  white-space: nowrap;
+}
+
 /* ===== 滚动条 ===== */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1082,7 +1174,17 @@ html, body {
   flex-direction: column;
   gap: 14px;
   padding: 4px 0;
+  /* 粒子显示区铺满整个面板宽度（卡片由 .update-cards 限制原宽度） */
+}
+
+/* 卡片容器：版本信息 / 操作按钮 / 结果卡片保持原宽度 */
+.update-cards {
+  align-self: flex-start;
+  width: 100%;
   max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 /* 版本信息头部卡片 */
@@ -1272,6 +1374,102 @@ html, body {
   color: var(--text-2);
   margin-top: 6px;
   line-height: var(--lh-body);
+}
+
+/* 更新板块：粒子文字特效（融入面板、无框，铺满整个界面） */
+.field-update {
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
+}
+.field-update:hover {
+  background: transparent; /* 整块铺满时不再显示悬浮底色 */
+}
+.field-update .update-wrap {
+  min-height: 0;
+}
+.update-particle {
+  flex: 1;
+  min-height: 0;           /* 水平+竖直都铺满剩余面板空间 */
+  width: 100%;
+  overflow: hidden;
+  cursor: crosshair;
+  user-select: none;
+  /* 无框：完全融入面板背景 */
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+.update-particle-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* 选择器提高优先级：.field input[type="text"] 实际特异性为 (0,2,1)（属性选择器按类计），
+   必须用 (0,3,0) 及以上才能覆盖其 flex:1 与 padding，避免输入框被纵向拉伸 */
+.field-update .update-wrap .update-particle-input {
+  width: 300px;            /* 加宽：保证输入体验 */
+  align-self: flex-start;
+  flex: none;              /* 关键：阻止纵向 flex 拉伸（粒子区 flex:1 自会把它挤到底部） */
+  padding: 3px 12px;       /* 高度收窄到一行文字距离 */
+  line-height: 1.4;
+  border: 1px solid var(--ds-border, rgba(0,0,0,0.12));
+  border-radius: var(--radius-sm);
+  background: var(--ds-bg, #fff);
+  color: var(--ds-fg, #1f1f1f);
+  font-size: var(--text-label);
+  font-family: inherit;
+  letter-spacing: 0.03em;
+  outline: none;
+  transition: border-color var(--transition-speed) ease, box-shadow var(--transition-speed) ease;
+}
+.update-particle-input::placeholder {
+  color: var(--text-disabled, #b0b3b8);
+}
+.update-particle-input:focus {
+  border-color: var(--ds-accent, #3370ff);
+  box-shadow: 0 0 0 3px rgba(51,112,255,0.1);
+}
+
+/* ===== 提示词管理（可展开分组） ===== */
+.prompt-group {
+  width: 100%;
+}
+.prompt-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-speed) ease;
+}
+.prompt-group-head:hover {
+  background: var(--ds-hover, rgba(0,0,0,0.04));
+}
+.prompt-group-caret {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ds-muted, #8a8f99);
+  transition: transform 0.18s ease;
+}
+.prompt-group-caret.open {
+  transform: rotate(90deg);
+}
+.prompt-group-label {
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--ds-fg, #1f1f1f);
+}
+.prompt-group-label .hint-icon {
+  margin-left: 6px;
+}
+.prompt-group-body {
+  margin: 4px 0 0 12px;
+  padding-left: 12px;
+  border-left: 1px dashed var(--ds-border, rgba(0,0,0,0.12));
 }
 
 /* ===== 详细说明书（分类排版） ===== */

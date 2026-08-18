@@ -56,6 +56,8 @@ export const IPC = {
   PLUS_SHARE_EXCEL: 'plus:shareExcel',
   /** webview -> 主：「+」按钮→共享WPS PDF（WPS PDF 打开的文档）。 */
   PLUS_SHARE_PDF: 'plus:sharePdf',
+  /** webview -> 主：「+」按钮→共享WPS文档（合并 Word/Excel/PDF 全部打开的文档）。 */
+  PLUS_SHARE_DOC_ALL: 'plus:shareDocAll',
   /** webview -> 主：共享文档模式下发送（payload: { text: string; docName: string; mode: 'word' | 'excel' | 'pdf' }）。 */
   DOC_SHARE_SEND: 'docShare:send',
   /** webview -> 主：退出共享文档模式（浮层取消按钮；payload: { mode }）。 */
@@ -70,6 +72,10 @@ export const IPC = {
   SCREEN_SHARE_ENTER: 'screenShare:enterPressed',
   /** 渲染 -> 主：退出共享屏幕模式（任务栏按钮或加号按钮）。 */
   SCREEN_SHARE_STOP: 'screenShare:stop',
+
+  // ---- 无痕模式 ----
+  /** webview -> 主：切换无痕模式（payload: { on: boolean }）。 */
+  INC0GNITO_MODE: 'incognito:mode',
 
   /** 渲染（overlay）-> 主：选区完成，回报 rect。 */
   OVERLAY_SELECT: 'overlay:select',

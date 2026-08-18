@@ -12,6 +12,10 @@ export class ShortcutManager {
   public onScreenshot: (() => void) | null = null;
   public onSummonSub: (() => void) | null = null;
   public onToggleTextSelection: (() => void) | null = null;
+  /** 一键开关屏幕共享（主进程注入）。 */
+  public onToggleScreenShare: (() => void) | null = null;
+  /** 一键呼出「共享WPS文档」选择器（主进程注入）。 */
+  public onToggleDocShare: (() => void) | null = null;
   /** 注册失败回调（非法 / OS 占用）：由主进程弹通知。 */
   public onError: ((msg: string) => void) | null = null;
 
@@ -58,6 +62,8 @@ export class ShortcutManager {
       [cfg.screenshotShortcut, this.onScreenshot],
       [cfg.subWindowShortcut, this.onSummonSub],
       [cfg.textSelectionShortcut, this.onToggleTextSelection],
+      [cfg.screenShareShortcut, this.onToggleScreenShare],
+      [cfg.docShareShortcut, this.onToggleDocShare],
     ];
     for (const [accel, cb] of map) {
       if (accel && cb) this.register(accel, cb);

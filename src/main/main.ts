@@ -5,7 +5,7 @@
  *  - 嵌入网页版：截图/提示词经 Injector 注入网页对话框
  *  - 手动登录：用户在 WebContentsView 登录，session 由 Electron 持久化到磁盘
  */
-import { app, ipcMain, screen, session } from 'electron';
+import { app, ipcMain, Menu, screen, session } from 'electron';
 import { ConfigStore } from './config/ConfigStore';
 import { WindowManager } from './windows/WindowManager';
 import { ShortcutManager } from './shortcuts/ShortcutManager';
@@ -15,9 +15,8 @@ import { ScreenshotManager } from './screenshot/ScreenshotManager';
 import { Injector } from './inject/Injector';
 import { PromptTemplates } from './prompts/promptTemplates';
 import { SettingsWindow } from './windows/settingsWindow';
-import { registerHandlers } from './ipc/handlers';
+import { registerHandlers, getDocShareAllTrigger } from './ipc/handlers';
 import { IPC } from './ipc/channels';
-import { TextSelectionWatcher } from './textSelection/TextSelectionWatcher';
 import { GlobalInputHook } from './textSelection/GlobalInputHook';
 import { ScreenShareManager } from './screenShare/ScreenShareManager';
 import { UpdateChecker } from './update/UpdateChecker';
@@ -32,6 +31,14 @@ import { setLoginItem } from './loginItem';
 import type { UpdateInfo } from '../shared/types';
 
 app.setName('DeepSeek');
+
+// 伪装为 Microsoft Edge（实验：根治 DeepSeek「使用环境异常」风险弹窗）。
+// DeepSeek 前端通过浏览器指纹识别 Electron 环境（UA 含 Electron/ 字样、自动化标志等）而弹风险提示。
+// 设置纯净 Edge UA + 移除自动化标志后，指纹与真实 Edge 一致，风险弹窗不再触发。
+// ⚠️ 实验性质：若触发 DeepSeek 风控（验证码/登录校验）可整体注释回退。
+app.userAgentFallback =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0';
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 
 // 禁用硬件加速 + GPU 进程内联：chat.deepseek.com 无 3D/视频等 GPU 强需求；
 // 且本机 GPU 进程曾持续崩溃（gpu_data_manager "GPU process isn't usable" FATAL），
@@ -49,7 +56,6 @@ let screenshot: ScreenshotManager;
 let injector: Injector;
 let templates: PromptTemplates;
 let settings: SettingsWindow;
-let textSelectionWatcher: TextSelectionWatcher;
 let globalInputHook: GlobalInputHook;
 let screenShare: ScreenShareManager;
 let update: UpdateChecker;
@@ -156,6 +162,11 @@ function startFirstRunFlow(): void {
 }
 
 app.whenReady().then(() => {
+  // 移除默认 Electron 菜单栏：默认菜单的 reload 加速器指向的是标题栏 webContents
+  // （frame: false 无框窗口），而非 WebContentsView 中的 DeepSeek 页面，导致 Ctrl+R
+  // 无实际效果；且菜单栏在无框窗口中显示为白色，破坏深色模式一致性。
+  Menu.setApplicationMenu(null);
+
   config = new ConfigStore();
   templates = new PromptTemplates(config);
   injector = new Injector(templates);
@@ -205,16 +216,81 @@ app.whenReady().then(() => {
     const current = config.get('textSelectionEnabled');
     config.set('textSelectionEnabled', !current);
   };
+  // 一键开关屏幕共享：开启时自动在「副窗口」执行共享（没有则先打开副窗口），
+  // 并按需切换识图模式（专家模式等无法切换时自动新建对话切换）；再次按下关闭共享。
+  shortcuts.onToggleScreenShare = async () => {
+    if (screenShare.isActive()) {
+      screenShare.stop();
+      return;
+    }
+    // 在指定 webContents 上执行「共享屏幕前置准备」：能切识图就切，切不了就新建对话再切。
+    const prepareIn = async (wc: Electron.WebContents): Promise<void> => {
+      if (!wc || wc.isDestroyed()) return;
+      const mode = await injector.getCurrentModelMode(wc);
+      if (mode === 'vision') {
+        screenShare.start('vision');
+        return;
+      }
+      const canSwitch = await injector.canSwitchModel(wc);
+      if (canSwitch && config.get('screenShareSwitchVision')) {
+        const ok = await injector.switchToVisionModel(wc, { allowNewConversation: false });
+        if (ok) {
+          screenShare.start('vision');
+          return;
+        }
+      }
+      // 无法直接切换（如已有对话后模型选择器被卸载 / 专家模式）：
+      // 按用户要求自动「新建对话」并切换到识图模式。
+      // 新建对话会触发 applyDefaultModelMode（可能切到默认模型），需临时抑制避免竞争。
+      let ok2 = false;
+      await windows.suppressDefaultModelFor(wc.id, async () => {
+        ok2 = await injector.switchToVisionModel(wc, { allowNewConversation: true });
+      });
+      if (ok2) {
+        screenShare.start('vision');
+        return;
+      }
+      // 彻底失败：按当前模式提示
+      if (mode === 'expert') {
+        if (config.get('screenShareModeReminder')) modeReminder.open('expert');
+        return;
+      }
+      if (mode === 'simple') {
+        if (config.get('screenShareModeReminder')) modeReminder.open('simple');
+        screenShare.start('simple');
+        return;
+      }
+      screenShare.start('unknown');
+    };
+    // 目标窗口：副窗口（没有则新建并打开；已有但隐藏也先显示——共享应在当前对话窗口执行）。
+    const subId = windows.ensureSubWindowVisible();
+    const subWc = subId ? windows.getViewWebContents(subId) : null;
+    if (subWc && !subWc.isDestroyed()) {
+      // 新建副窗口首次加载较慢：等页面就绪后再切换识图模式
+      try { await injector.waitForAppReady(subWc); } catch { /* 超时则继续尝试 */ }
+      await prepareIn(subWc);
+      return;
+    }
+    // 兜底：副窗口不可用时退回当前活动窗口
+    const activeWc = windows.getActiveWebContents();
+    if (activeWc && !activeWc.isDestroyed()) {
+      await prepareIn(activeWc);
+    }
+  };
+  // 一键共享文档：呼出「共享WPS文档」选择器（与加号菜单同一入口）
+  shortcuts.onToggleDocShare = () => {
+    const trigger = getDocShareAllTrigger();
+    if (trigger) trigger();
+  };
   shortcuts.applyFromConfig(config.getAll());
 
-  // 划词功能：剪贴板检测 + 全局输入钩子（无需快捷键，选中文本后复制即自动触发）
-  const onTextSelected = (text: string, mouseDownPos?: { x: number; y: number }) => {
+  // 划词功能：全局输入钩子检测鼠标拖拽选中文本（无需快捷键，选中后即自动触发）
+  const onTextSelected = (text: string, mouseDownPos?: { x: number; y: number }, mouseUpPos?: { x: number; y: number }) => {
     if (!config.get('textSelectionEnabled')) return;
     // 如果工具栏已经显示，不再重复弹出
     const { hasToolbarWindow, showToolbarAt } = require('./windows/textSelectionWindow');
     if (hasToolbarWindow()) return;
-    // 通知检测器暂停，避免重复触发
-    textSelectionWatcher?.pauseOne();
+    // 同步取词基线，避免重复触发
     globalInputHook?.pauseOne();
     const cursorPos = screen.getCursorScreenPoint();
     // 优先使用鼠标按下位置（选中起点），uIOhook 坐标是物理像素，需转 DIP
@@ -225,16 +301,24 @@ app.whenReady().then(() => {
       posX = dip.x;
       posY = dip.y;
     }
+    // 选中文本的屏幕区域（拖拽起点→终点）：供 B 类窗口定位在文本旁而非工具栏旁。
+    let selRect: Electron.Rectangle | null = null;
+    if (mouseDownPos && mouseUpPos) {
+      const a = screen.screenToDipPoint(mouseDownPos);
+      const b = screen.screenToDipPoint(mouseUpPos);
+      selRect = {
+        x: Math.min(a.x, b.x),
+        y: Math.min(a.y, b.y),
+        width: Math.max(Math.abs(b.x - a.x), 8),
+        height: Math.max(Math.abs(b.y - a.y), 8),
+      };
+    }
     const buttonsRaw = config.get('textSelectionButtons');
     let buttons: { label: string; prompt: string }[] = [];
     try { buttons = JSON.parse(buttonsRaw); } catch { buttons = []; }
     if (buttons.length === 0) return;
-    showToolbarAt(posX, posY, buttons, text);
+    showToolbarAt(posX, posY, buttons, text, selRect);
   };
-
-  textSelectionWatcher = new TextSelectionWatcher();
-  textSelectionWatcher.onTextSelected = onTextSelected;
-  textSelectionWatcher.start();
 
   globalInputHook = new GlobalInputHook();
   globalInputHook.onTextSelected = onTextSelected;
@@ -262,15 +346,18 @@ app.whenReady().then(() => {
     closeToolbarWindow();
   };
   // 按下任意键盘按键：悬浮框立即消失
-  globalInputHook.onAnyKeyDown = () => {
+  globalInputHook.onAnyKeyDown = (e) => {
     const { hasToolbarWindow, closeToolbarWindow } = require('./windows/textSelectionWindow');
-    if (!hasToolbarWindow()) return;
-    closeToolbarWindow();
+    if (hasToolbarWindow()) closeToolbarWindow();
+    // Win+V 系统剪贴板历史：点选历史项是普通单击（无拖拽），不会触发划词。
+    // 顺带同步取词基线，防止后续操作误判。
+    if (e && e.metaKey && e.keycode === 86) {
+      globalInputHook?.pauseOne();
+    }
   };
 
-  // 划词工具栏复制前暂停检测器，避免复制后剪贴板变化触发重复弹窗
+  // 划词工具栏复制前同步基线，避免复制后重复弹窗
   ipcMain.on('textSelection:beforeCopy', () => {
-    textSelectionWatcher?.pauseOne();
     globalInputHook?.pauseOne();
   });
 
@@ -332,12 +419,28 @@ app.on('window-all-closed', () => {
   }
 });
 
-// 退出前：标记正在退出（放行窗口 close 拦截），清理快捷键
-app.on('before-quit', () => {
+// 退出前：标记正在退出（放行窗口 close 拦截），清理快捷键。
+// 存在无痕对话时先删除对话记录再退出（before-quit preventDefault + 异步清理 + 再次 quit）。
+let quittingAfterIncognitoFlush = false;
+app.on('before-quit', (e) => {
+  if (quittingAfterIncognitoFlush) return; // 无痕清理完成后第二次触发：放行退出
+  if (windows?.hasIncognito()) {
+    e.preventDefault();
+    quittingAfterIncognitoFlush = true;
+    windows
+      .flushAllIncognito()
+      .catch(() => {})
+      .finally(() => {
+        windows?.setQuitting(true);
+        shortcuts?.unregisterAll();
+        globalInputHook?.stop();
+        app.quit();
+      });
+    return;
+  }
   windows?.setQuitting(true);
   shortcuts?.unregisterAll();
   globalInputHook?.stop();
-  textSelectionWatcher?.stop();
 });
 
 // 命令行 Ctrl+C：直接退出，不再弹系统「结束进程」确认对话框。

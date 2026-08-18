@@ -115,7 +115,9 @@ export function createSubWindow(
       try {
         const theme = new ThemeManager();
         const vars = theme.getCssVars();
-        vars['--ds-font-size'] = `${15 + (config.get('fontSize') || 0)}px`;
+        // 副窗口字号 = 全局 + 副窗口细分（识图/翻译/解释/提取等常驻副窗口共用）
+        vars['--ds-font-size'] = `${15 + (config.get('fontSize') || 0) + (config.get('fontSizeSub') || 0)}px`;
+        vars['--ds-font-offset'] = String((config.get('fontSize') || 0) + (config.get('fontSizeSub') || 0));
         win.webContents.send(IPC.THEME_VARS, vars);
       } catch (e) {
         console.error('[subWindow] 补发主题变量失败:', e);

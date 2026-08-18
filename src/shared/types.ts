@@ -74,8 +74,16 @@ export interface ConfigShape {
   smartSearchEnabled: boolean;
   /** 副窗口和 B 类窗口默认置顶（主窗口不参与）。默认开启。 */
   alwaysOnTop: boolean;
-  /** 全局字号相对偏移量（-2 ~ +2，0=默认）。旧版为绝对 px 值，新版为相对偏移。 */
+  /** 全局字号相对偏移量（-10 ~ +10，0=默认）。旧版为绝对 px 值，新版为相对偏移。 */
   fontSize: number;
+  /** 主窗口专属字号偏移（在全局 fontSize 之上叠加，-10 ~ +10，0=跟随全局）。 */
+  fontSizeMain: number;
+  /** 设置界面专属字号偏移（在全局 fontSize 之上叠加，-10 ~ +10，0=跟随全局）。 */
+  fontSizeSettings: number;
+  /** 副窗口专属字号偏移（含识图/翻译/解释/提取等常驻副窗口，在全局 fontSize 之上叠加，-10 ~ +10）。 */
+  fontSizeSub: number;
+  /** B 类临时窗口专属字号偏移（在全局 fontSize 之上叠加，-10 ~ +10）。 */
+  fontSizeB: number;
   visionPromptTemplate: string;
   extractTextPromptTemplate: string;
   translatePromptTemplate: string;
@@ -95,6 +103,11 @@ export interface ConfigShape {
   notificationReplyDone: boolean;
   /** 一键呼出/聚焦副窗口的全局快捷键（默认 "Alt+Space"，即 左Alt+空格）。 */
   subWindowShortcut: string;
+  /** 一键开关屏幕共享的全局快捷键（默认空，由用户自行设置）。
+   *  开启时自动打开副窗口并按需切换识图模式；再次按下关闭共享。 */
+  screenShareShortcut: string;
+  /** 一键呼出「共享WPS文档」选择器的全局快捷键（默认空，由用户自行设置）。 */
+  docShareShortcut: string;
   /** 默认新建对话的模型模式（simple=简单，expert=专家/深度思考，vision=识图）。 */
   defaultModelMode: DefaultModelMode;
   /** 截图「发送到新对话」窗口的模型模式（simple=快速模式，vision=识图模式）。默认识图模式。 */
@@ -128,8 +141,20 @@ export interface ConfigShape {
   answerScrollMode: 'stay' | 'follow';
   /** 截图翻译默认目标语言（如 '简体中文'、'English'）。 */
   defaultTranslateLang: string;
-  /** 关闭 B 窗口时自动删除该对话记录。默认开启。 */
-  cleanBWindowHistory: boolean;
+  /** 关闭划词 B 窗口时自动删除该对话记录。默认开启。 */
+  cleanBWindowHistoryOnTextSelection: boolean;
+  /** 关闭截图 B 窗口时自动删除该对话记录。默认开启。 */
+  cleanBWindowHistoryOnScreenshot: boolean;
+  /** 划词发送新对话模型模式：simple=快速模式，expert=专家模式。默认 simple。 */
+  textSelectionSendNewMode: 'simple' | 'expert';
+  /** 划词 B 窗口是否开启深度思考。默认关闭。 */
+  textSelectionDeepThinkEnabled: boolean;
+  /** 划词 B 窗口是否开启智能搜索。默认关闭。 */
+  textSelectionSmartSearchEnabled: boolean;
+  /** 截图 B 窗口是否开启深度思考。默认关闭。 */
+  screenshotDeepThinkEnabled: boolean;
+  /** 截图 B 窗口是否开启智能搜索。默认关闭。 */
+  screenshotSmartSearchEnabled: boolean;
 
   // ---- 划词功能（I-12） ----
   /** 划词功能总开关。默认开启。 */
@@ -146,6 +171,8 @@ export interface ConfigShape {
   autoCheckUpdate: boolean;
   /** 已忽略的更新版本号（「暂不更新」后记录，等待下一个版本再提醒）。 */
   ignoredUpdateVersion: string;
+  /** 更新板块粒子文字特效显示的文本（默认 "DeepSeek-Doubaoization"，可在设置中修改）。 */
+  particleText: string;
 }
 
 /** 配置键。 */

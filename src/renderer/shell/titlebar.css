@@ -107,6 +107,11 @@ body {
   stroke-linejoin: round;
 }
 
+/* 窗口控制图标（最小化/最大化/关闭）：描边略粗，与主副窗口切换图标笔画保持一致 */
+.tb-btn svg.tb-wc {
+  stroke-width: 2.2;
+}
+
 .tb-btn:active {
   transform: translateY(1px);
 }

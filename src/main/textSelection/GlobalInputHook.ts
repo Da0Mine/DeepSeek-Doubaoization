@@ -11,11 +11,15 @@
  *  5. 弹出划词工具栏
  *  整个过程无需用户手动按任何快捷键。
  */
-import { uIOhook, UiohookMouseEvent, UiohookKey } from 'uiohook-napi';
+import { uIOhook, UiohookMouseEvent, UiohookKey, UiohookKeyboardEvent } from 'uiohook-napi';
 import { clipboard, type NativeImage } from 'electron';
 import { logf } from '../logger';
 
-export type InputSelectionCallback = (text: string, mouseDownPos?: { x: number; y: number }) => void;
+export type InputSelectionCallback = (
+  text: string,
+  mouseDownPos?: { x: number; y: number },
+  mouseUpPos?: { x: number; y: number }
+) => void;
 
 /** 剪贴板内容快照（文本 / 富文本 / 图片 / 文件），用于取词后还原。 */
 interface ClipboardSnapshot {
@@ -23,7 +27,9 @@ interface ClipboardSnapshot {
   html: string;
   rtf: string;
   image: NativeImage | null;
-  files: string[];
+  /** 剪贴板是否含文件列表（Windows CF_HDROP 无法通过 Electron writeBuffer 可靠还原，
+   *  还原会损坏文件条目 → 检测到文件时自动取词应整体跳过）。 */
+  hasFiles: boolean;
 }
 
 /** 读取剪贴板文件列表（FileNameW 格式：UTF-16LE，路径以 \0 分隔，双 \0 结尾）。 */
@@ -46,30 +52,36 @@ function snapshotClipboard(): ClipboardSnapshot {
       html: clipboard.readHTML(),
       rtf: clipboard.readRTF(),
       image: clipboard.readImage(),
-      files: readFileList(),
+      hasFiles: readFileList().length > 0,
     };
   } catch {
-    return { text: '', html: '', rtf: '', image: null, files: [] };
+    return { text: '', html: '', rtf: '', image: null, hasFiles: false };
   }
 }
 
-/** 还原剪贴板快照（取词后调用，避免污染用户剪贴板）。优先级：图片 > 文件 > 富文本 > 文本。 */
+/** 还原剪贴板快照（取词后调用，避免污染用户剪贴板）。
+ *  逐格式写回（图片 / 富文本 / 文本）；原剪贴板为空时清空，避免残留模拟 Ctrl+C 的内容。 */
 function restoreClipboard(s: ClipboardSnapshot): void {
   try {
+    let wrote = false;
     if (s.image && !s.image.isEmpty()) {
       clipboard.writeImage(s.image);
-      return;
+      wrote = true;
     }
-    if (s.files && s.files.length > 0) {
-      // 文件列表格式（FileNameW：UTF-16LE，路径以 \0 分隔，双 \0 结尾）
-      const data = Buffer.from(s.files.join('\0') + '\0\0', 'utf16le');
-      clipboard.writeBuffer('FileNameW', data);
-      clipboard.writeBuffer('FileName', data);
-      return;
+    if (s.html) {
+      clipboard.writeHTML(s.html);
+      wrote = true;
     }
-    if (s.html) clipboard.writeHTML(s.html);
-    else if (s.rtf) clipboard.writeRTF(s.rtf);
-    else if (s.text) clipboard.writeText(s.text);
+    if (s.rtf) {
+      clipboard.writeRTF(s.rtf);
+      wrote = true;
+    }
+    if (s.text) {
+      clipboard.writeText(s.text);
+      wrote = true;
+    }
+    // 原剪贴板为空：清掉自动取词写入的文本，保持用户剪贴板干净
+    if (!wrote) clipboard.clear();
   } catch {
     /* 还原失败忽略 */
   }
@@ -83,8 +95,8 @@ export class GlobalInputHook {
   public onTextSelected: InputSelectionCallback | null = null;
   /** 任意鼠标按下时回调（用于检测外部点击关闭工具栏）。 */
   public onAnyMouseDown: ((e: UiohookMouseEvent) => void) | null = null;
-  /** 任意键盘按键按下时回调（用于按下按键后关闭工具栏）。 */
-  public onAnyKeyDown: (() => void) | null = null;
+  /** 任意键盘按键按下时回调（携带按键事件，用于识别 Win+V 等组合键）。 */
+  public onAnyKeyDown: ((e: UiohookKeyboardEvent) => void) | null = null;
   /** 滚轮滚动时回调（用于跟随滚动重定位工具栏）。 */
   public onWheel: ((deltaY: number) => void) | null = null;
 
@@ -119,6 +131,14 @@ export class GlobalInputHook {
       // 快照原剪贴板：取词后立即还原，避免自动复制污染用户剪贴板
       const snapshot = snapshotClipboard();
 
+      // 剪贴板含文件列表（如复制的图片/文档文件）时无法可靠还原——
+      // Electron 的 writeBuffer 还原 CF_HDROP 会损坏文件条目（无法预览/粘贴）。
+      // 此时跳过自动取词，保护用户剪贴板不被破坏。
+      if (snapshot.hasFiles) {
+        logf('INPUT_HOOK', '剪贴板含文件列表，跳过自动取词以保护剪贴板');
+        return;
+      }
+
       // 模拟 Ctrl+C：将选中文本复制到系统剪贴板
       try {
         uIOhook.keyTap(UiohookKey.C, [UiohookKey.Ctrl]);
@@ -138,7 +158,7 @@ export class GlobalInputHook {
             // 关键：取词后立即还原用户原剪贴板内容——
             // 内部取词不污染剪贴板，只有点击工具栏「复制」按钮时才真正写入。
             restoreClipboard(snapshot);
-            this.onTextSelected?.(text, { ...this.mouseDownPos });
+            this.onTextSelected?.(text, { ...this.mouseDownPos }, { x: e.x, y: e.y });
           }
         } catch {
           // 剪贴板不可用时静默忽略
@@ -153,9 +173,9 @@ export class GlobalInputHook {
     });
 
     // 键盘按键按下：通知外部关闭工具栏（用户按下任意按键后悬浮框即消失）
-    uIOhook.on('keydown', () => {
+    uIOhook.on('keydown', (e: UiohookKeyboardEvent) => {
       if (!this.running) return;
-      this.onAnyKeyDown?.();
+      this.onAnyKeyDown?.(e);
     });
 
     uIOhook.start();

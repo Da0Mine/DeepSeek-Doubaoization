@@ -14,6 +14,8 @@ import { logf } from '../logger';
 let toolbarWindow: BrowserWindow | null = null;
 let toolbarMouseX = 0;
 let toolbarMouseY = 0;
+/** 本次划词的选中文本屏幕区域（拖拽起点→终点），供 B 类窗口定位在文本旁。 */
+let toolbarSelRect: Electron.Rectangle | null = null;
 /** 工具栏当前是否可见（窗口对象可能隐藏但未销毁）。 */
 let toolbarVisible = false;
 /** 窗口首次加载完成前缓存的待显示数据。 */
@@ -48,6 +50,11 @@ export function getToolbarBounds(): Electron.Rectangle {
     return toolbarWindow.getBounds();
   }
   return { x: 0, y: 0, width: 0, height: 0 };
+}
+
+/** 获取本次划词选中文本的屏幕区域（供 B 类窗口定位在文本旁；无选区信息时返回 null）。 */
+export function getSelectionRect(): Electron.Rectangle | null {
+  return toolbarSelRect;
 }
 
 /** 创建（或复用）工具栏窗口。 */
@@ -149,15 +156,18 @@ function positionToolbar(width: number, mouseX: number, mouseY: number): void {
  * @param mouseY 鼠标 Y 坐标（屏幕坐标）
  * @param buttons 按钮列表 [{label, prompt}]
  * @param selectedText 当前选中的文本
+ * @param selRect 选中文本的屏幕区域（可选，供 B 类窗口定位在文本旁）
  */
 export function showToolbarAt(
   mouseX: number,
   mouseY: number,
   buttons: { label: string; prompt: string }[],
-  selectedText: string
+  selectedText: string,
+  selRect?: Electron.Rectangle | null
 ): void {
   toolbarMouseX = mouseX;
   toolbarMouseY = mouseY;
+  toolbarSelRect = selRect && selRect.width > 0 && selRect.height > 0 ? selRect : null;
   const win = ensureToolbarWindow();
   if (!win) return;
 

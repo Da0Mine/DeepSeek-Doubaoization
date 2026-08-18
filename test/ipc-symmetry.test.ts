@@ -42,8 +42,8 @@ const mainContent = collectFiles(mainDir).map((f) => fs.readFileSync(f, 'utf-8')
 const rendererContent = collectFiles(rendererDir).map((f) => fs.readFileSync(f, 'utf-8')).join('\n');
 
 describe('IPC 通道对称 - 静态分析', () => {
-  test('channels.ts 恰好定义 87 个通道', () => {
-    expect(channelKeys).toHaveLength(87);
+  test('channels.ts 恰好定义 88 个通道', () => {
+    expect(channelKeys).toHaveLength(88);
   });
 
   test('每个通道在主进程侧与渲染侧均被引用（IPC.KEY），无单侧缺口', () => {

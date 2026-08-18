@@ -64,23 +64,42 @@ export interface HandlerCtx {
   startFirstRunFlow: () => void;
 }
 
+/**
+ * 「共享WPS文档（合并全部）」触发器：由 registerHandlers 注入实际实现，
+ * 供全局快捷键（docShareShortcut）在注册完成后复用同一入口。
+ */
+let docShareAllTrigger: (() => void) | null = null;
+export function getDocShareAllTrigger(): (() => void) | null {
+  return docShareAllTrigger;
+}
+
 export function registerHandlers(ctx: HandlerCtx): void {
   const { config, windows, injector, screenshot, theme, tray, shortcuts, templates, settings, screenShare, update, updatePrompt, modeReminder, wps, onboarding, firstRunDialog, answerReminder, startFirstRunFlow } = ctx;
 
-  /** 向所有外壳窗口广播主题 CSS 变量（含字号）。 */
+  /** 向所有外壳窗口广播主题 CSS 变量（字号按「所属窗口」单独计算）。 */
   const broadcastTheme = (vars?: ThemeVars): void => {
-    const v: ThemeVars = { ...(vars ?? theme.getCssVars()) };
-    v['--ds-font-size'] = `${15 + (config.get('fontSize') || 0)}px`;
-    v['--ds-font-offset'] = String(config.get('fontSize') || 0);
-    const list = [...windows.getShellWebContentsList()];
-    const settingsWc = settings.getWebContents();
-    if (settingsWc && !settingsWc.isDestroyed()) list.push(settingsWc);
-    // 内置浏览器窗口外壳也要跟随主题（深色模式下标签栏同步变色）
-    const browserShell = getBrowserWindowManager()?.getShellWebContents();
-    if (browserShell && !browserShell.isDestroyed()) list.push(browserShell);
-    for (const wc of list) {
-      if (!wc.isDestroyed()) wc.send(IPC.THEME_VARS, v);
+    const base: ThemeVars = { ...(vars ?? theme.getCssVars()) };
+    // 主窗口/副窗口/B 类窗口各有专属字号细分项：每个外壳 webContents 下发各自的 --ds-font-size。
+    const sendWithFont = (wc: Electron.WebContents, fontOffset: number): void => {
+      if (wc.isDestroyed()) return;
+      const v: ThemeVars = { ...base };
+      v['--ds-font-size'] = `${15 + fontOffset}px`;
+      v['--ds-font-offset'] = String(fontOffset);
+      wc.send(IPC.THEME_VARS, v);
+    };
+    const globalOff = Number(config.get('fontSize')) || 0;
+    for (const wc of windows.getShellWebContentsList()) {
+      const id = windows.findIdByWebContents(wc);
+      sendWithFont(wc, id ? windows.fontOffsetForId(id) : globalOff);
     }
+    // 设置界面（内嵌主窗口的独立 WebContentsView，不在窗口注册表内）：用设置界面专属字号
+    const settingsWc = settings.getWebContents();
+    if (settingsWc && !settingsWc.isDestroyed()) {
+      sendWithFont(settingsWc, globalOff + (Number(config.get('fontSizeSettings')) || 0));
+    }
+    // 内置浏览器窗口外壳也要跟随主题（深色模式下标签栏同步变色），字号跟随全局
+    const browserShell = getBrowserWindowManager()?.getShellWebContents();
+    if (browserShell && !browserShell.isDestroyed()) sendWithFont(browserShell, globalOff);
   };
   theme.setBroadcaster(broadcastTheme);
   theme.onSystemThemeChange(() => broadcastTheme());
@@ -306,8 +325,8 @@ export function registerHandlers(ctx: HandlerCtx): void {
             // 不再固定等待 2.5s：轮询 B 窗口 chat 视图是否就绪（文件框 + 输入框出现即视为挂载完成），
             // 就绪即继续注入，消除明显的停顿卡顿（fillText/clickSend 内部仍有轮询重试兜底）。
             await injector.waitForAppReady(wc);
-            // B 类临时窗口默认关闭深度思考（用户要求：B 类窗口一般不打开深度思考），页面就绪即关开关
-            await injector.setDeepThink(wc, false);
+            // 按配置同步截图 B 窗口深度思考开关
+            await injector.setDeepThink(wc, config.get('screenshotDeepThinkEnabled') === true);
             await injector.switchToVisionModel(wc);
             if (action === 'extract') {
               await injector.extractText(wc, tmp);
@@ -490,6 +509,13 @@ export function registerHandlers(ctx: HandlerCtx): void {
     screenShare.stop();
   });
 
+  // ---------------- 无痕模式 ----------------
+  // 网页「+」→「无痕模式」开关：记录/清除该 webContents 的无痕状态。
+  // 主进程在「关闭对话窗口 / 新建对话 / 退出程序 / 切换对话」时删除无痕对话记录。
+  ipcMain.on(IPC.INC0GNITO_MODE, (e, { on }: { on?: boolean } = {}) => {
+    windows.setIncognito(e.sender, !!on);
+  });
+
   // ---------------- 共享WPS 文档（Word / Excel） ----------------
   // 点击「+」→「共享WPS Word」：枚举打开的 WPS 文档并注入下拉框浮层
   ipcMain.on(IPC.PLUS_SHARE_DOC, async () => {
@@ -518,15 +544,67 @@ export function registerHandlers(ctx: HandlerCtx): void {
     startDocShareIdleTimer('pdf');
   });
 
+  // 点击「+」→「共享WPS文档」（合并 Word/Excel/PDF 全部打开的文档到一个下拉框）。
+  // 首选「当前激活」的文档：按前台窗口标题匹配文档名，命中者排到最前。
+  const triggerDocShareAll = async (): Promise<void> => {
+    const wc = windows.getActiveWebContents();
+    if (!wc || wc.isDestroyed()) return;
+    const [word, excel, pdf] = await Promise.all([
+      wps.listDocuments(),
+      wps.listExcelDocuments(),
+      wps.listPdfDocuments(),
+    ]);
+    const all: { name: string; full: string; type: 'word' | 'excel' | 'pdf' }[] = [
+      ...word.map((d) => ({ ...d, type: 'word' as const })),
+      ...excel.map((d) => ({ ...d, type: 'excel' as const })),
+      ...pdf.map((d) => ({ ...d, type: 'pdf' as const })),
+    ];
+    const fgTitle = await wps.getForegroundWindowTitle();
+    if (fgTitle && all.length > 1) {
+      const base = fgTitle.split(' - ')[0].trim();
+      const hit = all.find((d) => (base && base.length > 1 && d.name.includes(base)) || fgTitle.includes(d.name));
+      if (hit) {
+        const idx = all.indexOf(hit);
+        if (idx > 0) {
+          all.splice(idx, 1);
+          all.unshift(hit);
+        }
+      }
+    }
+    await injector.injectDocSharePicker(wc, all, 'all');
+    startDocShareAllIdleTimer();
+  };
+  docShareAllTrigger = triggerDocShareAll;
+  ipcMain.on(IPC.PLUS_SHARE_DOC_ALL, () => {
+    void triggerDocShareAll();
+  });
+
   // 共享期间定时刷新：按 mode 重新枚举打开的文档/工作簿/PDF，推送给浮层更新下拉列表。
-  // 结果带 mode：页面侧按模式过滤，避免某一格式的刷新结果被其他格式的悬浮框回调误用
-  // （旧注入的定时器残留时，会造成「另一种格式一直抢着更新下拉列表/选中项」的切换卡顿）。
-  ipcMain.on(IPC.DOC_SHARE_REFRESH, async (e, { mode }: { mode?: 'word' | 'excel' | 'pdf' }) => {
+  // 合并模式（mode='all'）枚举全部三种并携带类型；结果带 mode：页面侧按模式过滤，
+  // 避免某一格式的刷新结果被其他格式的悬浮框回调误用（旧注入的定时器残留时，
+  // 会造成「另一种格式一直抢着更新下拉列表/选中项」的切换卡顿）。
+  ipcMain.on(IPC.DOC_SHARE_REFRESH, async (e, { mode }: { mode?: 'all' | 'word' | 'excel' | 'pdf' }) => {
     if (e.sender.isDestroyed()) return;
+    if (mode === 'all') {
+      const [word, excel, pdf] = await Promise.all([
+        wps.listDocuments(),
+        wps.listExcelDocuments(),
+        wps.listPdfDocuments(),
+      ]);
+      const docs = [
+        ...word.map((d) => ({ name: d.name, type: 'word' })),
+        ...excel.map((d) => ({ name: d.name, type: 'excel' })),
+        ...pdf.map((d) => ({ name: d.name, type: 'pdf' })),
+      ];
+      if (!e.sender.isDestroyed()) {
+        e.sender.send(IPC.DOC_SHARE_REFRESH_RESULT, { mode: 'all', docs });
+      }
+      return;
+    }
     const m = mode === 'excel' ? 'excel' : mode === 'pdf' ? 'pdf' : 'word';
     const docs = m === 'excel' ? await wps.listExcelDocuments() : m === 'pdf' ? await wps.listPdfDocuments() : await wps.listDocuments();
     if (!e.sender.isDestroyed()) {
-      e.sender.send(IPC.DOC_SHARE_REFRESH_RESULT, { mode: m, names: docs.map((d) => d.name) });
+      e.sender.send(IPC.DOC_SHARE_REFRESH_RESULT, { mode: m, docs: docs.map((d) => ({ name: d.name, type: m })) });
     }
   });
 
@@ -544,6 +622,9 @@ export function registerHandlers(ctx: HandlerCtx): void {
     idleTimer: null as ReturnType<typeof setTimeout> | null, // 空闲自动退出计时器
   });
   const docShareTracks = { word: makeTrack(), excel: makeTrack(), pdf: makeTrack() };
+  // 多文档共享跟踪：文档名 -> { type, lastHash, size, changed, roundCount, lastCommitRound }
+  // 首次发送附带全部勾选文档；之后由轮询检测改动，哪个文档改了就补传哪个。
+  const multiTracks = new Map<string, { type: 'word' | 'excel' | 'pdf'; lastHash: string; size: number; changed: boolean; roundCount: number; lastCommitRound: number }>();
 
   // 共享文档空闲自动退出：长时间不发送消息自动退出共享文档状态（shareIdleTimeout 分钟，0=不自动退出）。
   // 退出动作：重置跟踪状态 + 关闭页面浮层（若存在，__dsDocShareStop 会发 docShare:stop 再重置一次，幂等）。
@@ -578,6 +659,45 @@ export function registerHandlers(ctx: HandlerCtx): void {
       t.idleTimer = null;
     }
   };
+  // 合并模式（「共享WPS文档」）的空闲自动退出计时器：统一退出整个合并共享（复位全部跟踪 + 关闭浮层）。
+  let docShareAllIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  const startDocShareAllIdleTimer = (): void => {
+    if (docShareAllIdleTimer) {
+      clearTimeout(docShareAllIdleTimer);
+      docShareAllIdleTimer = null;
+    }
+    const minutes = config.get('shareIdleTimeout');
+    if (!minutes || minutes <= 0) return;
+    docShareAllIdleTimer = setTimeout(() => {
+      docShareAllIdleTimer = null;
+      multiTracks.clear();
+      for (const mm of ['word', 'excel', 'pdf'] as const) {
+        const t = docShareTracks[mm];
+        t.active = false;
+        t.trackName = '';
+        t.roundCount = 0;
+        t.lastCommitRound = -1;
+        t.lastHash = '';
+        t.size = 0;
+        t.changed = false;
+        if (t.idleTimer) {
+          clearTimeout(t.idleTimer);
+          t.idleTimer = null;
+        }
+      }
+      const wc = windows.getActiveWebContents();
+      if (wc && !wc.isDestroyed()) {
+        wc.executeJavaScript(`if (window.__dsDocShareStop) { window.__dsDocShareStop(); }`).catch(() => {});
+      }
+      notify('共享文档', `已 ${minutes} 分钟未发送消息，自动退出共享文档`);
+    }, minutes * 60 * 1000);
+  };
+  const clearDocShareAllIdleTimer = (): void => {
+    if (docShareAllIdleTimer) {
+      clearTimeout(docShareAllIdleTimer);
+      docShareAllIdleTimer = null;
+    }
+  };
   // 上一次对 PDF 做「保存式检测」的时刻（按 docSharePdfSaveInterval 控制频率；0=仅发送时保存，轮询纯读取）
   let lastPdfSaveCheckAt = 0;
   // 每 10s 轮询检测三种文档是否被改动
@@ -607,6 +727,25 @@ export function registerHandlers(ctx: HandlerCtx): void {
         t.changed = true; // 检测到改动：下一次发送立即重新提交
       }
     }
+    // 多文档共享：对每个勾选跟踪的文档做改动检测（与单文件共用 PDF 保存式检测间隔）
+    for (const [name, t] of multiTracks) {
+      if (t.type === 'pdf') {
+        const iv = config.get('docSharePdfSaveInterval');
+        if (iv > 0) {
+          if (Date.now() - lastPdfSaveCheckAt < iv * 1000) continue;
+          lastPdfSaveCheckAt = Date.now();
+        }
+        const d = await wps.getPdfDocumentDigest(name, iv > 0);
+        if (!d) continue;
+        t.size = d.size;
+        if (t.lastHash && d.hash !== t.lastHash) t.changed = true;
+        continue;
+      }
+      const d = t.type === 'excel' ? await wps.getExcelDocumentDigest(name) : await wps.getDocumentDigest(name);
+      if (!d) continue;
+      t.size = d.size;
+      if (t.lastHash && d.hash !== t.lastHash) t.changed = true;
+    }
   }, 10000);
   docSharePollTimer.unref?.();
 
@@ -629,15 +768,72 @@ export function registerHandlers(ctx: HandlerCtx): void {
 
   // 共享文档模式下发送：未到轮数且文档未改动时只发文字；
   // 满轮数或检测到改动时，实时保存文档最新版作为附件连同文字一起发送，并重新计算轮数
-  ipcMain.on(IPC.DOC_SHARE_SEND, async (_e, { text, docName, mode }: { text: string; docName: string; mode?: 'word' | 'excel' | 'pdf' }) => {
+  ipcMain.on(IPC.DOC_SHARE_SEND, async (_e, payload: { text?: string; docName?: string; mode?: 'word' | 'excel' | 'pdf'; multi?: boolean; docNames?: string[]; docTypes?: string[] }) => {
     const wc = windows.getActiveWebContents();
     if (!wc || wc.isDestroyed()) return;
+    // ---- 多文档共享：首次附带全部勾选文档，之后哪个文档改动了就补传哪个 ----
+    if (payload && payload.multi) {
+      const text = String(payload.text ?? '');
+      const names = Array.isArray(payload.docNames) ? payload.docNames.filter((n) => typeof n === 'string' && n.length > 0) : [];
+      const types = Array.isArray(payload.docTypes) ? payload.docTypes : [];
+      if (names.length === 0) {
+        wc.executeJavaScript(`window.__dsDocShareProcessing = false; if (window.__dsDocPickerShow) window.__dsDocPickerShow();`).catch(() => {});
+        return;
+      }
+      // 发送消息视为一次对话：重置合并模式空闲自动退出计时
+      startDocShareAllIdleTimer();
+      // 1. 并行读取所有选中文档最新内容（PDF 先 Save() 落盘内存未保存修改）
+      const results = await Promise.all(
+        names.map(async (name, i) => {
+          const t = types[i] === 'excel' ? 'excel' : types[i] === 'pdf' ? 'pdf' : 'word';
+          const doc = t === 'excel' ? await wps.getExcelDocumentFile(name) : t === 'pdf' ? await wps.getPdfDocumentFile(name) : await wps.getDocumentFile(name);
+          return { name, type: t as 'word' | 'excel' | 'pdf', doc };
+        })
+      );
+      // 2. 决定本轮附带的文档：无历史哈希（首次）全带；之后带「检测到改动 / 满轮数」的
+      const attachPaths: string[] = [];
+      const attachNames: string[] = [];
+      for (const r of results) {
+        if (!r.doc || !r.doc.full) {
+          notify('共享文档', `读取文档失败：${r.name}`);
+          continue;
+        }
+        let track = multiTracks.get(r.name);
+        if (!track) {
+          track = { type: r.type, lastHash: '', size: 0, changed: false, roundCount: 0, lastCommitRound: -1 };
+          multiTracks.set(r.name, track);
+        }
+        track.roundCount++;
+        track.size = r.doc.size || 0;
+        // 发送时实时对比（不依赖轮询）：任何类型文档只要内容签名变了就补传。
+        // 此前仅 pdf 做实时对比，word/excel 只靠 10s 轮询标记 changed，
+        // 修改后不足一个轮询周期就发送时，会检测不到改动而漏传最新版本。
+        if (track.lastHash && r.doc.hash !== track.lastHash) track.changed = true;
+        const rounds = roundsForSize(track.size, r.type);
+        const shouldAttach = !track.lastHash || track.changed || (rounds !== null && track.roundCount - track.lastCommitRound >= rounds);
+        if (shouldAttach) {
+          attachPaths.push(r.doc.full);
+          attachNames.push(r.name);
+          track.lastHash = r.doc.hash || '';
+          track.lastCommitRound = track.roundCount;
+          track.changed = false;
+        }
+      }
+      // 3. 提交：附上应上传的文件（可能为 0 个，此时仅发文字）
+      const msg = text && text.trim() ? text : '请阅读我共享的文档。';
+      const ok = attachPaths.length > 0 ? await injector.submitToChat(wc, msg, attachPaths, 200) : await injector.submitToChat(wc, msg);
+      wc.executeJavaScript(`window.__dsDocShareProcessing = false; if (window.__dsDocPickerShow) window.__dsDocPickerShow();`).catch(() => {});
+      console.log('[DocShare:multi] 附带 ' + attachNames.length + '/' + names.length + ' 个文档 (' + attachNames.join(',') + ') 发送结果 ok=' + ok);
+      return;
+    }
+    const { text, docName, mode } = payload as { text: string; docName: string; mode?: 'word' | 'excel' | 'pdf' };
     const m = mode === 'excel' ? 'excel' : mode === 'pdf' ? 'pdf' : 'word';
     const track = docShareTracks[m];
     track.active = true;
     track.trackName = docName;
     track.roundCount++;
-    // 发送消息视为一次对话：重置空闲自动退出计时
+    // 发送消息视为一次对话：重置空闲自动退出计时（合并模式的统一计时器改由本次类型的计时器接管）
+    clearDocShareAllIdleTimer();
     startDocShareIdleTimer(m);
     console.log('[DocShare:' + m + '] 收到发送 round=' + track.roundCount + ' text="' + String(text || '').slice(0, 20) + '" lastHash=' + (track.lastHash || '').slice(0, 12));
     // PDF：无条件先读取一次最新（此刻 Save() 落盘内存未保存修改），保证发送时一定读上 PDF；
@@ -720,7 +916,24 @@ export function registerHandlers(ctx: HandlerCtx): void {
   });
 
   // 取消共享文档：重置对应模式的智能提交跟踪状态
-  ipcMain.on(IPC.DOC_SHARE_STOP, (_e, { mode }: { mode?: 'word' | 'excel' | 'pdf' }) => {
+  ipcMain.on(IPC.DOC_SHARE_STOP, (_e, { mode }: { mode?: 'all' | 'word' | 'excel' | 'pdf' }) => {
+    clearDocShareAllIdleTimer();
+    if (mode === 'all') {
+      // 合并模式：复位全部三种跟踪状态 + 多文档跟踪
+      multiTracks.clear();
+      for (const mm of ['word', 'excel', 'pdf'] as const) {
+        clearDocShareIdleTimer(mm);
+        const t = docShareTracks[mm];
+        t.active = false;
+        t.trackName = '';
+        t.roundCount = 0;
+        t.lastCommitRound = -1;
+        t.lastHash = '';
+        t.size = 0;
+        t.changed = false;
+      }
+      return;
+    }
     const m = mode === 'excel' ? 'excel' : mode === 'pdf' ? 'pdf' : 'word';
     clearDocShareIdleTimer(m);
     const t = docShareTracks[m];
@@ -816,9 +1029,14 @@ export function registerHandlers(ctx: HandlerCtx): void {
   const applyConfigSideEffects = (key: ConfigKey, value: unknown): void => {
     switch (key) {
       case 'fontSize':
-        // 全局字号：广播主题变量（外壳/设置面板字体跟随），并同步所有网页视图缩放
+      case 'fontSizeMain':
+      case 'fontSizeSettings':
+      case 'fontSizeSub':
+      case 'fontSizeB':
+        // 字号（全局或窗口细分）：广播主题变量（外壳/设置面板字体跟随），
+        // 并按各窗口「当前所属视图」重新套用网页缩放（细分项变化时各窗口字号不同）
         broadcastTheme();
-        windows.applyFontZoomAll(Number(value) || 0);
+        windows.applyFontZoomAll();
         break;
       case 'theme':
         theme.applyTheme(value as ThemeMode);
@@ -829,10 +1047,11 @@ export function registerHandlers(ctx: HandlerCtx): void {
       case 'screenshotShortcut':
       case 'subWindowShortcut':
       case 'textSelectionShortcut':
+      case 'screenShareShortcut':
         shortcuts.applyFromConfig(config.getAll());
         break;
       case 'textSelectionEnabled':
-        // 启停剪贴板检测由主进程 TextSelectionWatcher 直接响应
+        // 划词开关由主进程 onTextSelected 动态读取配置即时生效，无需额外处理
         break;
       case 'alwaysOnTop':
         for (const wc of windows.getShellWebContentsList()) {
@@ -876,7 +1095,9 @@ export function registerHandlers(ctx: HandlerCtx): void {
       case 'answerScrollMode': {
         // 回答滚动方式（跟随回答 / 停留开头）：实时同步到所有对话窗口
         const mode = (value === 'follow' ? 'follow' : 'stay') as 'stay' | 'follow';
-        for (const wc of windows.getAllChatWebContents()) {
+        const wcs = windows.getAllChatWebContents();
+        logf('SETTING', `回答滚动方式 → ${mode}，同步 ${wcs.length} 个对话视图`);
+        for (const wc of wcs) {
           injector.updateAnswerScrollMode(wc, mode).catch(() => {});
         }
         break;
@@ -894,9 +1115,6 @@ export function registerHandlers(ctx: HandlerCtx): void {
       case 'startAtLogin':
         setLoginItem(Boolean(value));
         break;
-      case 'fontSize':
-        broadcastTheme();
-        break;
       default:
         break;
     }
@@ -908,9 +1126,16 @@ export function registerHandlers(ctx: HandlerCtx): void {
     theme.applyTheme(mode);
   });
 
-  ipcMain.handle(IPC.THEME_VARS_REQUEST, () => {
+  ipcMain.handle(IPC.THEME_VARS_REQUEST, (e) => {
     const v = theme.getCssVars();
-    v['--ds-font-size'] = `${15 + (config.get('fontSize') || 0)}px`;
+    // 设置界面单独区分字号（其余外壳窗口跟随全局字号）
+    let off = Number(config.get('fontSize')) || 0;
+    const settingsWc = settings.getWebContents();
+    if (settingsWc && !settingsWc.isDestroyed() && e.sender === settingsWc) {
+      off += Number(config.get('fontSizeSettings')) || 0;
+    }
+    v['--ds-font-size'] = `${15 + off}px`;
+    v['--ds-font-offset'] = String(off);
     return v;
   });
 
@@ -1011,17 +1236,35 @@ export function registerHandlers(ctx: HandlerCtx): void {
       return;
     }
 
-    // 创建 B 类临时窗口并注入文本
-    const rect = { x: 0, y: 0, width: 400, height: 700 };
-    windows.createBWindow(rect);
-    try { windows.minimizeMainWindow(); } catch {}
+    // 创建 B 类临时窗口并注入文本：定位在选中文本旁（优先真实选区矩形），不遮挡划词内容。
+    // 复用 computeBWindowBounds 的自适应逻辑（右侧优先、越界左移、垂直居中、边界夹紧）。
+    const { getToolbarBounds, getSelectionRect } = require('../windows/textSelectionWindow');
+    const sel = getSelectionRect();
+    const tb = getToolbarBounds();
+    // 1) 拖拽选区矩形（最精确，正对选中文本）；2) 工具栏边界近似（无选区信息时，如手动 Ctrl+C）；
+    // 3) 兜底硬编码。
+    const rect =
+      sel && sel.width > 0 && sel.height > 0
+        ? sel
+        : tb && tb.width > 0
+          ? { x: tb.x, y: tb.y + 34, width: Math.max(tb.width, 120), height: 28 }
+          : { x: 0, y: 0, width: 400, height: 700 };
+    // manageMainWindow:false —— 划词场景主窗口由用户自己管理（可能已最小化/隐藏/置底），
+    // B 窗口出现/关闭时都不碰主窗口，避免「B 窗口一出现就把主窗口带出来」。
+    windows.createBWindow(rect, { manageMainWindow: false });
     const wc = windows.getScreenshotTarget();
     if (!wc) {
       notify('没有对话窗口', '请先登录 DeepSeek');
       return;
     }
     await injector.waitForAppReady(wc);
-    await injector.setDeepThink(wc, false);
+    // 按配置同步划词 B 窗口深度思考/智能搜索/模型模式
+    await injector.setDeepThink(wc, config.get('textSelectionDeepThinkEnabled') === true);
+    await injector.setSmartSearch(wc, config.get('textSelectionSmartSearchEnabled') === true).catch(() => {});
+    const textMode = config.get('textSelectionSendNewMode');
+    if (textMode && textMode !== 'simple') {
+      await injector.switchModelMode(wc, textMode).catch(() => {});
+    }
     // 替换 prompt 中的 {content} 占位符
     let prompt = btn.prompt.replace(/\{content\}/g, text);
     // 如果有 {targetLang}，用默认翻译语言替换

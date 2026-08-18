@@ -300,12 +300,16 @@
     // 工具栏贴在框「上方」、动作条贴在框「下方」，居中对齐并随框移动/缩放实时跟随。
     // 两侧均显式设置 left 并把 right 清为 auto，避免 CSS 中 left/right:auto 退化到贴左边缘
     // （表现为「左边边栏被异常展开拉长」）。位置完全由 rect 计算，rect 为空则不动。
+    // 越界修复：translateX(-50%) 居中时按「工具栏实际宽度」夹紧，保证整体始终在视口内，
+    // 不再只夹紧中心点导致一半溢出屏幕。
     function positionToolbar() {
       if (!rect) return;
+      var tbW = toolbar.offsetWidth || 200;
       var tbH = toolbar.offsetHeight || 40;
       var cx = rect.x + rect.width / 2;
-      // 水平夹紧到视口内，避免工具栏越界（body overflow:hidden 已兜底，此处仅为观感）
-      var left = Math.max(8, Math.min(cx, window.innerWidth - 8));
+      var left = tbW + 16 > window.innerWidth
+        ? window.innerWidth / 2
+        : Math.max(tbW / 2 + 8, Math.min(cx, window.innerWidth - tbW / 2 - 8));
       toolbar.style.right = 'auto';
       toolbar.style.left = left + 'px';
       toolbar.style.transform = 'translateX(-50%)';
@@ -315,13 +319,19 @@
 
     function positionActionbar() {
       if (!rect) return;
+      var abW = actionbar.offsetWidth || 200;
       var abH = actionbar.offsetHeight || 44;
       var cx = rect.x + rect.width / 2;
-      var left = Math.max(8, Math.min(cx, window.innerWidth - 8));
+      var left = abW + 16 > window.innerWidth
+        ? window.innerWidth / 2
+        : Math.max(abW / 2 + 8, Math.min(cx, window.innerWidth - abW / 2 - 8));
       actionbar.style.right = 'auto';
       actionbar.style.left = left + 'px';
       actionbar.style.transform = 'translateX(-50%)';
-      actionbar.style.top = Math.min(window.innerHeight - 4 - abH, rect.y + rect.height + 8) + 'px';
+      // 垂直：优先贴选区下方；空间不足时收进视口（上下均不越界）
+      var prefer = rect.y + rect.height + 8;
+      var maxTop = Math.max(4, window.innerHeight - 4 - abH);
+      actionbar.style.top = Math.min(maxTop, prefer) + 'px';
     }
 
     function layoutChrome() {

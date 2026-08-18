@@ -63,6 +63,26 @@ function runPs(script: string): Promise<string> {
 
 export class WpsDocManager {
   /**
+   * 获取当前前台窗口标题（用于合并共享时把「正在激活」的文档排到最前）。
+   * 前台窗口通常是 WPS 或用户正在操作的窗口；标题形如「文档名 - WPS 文字」。
+   * 失败 / 无前台窗口返回空字符串。
+   */
+  public async getForegroundWindowTitle(): Promise<string> {
+    const script = `$ProgressPreference='SilentlyContinue'
+$sig = @'
+[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
+'@
+Add-Type -MemberDefinition $sig -Name FgWin -Namespace Win32Fg
+$h = [Win32Fg.FgWin]::GetForegroundWindow()
+$sb = New-Object System.Text.StringBuilder 512
+[void][Win32Fg.FgWin]::GetWindowText($h, $sb, 512)
+Write-Output $sb.ToString()`;
+    const raw = await runPs(script);
+    return (raw || '').trim();
+  }
+
+  /**
    * 枚举当前打开的全部 WPS 文字文档。
    * 最后活动的文档（ActiveDocument）排第一，作为默认选中项。
    * WPS 未运行 / 未打开文档 / COM 不可用时返回空数组。
@@ -236,6 +256,26 @@ public static class WpsRot {
     } catch {}
     return res.ToArray();
   }
+  // 仅按 ROT moniker 显示名（完整文件路径）枚举表格，不访问工作簿对象。
+  // WPS 多组件整合模式（et.exe /from_prome）下工作簿对象可能是空壳（Name/Sheets 取不到），
+  // 但 moniker 显示名始终包含完整路径，可据此显示文档并回退读取磁盘文件。
+  public static string[] ListExcelPaths() {
+    var res = new List<string>();
+    try {
+      IRunningObjectTable rot;
+      if (GetRunningObjectTable(0, out rot) != 0) return res.ToArray();
+      IEnumMoniker en; rot.EnumRunning(out en);
+      IMoniker[] m = new IMoniker[1]; IntPtr f = IntPtr.Zero;
+      while (en.Next(1, m, f) == 0) {
+        try {
+          IBindCtx bc; CreateBindCtx(0, out bc);
+          string disp; m[0].GetDisplayName(bc, null, out disp);
+          if (Regex.IsMatch(disp, @"\\.(xlsx|xlsm|xls|csv)$", RegexOptions.IgnoreCase)) res.Add(disp);
+        } catch {}
+      }
+    } catch {}
+    return res.ToArray();
+  }
   public static object OpenByName(string name) {
     try {
       IRunningObjectTable rot;
@@ -319,7 +359,9 @@ public static class WpsRot {
 "@`;
 
   /**
-   * 枚举当前打开的全部 WPS 表格工作簿（通过 ROT 文件路径 moniker）。
+   * 枚举当前打开的全部 WPS 表格工作簿。
+   * 走 ROT moniker 显示名（完整路径）而非工作簿对象：WPS 多组件整合模式下
+   * 工作簿对象可能是空壳（Name/Sheets 取不到），但 moniker 显示名始终可靠。
    * 返回顺序为 ROT 注册顺序（通常最近打开在前），第一个作为默认选中项。
    */
   public async listExcelDocuments(): Promise<WpsDocInfo[]> {
@@ -327,11 +369,10 @@ public static class WpsRot {
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 ${WpsDocManager.ROT_HELPER}
-$rows = [WpsRot]::ListExcel()
+$paths = [WpsRot]::ListExcelPaths()
 $out = New-Object System.Collections.ArrayList
-foreach ($s in $rows) {
-  $p = $s -split "\\t"
-  if ($p.Length -ge 2 -and $p[0]) { [void]$out.Add(@{ name = $p[0]; full = $p[1] }) }
+foreach ($fp in $paths) {
+  if ($fp) { [void]$out.Add(@{ name = [IO.Path]::GetFileName($fp); full = $fp }) }
 }
 Write-Output ($out | ConvertTo-Json -Compress)`;
     try {
@@ -379,7 +420,25 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 ${WpsDocManager.ROT_HELPER}
 $wb = [WpsRot]::OpenByName(${nameJson})
-if ($null -eq $wb) { Write-Output 'null'; exit }
+if ($null -eq $wb) {
+  # COM 空壳回退（WPS 多组件整合模式 et.exe /from_prome）：工作簿对象取不到，
+  # 改按 ROT moniker 路径找磁盘文件，以 FileShare.ReadWrite 共享方式读取已保存内容
+  $target = ${nameJson}
+  $fp = $null
+  foreach ($pp in [WpsRot]::ListExcelPaths()) { if ([IO.Path]::GetFileName($pp) -eq $target) { $fp = $pp; break } }
+  if (-not $fp) { Write-Output 'null'; exit }
+  try {
+    $fs = [IO.File]::Open($fp, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $len = [int]$fs.Length
+    $buf = New-Object byte[] $len
+    [void]$fs.Read($buf, 0, $len)
+    $fs.Close()
+  } catch { Write-Output 'null'; exit }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  $hash = [BitConverter]::ToString($sha.ComputeHash($buf)).Replace('-','')
+  Write-Output (@{ name = $target; full = $fp; hasPath = $true; hash = $hash; size = $len } | ConvertTo-Json -Compress)
+  exit
+}
 $full = [string]$wb.FullName
 $hasPath = ($full -and $full.Contains(':'))
 if ($hasPath) {
@@ -420,7 +479,24 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 ${WpsDocManager.ROT_HELPER}
 $wb = [WpsRot]::OpenByName(${nameJson})
-if ($null -eq $wb) { Write-Output 'null'; exit }
+if ($null -eq $wb) {
+  # COM 空壳回退：按 ROT 路径读磁盘文件字节哈希（与 getExcelDocumentFile 的回退算法一致）
+  $target = ${nameJson}
+  $fp = $null
+  foreach ($pp in [WpsRot]::ListExcelPaths()) { if ([IO.Path]::GetFileName($pp) -eq $target) { $fp = $pp; break } }
+  if (-not $fp) { Write-Output 'null'; exit }
+  try {
+    $fs = [IO.File]::Open($fp, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $len = [int]$fs.Length
+    $buf = New-Object byte[] $len
+    [void]$fs.Read($buf, 0, $len)
+    $fs.Close()
+  } catch { Write-Output 'null'; exit }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  $hash = [BitConverter]::ToString($sha.ComputeHash($buf)).Replace('-','')
+  Write-Output (@{ hash = $hash; size = $len } | ConvertTo-Json -Compress)
+  exit
+}
 ${digest}
   Write-Output (@{ hash = $hash; size = $text.Length } | ConvertTo-Json -Compress)`;
     try {
