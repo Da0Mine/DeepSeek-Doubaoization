@@ -32,6 +32,13 @@
       box-shadow: 0 0 8px rgba(74, 144, 226, 0.6);
     }
 
+    /* 非识图模式（快速/专家）提示置黄：四角颜色与任务栏按钮保持一致 */
+    body.warning .corner::before,
+    body.warning .corner::after {
+      background: #E2A04A;
+      box-shadow: 0 0 8px rgba(226, 160, 74, 0.6);
+    }
+
     /* 左上角 */
     .corner-tl::before { top: 0; left: 0; width: 3px; height: 40px; }
     .corner-tl::after { top: 0; left: 0; width: 40px; height: 3px; }
@@ -62,5 +69,15 @@
   <div class="corner corner-tr"></div>
   <div class="corner corner-bl"></div>
   <div class="corner corner-br"></div>
+
+  <script>
+    // 主进程经 URL query 传入进入共享时的模型模式：识图（vision）四角蓝色；
+    // 非识图（快速/专家/unknown）四角置黄，与任务栏按钮「当前非识图模式」提示保持一致。
+    (function () {
+      var mode = '';
+      try { mode = new URLSearchParams(window.location.search).get('mode') || ''; } catch (e) {}
+      if (mode && mode !== 'vision') document.body.classList.add('warning');
+    })();
+  </script>
 </body>
 </html>

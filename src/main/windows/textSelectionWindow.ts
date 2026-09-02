@@ -18,6 +18,8 @@ let toolbarMouseY = 0;
 let toolbarSelRect: Electron.Rectangle | null = null;
 /** 工具栏当前是否可见（窗口对象可能隐藏但未销毁）。 */
 let toolbarVisible = false;
+/** 本次划词的来源对话 webContents：仅当划词发生在本软件某个 DeepSeek 对话窗口内时非空。 */
+let toolbarSourceChat: Electron.WebContents | null = null;
 /** 窗口首次加载完成前缓存的待显示数据。 */
 let pendingShow: { buttons: { label: string; prompt: string }[]; text: string } | null = null;
 /** 应用退出中：放行 close，允许窗口真正销毁。 */
@@ -55,6 +57,16 @@ export function getToolbarBounds(): Electron.Rectangle {
 /** 获取本次划词选中文本的屏幕区域（供 B 类窗口定位在文本旁；无选区信息时返回 null）。 */
 export function getSelectionRect(): Electron.Rectangle | null {
   return toolbarSelRect;
+}
+
+/** 记录本次划词的来源 DeepSeek 对话 webContents（非本软件对话内划词时传 null）。 */
+export function setToolbarSourceChat(wc: Electron.WebContents | null): void {
+  toolbarSourceChat = wc && !wc.isDestroyed() ? wc : null;
+}
+
+/** 获取本次划词的来源 DeepSeek 对话 webContents（未在本软件对话内划词时为 null）。 */
+export function getToolbarSourceChat(): Electron.WebContents | null {
+  return toolbarSourceChat && !toolbarSourceChat.isDestroyed() ? toolbarSourceChat : null;
 }
 
 /** 创建（或复用）工具栏窗口。 */
@@ -178,20 +190,11 @@ export function showToolbarAt(
     positionToolbar(120, mouseX, mouseY);
     return;
   }
-  // 已加载：立即更新内容并显示（窗口复用，无需重建）
+  // 已加载：立即更新内容（不显示）。窗口尺寸等到渲染层回报实际宽度（toolbar:resize）后
+  // 一次性 setBounds 再显示，避免「先按 120px 显示第一个按钮、再跳成完整宽度」的闪烁。
   win.webContents.send(IPC.TOOLBAR_UPDATE, { buttons, text: selectedText });
   positionToolbar(120, mouseX, mouseY);
-  logf('TOOLBAR', `showToolbarAt text="${selectedText.slice(0, 20)}" visible=${win.isVisible()}`);
-  // 先正常显示（showInactive 不抢焦点），再提升层级：
-  // 注意顺序——moveTop 在 Windows 上会把隐藏窗口直接显示出来（副作用），
-  // 若在 showInactive 前调用会跳过正常显示逻辑导致悬浮框不出现。
-  if (!win.isVisible()) win.showInactive();
-  try {
-    win.moveTop();
-  } catch {
-    /* 个别平台不支持 */
-  }
-  logf('TOOLBAR', `after show/moveTop visible=${win.isVisible()} destroyed=${win.isDestroyed()}`);
+  logf('TOOLBAR', `showToolbarAt text="${selectedText.slice(0, 20)}" pendingVis（等 resize 后显示）`);
 }
 
 /** 滚动时重新定位工具栏（跟随选中文本移动）。

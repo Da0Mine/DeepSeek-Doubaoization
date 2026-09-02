@@ -11,6 +11,16 @@ export const IPC = {
   WIN_MAX: 'win:max',
   /** 渲染 -> 主：关闭当前窗口。 */
   WIN_CLOSE: 'win:close',
+  /** 标题栏 -> 主：主窗口聊天视图后退（send）。 */
+  CHAT_NAV_BACK: 'chatNav:back',
+  /** 标题栏 -> 主：主窗口聊天视图前进（send）。 */
+  CHAT_NAV_FORWARD: 'chatNav:forward',
+  /** 标题栏 -> 主：主窗口聊天视图刷新（send）。 */
+  CHAT_NAV_RELOAD: 'chatNav:reload',
+  /** 标题栏 -> 主（invoke）：查询聊天视图可否后退/前进（返回 {canGoBack,canGoForward}）。 */
+  CHAT_NAV_STATE_GET: 'chatNav:stateGet',
+  /** 主 -> 标题栏：推送导航可用状态变化（{canGoBack,canGoForward}）。 */
+  CHAT_NAV_STATE_CHANGED: 'chatNav:stateChanged',
   /** 渲染 -> 主：切换当前窗口置顶。 */
   WIN_ALWAYS_ON_TOP: 'win:alwaysOnTop',
   /** 渲染 -> 主（invoke）：查询当前窗口是否置顶。 */
@@ -36,6 +46,58 @@ export const IPC = {
   SETTINGS_OPEN: 'settings:open',
   /** 渲染 -> 主：关闭设置面板（内嵌于主窗口的设置视图）。 */
   SETTINGS_CLOSE: 'settings:close',
+  /** 渲染 -> 主：打开插件管理面板。 */
+  EXTENSIONS_OPEN: 'extensions:open',
+  /** 渲染 -> 主：关闭插件管理面板。 */
+  EXTENSIONS_CLOSE: 'extensions:close',
+  /** 插件面板 -> 主：列出已安装/已加载的插件。 */
+  EXTENSIONS_LIST: 'extensions:list',
+  /** 插件面板 -> 主：加载本地已解压扩展（payload: { dir }）。 */
+  EXTENSIONS_LOAD: 'extensions:load',
+  /** 插件面板 -> 主：弹出目录选择框后加载扩展（用户取消返回 null）。 */
+  EXTENSIONS_PICK_DIR: 'extensions:pickDir',
+  /** 插件面板 -> 主：启用/禁用插件（payload: { id, enabled }）。 */
+  EXTENSIONS_SET_ENABLED: 'extensions:setEnabled',
+  /** 插件面板 -> 主：卸载插件（payload: { id }）。 */
+  EXTENSIONS_REMOVE: 'extensions:remove',
+  /** 插件面板 -> 主：固定/取消固定插件到窗口栏（payload: { id, pinned }）。 */
+  EXTENSIONS_SET_PINNED: 'extensions:setPinned',
+  /** 标题栏 -> 主：查询当前固定在窗口栏的插件。 */
+  EXTENSIONS_GET_PINNED: 'extensions:getPinned',
+  /** 标题栏 -> 主（invoke）：打开指定插件的入口页（payload: { id }）。 */
+  EXTENSIONS_OPEN_PAGE: 'extensions:openPage',
+  /** 主 -> 标题栏：固定列表变化时推送刷新（payload: { ... }[]）。 */
+  EXTENSIONS_PINNED_CHANGED: 'extensions:pinnedChanged',
+  /** 侧边栏页面内 ✕ 按钮 -> 主：关闭内嵌侧边栏（DeepSeek++）。 */
+  DSPP_CLOSE_SIDEPANEL: 'dspp:closeSidepanel',
+  /** 标题栏 -> 主（invoke）：设置联网模式（web_search + web_fetch 开关，payload: { enabled }）。 */
+  EXTENSIONS_SET_WEB_TOOLS: 'extensions:setWebTools',
+  /** 标题栏 -> 主（invoke）：查询当前联网模式是否开启。 */
+  EXTENSIONS_GET_WEB_TOOLS: 'extensions:getWebTools',
+  /** 聊天页下拉「模式切换」-> 主（send）：切换普通/联网模式（payload: 'normal' | 'online'）。 */
+  CHAT_MODE_SET: 'chatMode:set',
+  /** 下拉普通模式旁的「记忆功能」-> 主（send）：设置是否注入记忆提示词（payload: boolean）。 */
+  MEMORY_TOGGLE: 'chat:memo',
+  /** 下拉任务模式旁的 skill 自动激活 -> 主（send）：设置模型自动激活两个子项（payload: {first,every}）。 */
+  SKILL_AUTO_TOGGLE: 'chat:skillAuto',
+  /** 页面 -> 主（invoke）：读取 skill 自动激活当前状态（返回 {first,every}，用于与插件侧同步）。 */
+  SKILL_AUTO_GET: 'chat:skillAutoGet',
+  /** 下拉增强搜索旁的网页工具展开框 -> 主（send）：设置 web_search/web_fetch（payload: {search,fetch}）。 */
+  WEBTOOLS_TOGGLE: 'chat:webToolsToggle',
+  /** 页面 -> 主（invoke）：读取 web_search/web_fetch 当前状态（返回 {search,fetch}）。 */
+  WEBTOOLS_GET: 'chat:webToolsGet',
+  /** 页面 token 悬浮块 -> 主（invoke）：查询今日/累计 token 用量（返回 {enabled,tokens,totalTokens}）。 */
+  TOKEN_WIDGET_GET: 'chat:tokenWidgetGet',
+
+  // ---- ExtensionHost（DeepSeek++ 宿主：chrome 兼容层） ----
+  /** 页面 content -> 主：chrome.storage.local.get。 */
+  EXT_HOST_STORAGE_GET: 'exthost:storageGet',
+  /** 页面 content -> 主：chrome.storage.local.set。 */
+  EXT_HOST_STORAGE_SET: 'exthost:storageSet',
+  /** 页面 content -> 主：chrome.storage.local.remove。 */
+  EXT_HOST_STORAGE_REMOVE: 'exthost:storageRemove',
+  /** 页面 content -> 主：chrome.runtime.sendMessage（交给后台 handler）。 */
+  EXT_HOST_RUNTIME_MESSAGE: 'exthost:runtimeMessage',
   /** 渲染 -> 主：呼出/聚焦常驻副窗口（Alt+Q 或标题栏按钮）。 */
   SUB_SUMMON: 'sub:summon',
   /** 渲染 -> 主：主副切换。 */
@@ -72,10 +134,20 @@ export const IPC = {
   SCREEN_SHARE_ENTER: 'screenShare:enterPressed',
   /** 渲染 -> 主：退出共享屏幕模式（任务栏按钮或加号按钮）。 */
   SCREEN_SHARE_STOP: 'screenShare:stop',
+  /** 渲染 -> 主（任务栏按钮，非识图模式时点击「立即切换」）：在当前窗口新开对话并切换识图模式。 */
+  SCREEN_SHARE_SWITCH_VISION: 'screenShare:switchVision',
 
   // ---- 无痕模式 ----
-  /** webview -> 主：切换无痕模式（payload: { on: boolean }）。 */
+  /** webview -> 主：切换无痕模式（payload: { on: boolean | 'toggle' }）。 */
   INC0GNITO_MODE: 'incognito:mode',
+  /** webview -> 主（invoke）：查询当前无痕模式是否开启（每次打开/关闭均由主进程判定，避免页面标志陈旧）。 */
+  INC0GNITO_GET_STATE: 'incognito:getState',
+
+  // ---- 任务模式（按需唤醒 DeepSeek++ 增强层） ----
+  /** webview -> 主：切换任务模式（payload: { on: boolean | 'toggle' }）。 */
+  TASK_MODE: 'taskMode:mode',
+  /** webview -> 主（invoke）：查询当前任务模式是否开启（主进程为唯一真源）。 */
+  TASK_MODE_GET_STATE: 'taskMode:getState',
 
   /** 渲染（overlay）-> 主：选区完成，回报 rect。 */
   OVERLAY_SELECT: 'overlay:select',
@@ -171,6 +243,8 @@ export const IPC = {
   UPDATE_AVAILABLE: 'update:available',
   /** 标题栏 -> 主（invoke）：打开设置并跳转到「更新」板块。 */
   UPDATE_OPEN_SETTINGS: 'update:openSettings',
+  /** 设置面板 -> 主（invoke）：拉取更新历史（每个版本更新了什么）。 */
+  UPDATE_GET_HISTORY: 'update:getHistory',
   /** 主 -> 设置面板：跳转到指定板块（payload: { top: string; sub: string }）。 */
   SETTINGS_GOTO: 'settings:goto',
 
@@ -179,18 +253,6 @@ export const IPC = {
   MODE_REMINDER_INFO: 'modeReminder:info',
   /** 模式提示弹框 -> 主：按钮操作（payload: { action: 'ok' | 'never' }）。 */
   MODE_REMINDER_ACTION: 'modeReminder:action',
-
-  // ---- 使用说明引导 ----
-  /** 渲染 -> 主：打开使用说明引导（首次运行或设置面板手动打开）。 */
-  ONBOARDING_OPEN: 'onboarding:open',
-  /** 引导视图 -> 主：结束引导（写入 onboardingCompleted）。 */
-  ONBOARDING_CLOSE: 'onboarding:close',
-  /** 引导视图 -> 主：切换步骤（payload: { dir: 1 | -1 }）。 */
-  ONBOARDING_STEP: 'onboarding:step',
-  /** 主 -> 引导视图：下发步骤数据（payload: OnboardingFocus）。 */
-  ONBOARDING_FOCUS: 'onboarding:focus',
-  /** 引导视图 -> 主：鼠标是否位于交互控件内（payload: boolean），用于切换点击穿透。 */
-  ONBOARDING_SET_INTERACTIVE: 'onboarding:setInteractive',
 
   // ---- 首次运行登录引导 / 用户须知 ----
   /** 首次运行弹窗 -> 主：按钮操作（payload: { action: 'done' | 'close' }）。 */

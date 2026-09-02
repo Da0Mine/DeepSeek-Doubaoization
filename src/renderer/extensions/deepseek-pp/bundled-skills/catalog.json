@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "groups": {
+    "officecli": [
+      "skills/morph-ppt-3d/SKILL.md",
+      "skills/morph-ppt/SKILL.md",
+      "skills/officecli-academic-paper/SKILL.md",
+      "skills/officecli-data-dashboard/SKILL.md",
+      "skills/officecli-docx/SKILL.md",
+      "skills/officecli-financial-model/SKILL.md",
+      "skills/officecli-pitch-deck/SKILL.md",
+      "skills/officecli-pptx/SKILL.md",
+      "skills/officecli-word-form/SKILL.md",
+      "skills/officecli-xlsx/SKILL.md",
+      "skills/officecli/SKILL.md",
+      "styles/INDEX.md"
+    ],
+    "spec-driven-develop": [
+      "deep-discuss/SKILL.md",
+      "review-spd/references/output-format.md",
+      "review-spd/references/reviewer-template.md",
+      "review-spd/scripts/review-context.py",
+      "review-spd/SKILL.md",
+      "spec-driven-develop/references/adaptive-control.md",
+      "spec-driven-develop/references/behavioral-rules.md",
+      "spec-driven-develop/references/github-integration.md",
+      "spec-driven-develop/references/parallel-protocol.md",
+      "spec-driven-develop/references/super-philosophy.md",
+      "spec-driven-develop/references/templates/analysis.md",
+      "spec-driven-develop/references/templates/archive.md",
+      "spec-driven-develop/references/templates/governance.md",
+      "spec-driven-develop/references/templates/plan.md",
+      "spec-driven-develop/references/templates/progress.md",
+      "spec-driven-develop/SKILL.md"
+    ]
+  }
+}

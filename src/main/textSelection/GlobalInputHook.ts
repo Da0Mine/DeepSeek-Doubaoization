@@ -60,28 +60,31 @@ function snapshotClipboard(): ClipboardSnapshot {
 }
 
 /** 还原剪贴板快照（取词后调用，避免污染用户剪贴板）。
- *  逐格式写回（图片 / 富文本 / 文本）；原剪贴板为空时清空，避免残留模拟 Ctrl+C 的内容。 */
+ *  单次 clipboard.write 一次性写回所有格式（文本/富文本/图片），
+ *  避免逐格式多次 write* 在 Windows 剪贴板历史（Win+V）里新增多条重复记录。
+ *  原剪贴板为空时清空，避免残留模拟 Ctrl+C 的内容。 */
 function restoreClipboard(s: ClipboardSnapshot): void {
   try {
-    let wrote = false;
-    if (s.image && !s.image.isEmpty()) {
-      clipboard.writeImage(s.image);
-      wrote = true;
+    const hasImage = !!s.image && !s.image.isEmpty();
+    if (!s.text && !s.html && !s.rtf && !hasImage) {
+      clipboard.clear();
+      logf('INPUT_HOOK', '[restore] clear（原剪贴板为空）');
+      return;
     }
-    if (s.html) {
-      clipboard.writeHTML(s.html);
-      wrote = true;
-    }
-    if (s.rtf) {
-      clipboard.writeRTF(s.rtf);
-      wrote = true;
-    }
-    if (s.text) {
-      clipboard.writeText(s.text);
-      wrote = true;
-    }
-    // 原剪贴板为空：清掉自动取词写入的文本，保持用户剪贴板干净
-    if (!wrote) clipboard.clear();
+    const data: {
+      text?: string;
+      html?: string;
+      rtf?: string;
+      image?: NativeImage;
+    } = {
+      text: s.text || undefined,
+      html: s.html || undefined,
+      rtf: s.rtf || undefined,
+      image: hasImage ? s.image! : undefined,
+    };
+    // 一次写入全部格式 → 剪贴板历史只新增一条，而非多条
+    clipboard.write(data);
+    logf('INPUT_HOOK', `[restore] write 单次 textLen=${s.text.length} htmlLen=${s.html.length} rtfLen=${s.rtf.length} hasImage=${hasImage}`);
   } catch {
     /* 还原失败忽略 */
   }
@@ -130,6 +133,7 @@ export class GlobalInputHook {
       const prevClip = this.lastText;
       // 快照原剪贴板：取词后立即还原，避免自动复制污染用户剪贴板
       const snapshot = snapshotClipboard();
+      logf('INPUT_HOOK', `[snapshot] hasFiles=${snapshot.hasFiles} textLen=${snapshot.text.length} htmlLen=${snapshot.html.length} rtfLen=${snapshot.rtf.length} imgEmpty=${!snapshot.image || snapshot.image.isEmpty()}`);
 
       // 剪贴板含文件列表（如复制的图片/文档文件）时无法可靠还原——
       // Electron 的 writeBuffer 还原 CF_HDROP 会损坏文件条目（无法预览/粘贴）。
@@ -137,6 +141,14 @@ export class GlobalInputHook {
       if (snapshot.hasFiles) {
         logf('INPUT_HOOK', '剪贴板含文件列表，跳过自动取词以保护剪贴板');
         return;
+      }
+
+      // 剪贴板含图片时，取词后【不再还原图片】：让图片留在系统剪贴板历史（Win+V）的最初一条，
+      // 避免每次取词的写回在历史里反复新增相同图片记录。取词结果（选中文本）会留在剪贴板当前位。
+      const hasImage = !!snapshot.image && !snapshot.image.isEmpty();
+      if (hasImage) {
+        snapshot.image = null;
+        logf('INPUT_HOOK', '剪贴板含图片：取词后不还原图片（图片保留在剪贴板历史，避免重复记录）');
       }
 
       // 模拟 Ctrl+C：将选中文本复制到系统剪贴板

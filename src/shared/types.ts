@@ -18,6 +18,9 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 /** 链接打开方式：internal=内置浏览器窗口（多标签），external=系统默认浏览器。 */
 export type LinkOpenMode = 'internal' | 'external';
 
+/** 副窗口关闭后重新打开时重置为新对话：never=永不，open=每次打开，15/30/60=关闭超过对应分钟才重置。 */
+export type SubWindowResetNewMode = 'never' | 'open' | '15' | '30' | '60';
+
 /** 用户在遮罩上选择截图后提交的动作。 */
 export type ScreenshotAction =
   | 'chat'
@@ -74,6 +77,8 @@ export interface ConfigShape {
   smartSearchEnabled: boolean;
   /** 副窗口和 B 类窗口默认置顶（主窗口不参与）。默认开启。 */
   alwaysOnTop: boolean;
+  /** 副窗口关闭后重新打开时重置为新对话：never=永不，open=每次打开，15/30/60=关闭超过对应分钟才重置。默认 never。 */
+  subWindowResetNew: SubWindowResetNewMode;
   /** 全局字号相对偏移量（-10 ~ +10，0=默认）。旧版为绝对 px 值，新版为相对偏移。 */
   fontSize: number;
   /** 主窗口专属字号偏移（在全局 fontSize 之上叠加，-10 ~ +10，0=跟随全局）。 */
@@ -110,6 +115,18 @@ export interface ConfigShape {
   docShareShortcut: string;
   /** 默认新建对话的模型模式（simple=简单，expert=专家/深度思考，vision=识图）。 */
   defaultModelMode: DefaultModelMode;
+  /** 新建对话 / 启动时应用的默认「模式」：normal=普通，online=增强搜索，task=任务。 */
+  defaultChatMode: 'normal' | 'online' | 'task';
+  /** 普通模式下是否注入「记忆提示词」前置提示（默认开；关闭则不注入）。 */
+  conversationMemory: boolean;
+  /** 任务模式「新对话首条消息自动激活」子开关（默认开）。 */
+  taskSkillAutoFirst: boolean;
+  /** 任务模式「当前对话每条消息自动激活」子开关（默认开）。 */
+  taskSkillAutoEvery: boolean;
+  /** 增强搜索展开框「搜索互联网」偏好（默认开；进入增强/任务模式时按此开启插件侧 web_search）。 */
+  webToolSearch: boolean;
+  /** 增强搜索展开框「获取网页」偏好（默认开；进入增强/任务模式时按此开启插件侧 web_fetch）。 */
+  webToolFetch: boolean;
   /** 截图「发送到新对话」窗口的模型模式（simple=快速模式，vision=识图模式）。默认识图模式。 */
   screenshotSendNewMode: ScreenshotSendNewMode;
   /** 点击「共享屏幕」时是否自动切换到识图模式（默认开启；关闭则仅按当前模式提示）。 */
@@ -137,6 +154,8 @@ export interface ConfigShape {
   annotationColors: string[];
   /** 折叠思考过程：true=默认折叠深度思考过程，仅显示最终答案。 */
   collapseThinking: boolean;
+  /** 聊天页「今日 token 消耗」悬浮块开关。 */
+  floatingTokenWidget: boolean;
   /** AI 流式输出回答时的界面滚动方式：stay=停留开头（生成时保持当前位置），follow=跟随回答（自动滚动到最新输出）。默认停留开头。 */
   answerScrollMode: 'stay' | 'follow';
   /** 截图翻译默认目标语言（如 '简体中文'、'English'）。 */
@@ -145,16 +164,14 @@ export interface ConfigShape {
   cleanBWindowHistoryOnTextSelection: boolean;
   /** 关闭截图 B 窗口时自动删除该对话记录。默认开启。 */
   cleanBWindowHistoryOnScreenshot: boolean;
-  /** 划词发送新对话模型模式：simple=快速模式，expert=专家模式。默认 simple。 */
-  textSelectionSendNewMode: 'simple' | 'expert';
-  /** 划词 B 窗口是否开启深度思考。默认关闭。 */
-  textSelectionDeepThinkEnabled: boolean;
-  /** 划词 B 窗口是否开启智能搜索。默认关闭。 */
-  textSelectionSmartSearchEnabled: boolean;
-  /** 截图 B 窗口是否开启深度思考。默认关闭。 */
-  screenshotDeepThinkEnabled: boolean;
-  /** 截图 B 窗口是否开启智能搜索。默认关闭。 */
-  screenshotSmartSearchEnabled: boolean;
+  // 划词窗口的深度思考 / 智能搜索 / 对话模式已移至每个划词按钮的细分配置
+  // （textSelectionButtons 的每项含 deepThink / smartSearch / mode 字段），不再使用全局开关。
+  // 截图窗口的深度思考 / 智能搜索 / 对话模式同理，已移至每个截图按钮的细分配置
+  // （screenshotButtons 的每项含 deepThink / smartSearch / mode 字段），不再使用截图全局开关。
+
+  // ---- 截图功能 ----
+  /** 截图按钮列表（JSON 数组，固定三项：提取文字 / 翻译 / 解释。每项：{ label, prompt, deepThink, smartSearch, mode }）。 */
+  screenshotButtons: string;
 
   // ---- 划词功能（I-12） ----
   /** 划词功能总开关。默认开启。 */
@@ -163,8 +180,6 @@ export interface ConfigShape {
   textSelectionButtons: string;
   /** 划词功能开关快捷键（默认空，需手动设置）。 */
   textSelectionShortcut: string;
-  /** 是否已完成首次使用说明引导（true 后不再自动弹出，可在设置中重新打开）。 */
-  onboardingCompleted: boolean;
   /** 是否已展示过首次运行登录引导 / 用户须知（true 后不再弹出）。 */
   firstRunNoticeShown: boolean;
   /** 启动时自动检查更新（默认开启，可在设置中关闭）。 */
@@ -304,29 +319,7 @@ export interface UpdateDownloadResult {
   error?: string;
 }
 
-/** 使用说明引导：主进程下发给引导视图的步骤数据。 */
-export interface OnboardingFocus {
-  /** 当前步骤下标。 */
-  index: number;
-  /** 总步骤数。 */
-  total: number;
-  /** 步骤标题。 */
-  title: string;
-  /** 步骤正文说明。 */
-  body: string;
-  /** 高亮区域（引导视图全窗口坐标系；null 表示无高亮，居中展示）。 */
-  rect: { x: number; y: number; width: number; height: number } | null;
-  /** 高亮移动起点：高亮框先出现在这里，再平滑移动到 rect（如共享屏幕演示：加号 → 菜单项）。 */
-  fromRect: { x: number; y: number; width: number; height: number } | null;
-  /** 演示动画类型（渲染层播放模拟演示；null 无）。textSelection=划词演示，subWindow=副窗口呼出演示。 */
-  demo: 'textSelection' | 'subWindow' | null;
-  /** 卡片摆放方式：'left'=固定屏幕左侧（避开演示区/底部菜单）；null=自动跟随高亮。 */
-  cardPos: 'left' | null;
-  /** 是否显示「上一步」。 */
-  showPrev: boolean;
-  /** 是否为最后一步（按钮显示「完成」）。 */
-  isLast: boolean;
-}
+
 
 /** 更新弹框：主进程下发给弹框窗口的版本信息。 */
 export interface UpdatePromptInfo {
@@ -334,4 +327,18 @@ export interface UpdatePromptInfo {
   latestVersion: string;
   /** Release 更新说明（markdown 文本）。 */
   releaseNotes: string | null;
+}
+
+/** 历史更新条目（GitHub Release）：设置 → 更新 → 查看历史更新使用。 */
+export interface ReleaseHistoryItem {
+  /** 版本号（去前导 v，如 1.4.1）。 */
+  version: string;
+  /** 发布标题（无则取版本号）。 */
+  name: string;
+  /** Release 页面地址。 */
+  url: string;
+  /** Release 说明正文（markdown，可能很长）。 */
+  body: string | null;
+  /** 发布时间（ISO 字符串，可能为空）。 */
+  publishedAt: string | null;
 }

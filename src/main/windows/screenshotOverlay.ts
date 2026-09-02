@@ -4,7 +4,7 @@
  * 多显示器/高 DPI：当前先用主屏全屏简化，坐标换算见 overlay.js 注释（待联调）。
  */
 import { BrowserWindow, screen } from 'electron';
-import { OVERLAY_HTML, SHELL_PRELOAD, iconIfExists } from '../constants';
+import { OVERLAY_HTML, SHELL_PRELOAD, appIconIfExists } from '../constants';
 
 let overlayWin: BrowserWindow | null = null;
 let closeListeners: Array<() => void> = [];
@@ -37,7 +37,7 @@ export function showOverlay(mode: 'normal' | 'question' = 'normal'): void {
     fullscreen: true,
     fullscreenable: true,
     show: false,
-    icon: iconIfExists(),
+    icon: appIconIfExists(),
     webPreferences: {
       preload: SHELL_PRELOAD,
       contextIsolation: true,

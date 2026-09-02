@@ -1,0 +1,1 @@
+function e(){let e=Promise.resolve();return Object.freeze({run(t){let n=e.then(t,t);return e=n.then(()=>void 0,()=>void 0),n}})}export{e as t};

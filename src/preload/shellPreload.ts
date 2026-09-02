@@ -10,7 +10,6 @@ import type {
   ConfigKey,
   ConfigShape,
   LoginStatusPayload,
-  OnboardingFocus,
   ScreenshotAction,
   ScreenshotRect,
   ThemeMode,
@@ -20,6 +19,7 @@ import type {
   UpdateDownloadResult,
   UpdateInfo,
   UpdatePromptInfo,
+  ReleaseHistoryItem,
 } from '../shared/types';
 
 /** 从 additionalArguments 读取窗口类型（主进程以 --window-type=xxx 传入）。 */
@@ -42,6 +42,15 @@ const shellApi = {
   toggleMax: (): void => ipcRenderer.send(IPC.WIN_MAX),
   close: (): void => ipcRenderer.send(IPC.WIN_CLOSE),
   toggleMainWindow: (): void => ipcRenderer.send(IPC.WIN_TOGGLE),
+  // 标题栏导航（Edge 风格的后退/前进/刷新），作用于主窗口聊天视图
+  chatNavBack: (): void => ipcRenderer.send(IPC.CHAT_NAV_BACK),
+  chatNavForward: (): void => ipcRenderer.send(IPC.CHAT_NAV_FORWARD),
+  chatNavReload: (): void => ipcRenderer.send(IPC.CHAT_NAV_RELOAD),
+  getChatNavState: (): Promise<{ canGoBack: boolean; canGoForward: boolean }> =>
+    ipcRenderer.invoke(IPC.CHAT_NAV_STATE_GET),
+  onChatNavState: (cb: (s: { canGoBack: boolean; canGoForward: boolean }) => void): void => {
+    ipcRenderer.on(IPC.CHAT_NAV_STATE_CHANGED, (_e, s) => cb(s || { canGoBack: false, canGoForward: false }));
+  },
 
   getConfig: <K extends ConfigKey>(key: K): Promise<ConfigShape[K]> =>
     ipcRenderer.invoke(IPC.CONFIG_GET, { key }),
@@ -63,6 +72,23 @@ const shellApi = {
   // ---- 增量：设置 / 副窗口 / 置顶 ----
   openSettings: (): void => ipcRenderer.send(IPC.SETTINGS_OPEN),
   closeSettings: (): void => ipcRenderer.send(IPC.SETTINGS_CLOSE),
+  // ---- 增量：插件管理面板 ----
+  openExtensions: (): void => ipcRenderer.send(IPC.EXTENSIONS_OPEN),
+  closeExtensions: (): void => ipcRenderer.send(IPC.EXTENSIONS_CLOSE),
+  listExtensions: (): Promise<Array<Record<string, unknown>>> => ipcRenderer.invoke(IPC.EXTENSIONS_LIST),
+  loadExtension: (dir: string): Promise<Record<string, unknown>> => ipcRenderer.invoke(IPC.EXTENSIONS_LOAD, { dir }),
+  installExtensionFromPicker: (): Promise<Record<string, unknown> | null> => ipcRenderer.invoke(IPC.EXTENSIONS_PICK_DIR),
+  setExtensionEnabled: (id: string, enabled: boolean): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(IPC.EXTENSIONS_SET_ENABLED, { id, enabled }),
+  removeExtension: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.EXTENSIONS_REMOVE, { id }),
+  setExtensionPinned: (id: string, pinned: boolean): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(IPC.EXTENSIONS_SET_PINNED, { id, pinned }),
+  getPinnedExtensions: (): Promise<Array<{ id: string; name: string; iconPath: string | null }>> =>
+    ipcRenderer.invoke(IPC.EXTENSIONS_GET_PINNED),
+  openExtensionPage: (id: string): Promise<boolean> => ipcRenderer.invoke(IPC.EXTENSIONS_OPEN_PAGE, { id }),
+  onPinnedExtensions: (cb: (list: Array<{ id: string; name: string; iconPath: string | null }>) => void): void => {
+    ipcRenderer.on(IPC.EXTENSIONS_PINNED_CHANGED, (_e, list) => cb(list || []));
+  },
   summonSub: (): void => ipcRenderer.send(IPC.SUB_SUMMON),
   swapMainSub: (): void => ipcRenderer.send(IPC.SUB_SWAP),
   alwaysOnTop: (): void => ipcRenderer.send(IPC.WIN_ALWAYS_ON_TOP),
@@ -175,6 +201,8 @@ const shellApi = {
   },
   /** 标题栏 -> 主（invoke）：打开设置并跳转到「更新」板块。 */
   openUpdateSettings: (): Promise<boolean> => ipcRenderer.invoke(IPC.UPDATE_OPEN_SETTINGS),
+  /** 设置面板 -> 主（invoke）：拉取更新历史。 */
+  getUpdateHistory: (): Promise<ReleaseHistoryItem[]> => ipcRenderer.invoke(IPC.UPDATE_GET_HISTORY),
   /** 主 -> 设置面板：跳转到指定板块（payload: { top: string; sub: string }）。 */
   onSettingsGoto: (cb: (payload: { top: string; sub: string }) => void): void => {
     ipcRenderer.on(IPC.SETTINGS_GOTO, (_e, payload: { top: string; sub: string }) => cb(payload));
@@ -184,19 +212,9 @@ const shellApi = {
     ipcRenderer.on(IPC.MODE_REMINDER_INFO, (_e, info: { type: 'expert' | 'simple' }) => cb(info));
   },
 
-  // ---- 使用说明引导 ----
-  /** 打开使用说明引导（首次运行自动触发；设置面板手动打开）。 */
-  openOnboarding: (): void => ipcRenderer.send(IPC.ONBOARDING_OPEN),
+  // ---- 详细使用说明「问问 AI」----
   /** 设置说明书 -> 主：打开副窗口并把说明书 Markdown 提交到快速模式对话并发送。 */
   askAiWithManual: (md: string): void => ipcRenderer.send(IPC.MANUAL_ASK_AI, md),
-  /** 引导视图 -> 主：鼠标是否位于交互控件（说明卡片）内，用于切换点击穿透。 */
-  setOnboardingInteractive: (interactive: boolean): void => {
-    ipcRenderer.send(IPC.ONBOARDING_SET_INTERACTIVE, interactive);
-  },
-  // ---- 主 -> 引导视图：订阅步骤数据下发 ----
-  onOnboardingFocus: (cb: (p: OnboardingFocus) => void): void => {
-    ipcRenderer.on(IPC.ONBOARDING_FOCUS, (_e, p: OnboardingFocus) => cb(p));
-  },
 
   // ---- 内置浏览器窗口（多标签） ----
   /** 浏览器外壳 -> 主（invoke）：请求当前标签快照。 */

@@ -21,6 +21,8 @@ import {
   UPLOAD_BUTTON_SELECTORS,
 } from './deepseek-selectors';
 import { logf } from '../logger';
+import { DEEPSEEK_URL } from '../constants';
+import { TASK_MODE_ICON_DATA_URL } from '../extensions/taskModeIcon';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -106,6 +108,31 @@ export class Injector {
   constructor(private readonly templates: PromptTemplates) {}
 
   /**
+   * 无痕徽章状态注入的串行链（按 webContents.id）。
+   * 快速开关无痕模式时主进程会连续调用 setIncognitoState，executeJavaScript 为异步，若乱序执行
+   * 会导致页面 window.__dsIncognitoActive 与徽章停留在历史值 →「打开没有蓝框 / 一直显示取消无痕」。
+   * 用 promise 链强制按调用顺序应用，保证最终状态与最后一次开关一致。
+   */
+  private incognitoStateChain = new Map<number, Promise<void>>();
+
+  /**
+   * 内置 DeepSeek++ 插件是否启用。关闭插件时断开一切「基于插件设计」的注入：
+   * 模式切换按钮 / token 小窗 / 占位文字 / 记忆提示词等（这些 UI 依赖插件的联网与 Shell 能力）。
+   * 由主进程在初始化与开关插件时调用 setDsppEnabled 维护。
+   */
+  private dsppEnabled = true;
+
+  /** 设置内置插件启用状态；返回 false 表示已断开（插件关闭）。 */
+  public setDsppEnabled(enabled: boolean): void {
+    this.dsppEnabled = !!enabled;
+  }
+
+  /** 内置插件当前是否启用（main.ts 据此决定是否应用「增强/任务「默认模式等）。 */
+  public isDsppEnabled(): boolean {
+    return this.dsppEnabled;
+  }
+
+  /**
    * 向对话框发送文本（可选附带图片）。内部统一走 submitToChat（I-06 强化自动发送）。
    * @returns 是否成功（找到输入框并可靠触发发送）。
    */
@@ -166,7 +193,8 @@ export class Injector {
           return best;
         }
         function findSend(){
-          var primary=document.querySelector('.ds-button--primary, [class*="--primary"]');
+          // 精准：发送/停止是唯一「圆形主按钮」，用稳定 ds- 语义类组合锁定（比任意 --primary 更精准）
+          var primary=document.querySelector('[role="button"].ds-button--circle.ds-button--primary, .ds-button--circle.ds-button--primary, .ds-button--primary, [class*="--primary"]');
           if(primary && !disabledOf(primary)) return {b:primary, via:'primary'};
           var all=Array.from(document.querySelectorAll('button, [role="button"], .ds-button'));
           for(var i=0;i<all.length;i++){ var a=(all[i].getAttribute('aria-label')||'').toLowerCase(); if((a.indexOf('发送')>=0||a.indexOf('send')>=0)&&!disabledOf(all[i])) return {b:all[i],via:'label'}; }
@@ -334,7 +362,7 @@ export class Injector {
         }
         var picker = document.createElement('div');
         picker.id = 'ds-doc-picker';
-        picker.style.cssText = 'position:fixed;display:flex;align-items:center;gap:6px;padding:5px 8px 5px 12px;background:rgba(28,30,38,0.55);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);border:1px solid rgba(255,255,255,0.18);border-radius:10px;z-index:2147483646;box-shadow:0 8px 28px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;';
+        picker.style.cssText = 'position:fixed;display:flex;align-items:center;gap:6px;padding:5px 8px 5px 12px;background:rgba(28,30,38,0.55);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);border:1px solid rgba(255,255,255,0.18);border-radius:10px;z-index:2147483646;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;';
         var label = document.createElement('span');
         label.style.cssText = 'display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#c8cdd6;white-space:nowrap;font-weight:500;';
         label.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>' + ${JSON.stringify(labelText)} + '</span>';
@@ -693,8 +721,7 @@ export class Injector {
         }
         window.__dsDocShareActive = true;
         window.__dsDocShareProcessing = false;
-        // 同步「+」菜单共享选项的蓝色高亮状态（类型与菜单项 type 一致）
-        window.__dsShareActiveMode = shareItemType;
+        // 同步「+」菜单共享文档项的蓝色高亮（__dsDocShareActive 已置真，isMenuHighlighted 据此置亮）
         window.__dsRequestedShare = shareItemType;
         if (window.__dsSyncShareMenu) window.__dsSyncShareMenu();
 
@@ -837,7 +864,6 @@ export class Injector {
         function stopShare() {
           window.__dsDocShareActive = false;
           window.__dsDocShareVersion++;
-          window.__dsShareActiveMode = null;
           window.__dsRequestedShare = null;
           if (window.__dsSyncShareMenu) window.__dsSyncShareMenu();
           cleanupShareUi();
@@ -1060,6 +1086,17 @@ export class Injector {
       }
       console.log('[Injector] switchToVisionModel: 未找到 vision radio，尝试点击「新建对话」');
       await this.clickNewConversationButton(wc);
+      await sleep(300);
+      const domState = await wc.executeJavaScript(`(() => {
+        const radio = document.querySelector('${VISION_RADIO}');
+        const radioAll = Array.from(document.querySelectorAll('[data-model-type]')).map(function(e){ return e.getAttribute('data-model-type'); });
+        const container = document.querySelector('[role="radiogroup"]');
+        const url = location.href.slice(0, 80);
+        const btns = Array.from(document.querySelectorAll('.ds-button--iconLabelPrimary, .ds-button--iconLabel, ._4f3769f')).filter(function(b){ var r=b.getBoundingClientRect(); return r.width>0&&r.height>0; });
+        const buttonInfo = btns.map(function(b){ return { label:(b.getAttribute('aria-label')||'').slice(0,20), txt:b.textContent.trim().slice(0,12), cls:(b.className||'').slice(0,20), html:b.outerHTML.slice(0,120) }; });
+        return JSON.stringify({ radio: !!radio, radioAll: radioAll, container: !!container, url: url, buttons: buttonInfo });
+      })()`);
+      console.log('[Injector] switchToVisionModel 点击后 DOM 探测:', domState);
       for (let poll = 0; poll < 15 && !found; poll++) {
         const appeared = await wc.executeJavaScript(`(() => {
           const radio = document.querySelector('${VISION_RADIO}');
@@ -1328,7 +1365,17 @@ export class Injector {
       // 测试桩直接返回裸布尔，视为确定性结果
       if (typeof obj === 'boolean') return obj;
       if (!obj || !obj.found) {
-        logf('setDeepThink', `未找到深度思考开关（账号可能未灰度到）；enabled=${enabled}`);
+        // 切会话时页面刚重渲染，深度思考开关可能尚未出现，轮询等待其出现再设置（最多 ~2.4s），
+        // 避免「未找到开关」导致会话切换后不按用户设置同步。
+        for (let a = 0; a < 16; a++) {
+          await sleep(150);
+          const res2 = await wc.executeJavaScript(findCode);
+          try { obj = JSON.parse(res2); } catch { obj = res2; }
+          if (obj && obj.found) break;
+        }
+      }
+      if (!obj || !obj.found) {
+        logf('setDeepThink', `未找到深度思考开关（等待后仍未出现，可能账号未灰度到）；enabled=${enabled}`);
         return false;
       }
       logf('setDeepThink', `当前 on=${obj.on} 目标 enabled=${enabled}`);
@@ -1413,7 +1460,16 @@ export class Injector {
       try { obj = JSON.parse(res); } catch { obj = res; }
       if (typeof obj === 'boolean') return obj;
       if (!obj || !obj.found) {
-        logf('setSmartSearch', `未找到智能搜索开关；enabled=${enabled}`);
+        // 切会话时页面刚重渲染，智能搜索开关可能尚未出现，轮询等待其出现再设置（最多 ~2.4s）。
+        for (let a = 0; a < 16; a++) {
+          await sleep(150);
+          const res2 = await wc.executeJavaScript(findCode);
+          try { obj = JSON.parse(res2); } catch { obj = res2; }
+          if (obj && obj.found) break;
+        }
+      }
+      if (!obj || !obj.found) {
+        logf('setSmartSearch', `未找到智能搜索开关（等待后仍未出现）；enabled=${enabled}`);
         return false;
       }
       logf('setSmartSearch', `当前 on=${obj.on} 目标 enabled=${enabled}`);
@@ -1438,6 +1494,45 @@ export class Injector {
     } catch (e) {
       console.error('[Injector] setSmartSearch 异常', e);
       return false;
+    }
+  }
+
+  /** 查询当前智能搜索开关状态（true=开，false=关，null=未找到）。 */
+  public async getSmartSearchState(wc: WebContents): Promise<boolean | null> {
+    const SEL = '.ds-toggle-button';
+    const findCode = `(() => {
+      try {
+        function isSmartSearch(el){
+          var t = (el.textContent || '').trim();
+          return t.indexOf('智能搜索') >= 0 || t.indexOf('联网') >= 0
+              || t.toLowerCase().indexOf('search') >= 0;
+        }
+        var cands = Array.from(document.querySelectorAll('${SEL}'));
+        var el = null;
+        for (var i = 0; i < cands.length; i++) { if (isSmartSearch(cands[i])) { el = cands[i]; break; } }
+        if (!el) return JSON.stringify({ found: false, on: false });
+        function isOn(e){
+          if (e.getAttribute) {
+            if (e.getAttribute('aria-pressed') === 'true') return true;
+            if (e.getAttribute('aria-checked') === 'true') return true;
+          }
+          if (e.classList && (e.classList.contains('ds-toggle-button--selected')
+              || e.classList.contains('active') || e.classList.contains('on')
+              || e.classList.contains('checked') || e.classList.contains('pressed'))) return true;
+          return false;
+        }
+        return JSON.stringify({ found: true, on: isOn(el) });
+      } catch (e) { return JSON.stringify({ found: false, on: false, err: String(e) }); }
+    })()`;
+    try {
+      const res = await wc.executeJavaScript(findCode);
+      let obj: any;
+      try { obj = JSON.parse(res); } catch { obj = res; }
+      if (obj && obj.found) return obj.on === true;
+      return null;
+    } catch (e) {
+      console.error('[Injector] getSmartSearchState 异常', e);
+      return null;
     }
   }
 
@@ -1676,49 +1771,106 @@ export class Injector {
     }
   }
 
-  /** 点击右上角「新建对话」按钮（带加号图标），用于展开折叠的模型选择器。 */
+  /** 点击「新建对话」按钮（侧边栏顶部，带加号图标），用于展开折叠的模型选择器。
+ *  只匹配侧边栏(窗口左 300px 内)且带加号图标的按钮，绝不误点顶部栏的「分享」等按钮。 */
   public async clickNewConversationButton(wc: WebContents): Promise<boolean> {
     try {
-      const rect = await wc.executeJavaScript(`(() => {
-        const allBtns = Array.from(document.querySelectorAll('.ds-button--iconLabelPrimary, .ds-button--iconLabel, ._4f3769f'));
-        for (const btn of allBtns) {
-          const r = btn.getBoundingClientRect();
-          if (r.width <= 0 || r.height <= 0) continue;
-          const hasPlusIcon = btn.querySelector('svg[class*="plus"], svg[data-icon*="plus"], svg[viewBox="0 0 24 24"] path[d*="M12 5v14M5 12h14"]');
-          if (hasPlusIcon) return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: r.width, height: r.height };
+      // DOM 真实点击（dispatchEvent pointerdown/mousedown/click）。共享屏幕时目标窗口若不在前台焦点，
+      // sendMouse 到屏幕坐标无效，故优先用 DOM 注入，避免「点击无反应」。
+      const domClicked = await wc.executeJavaScript(`(() => {
+        function fireClick(el){
+          if(!el) return false;
+          var types=['pointerdown','mousedown','mouseup'];
+          for(var i=0;i<types.length;i++){ try{ el.dispatchEvent(new MouseEvent(types[i],{bubbles:true,cancelable:true,view:window})); }catch(e){} }
+          try{ el.click(); }catch(e){}
+          return true;
         }
-        // 删除「ds-button--xl 取最右」fallback（2026-08-01 用户反馈"副窗口切回自动点分享"根因）：
-        // 该 fallback 会命中对话顶栏最右的分享按钮（弯曲箭头，纯 SVG 无 aria-label），
-        // 触发分享侧栏/弹窗。只保留：① 带加号图标的 iconLabelPrimary 按钮 ② 文字精确匹配。
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while ((node = walker.nextNode())) {
-          const text = node.textContent.trim();
-          if (text === '新建对话' || text === 'New Chat' || text === '新对话') {
-            const parent = node.parentElement;
-            if (parent) {
-              const r = parent.getBoundingClientRect();
-              if (r.width > 0 && r.height > 0) return { x: r.x + r.width / 2, y: r.y + r.height / 2, width: r.width, height: r.height };
+        // 判断元素内的加号图标：svg path 含两条正交的端点线段（M..v..M..h..，即 + 形）
+        function hasPlusIcon(btn){
+          if(!btn || !btn.querySelectorAll) return false;
+          var svgs = btn.querySelectorAll('svg');
+          for(var s=0;s<svgs.length;s++){
+            var vb=(svgs[s].getAttribute('viewBox')||'').trim();
+            if(vb!=='0 0 24 24' && vb!=='0 0 16 16' && vb!=='0 0 20 20') continue;
+            var paths=svgs[s].querySelectorAll('path');
+            for(var p=0;p<paths.length;p++){
+              var d=(paths[p].getAttribute('d')||'');
+              // 加号常见 path：如 "M12 5v14M5 12h14"（两条正交线）或类似
+              if(d.indexOf('v')>=0 && d.indexOf('h')>=0 && /M[^m]*v[^m]*M[^m]*h/.test(d)) return true;
             }
           }
+          return false;
         }
-        return null;
+        // 候选：侧边栏内的按钮（left < 300px，侧边栏宽约 274px）
+        var cands = Array.from(document.querySelectorAll('.ds-button--iconLabelPrimary, .ds-button--iconLabel, ._4f3769f, button, [role="button"]'));
+        for (var i=0;i<cands.length;i++){
+          var b=cands[i]; var r=b.getBoundingClientRect();
+          if(r.width<=0||r.height<=0) continue;
+          if(r.left >= 300) continue;          // 排除顶部栏右侧的分享/其它按钮
+          console.log('[NewConv-cand] left='+Math.round(r.left)+' top='+Math.round(r.top)+' cls='+((b.className||'').slice(0,40))+' plus='+hasPlusIcon(b)+' html='+b.outerHTML.slice(0,140));
+          if(hasPlusIcon(b)) return fireClick(b);
+        }
+        // 兜底：遍历文本树精确匹配「新建对话 / New Chat / 新对话」
+        var walker=document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+        var node;
+        while((node=walker.nextNode())){
+          var txt=node.textContent.trim();
+          if(txt==='新建对话'||txt==='New Chat'||txt==='新对话'){
+            var p=node.parentElement;
+            if(p){ var rr=p.getBoundingClientRect(); if(rr.width>0&&rr.height>0 && rr.left<300) return fireClick(p); }
+          }
+        }
+        return false;
       })()`);
-      if (!rect || (rect as any).width <= 0 || (rect as any).height <= 0) return false;
-      const cx = Math.round((rect as any).x);
-      const cy = Math.round((rect as any).y);
-      await this.disablePointerCapture(wc);
-      await sleep(60);
-      try {
-        (wc as any).focus();
-      } catch (e) {
-        /* ignore */
+      console.log('[Injector] clickNewConversationButton domClicked =', domClicked);
+      // 兜底：sendMouse 模拟（仅当 DOM 点击未命中时）——同一加号/侧边栏匹配逻辑
+      if (!(domClicked === true)) {
+        const rect = await wc.executeJavaScript(`(() => {
+          function hasPlusIcon(btn){
+            var svgs = btn?btn.querySelectorAll('svg'):[];
+            for(var i=0;i<svgs.length;i++){
+              var vb=(svgs[i].getAttribute('viewBox')||'').trim();
+              if(vb!=='0 0 24 24'&&vb!=='0 0 16 16'&&vb!=='0 0 20 20') continue;
+              var paths=svgs[i].querySelectorAll('path');
+              for(var p=0;p<paths.length;p++){ var d=(paths[p].getAttribute('d')||''); if(d.indexOf('v')>=0&&d.indexOf('h')>=0&&/M[^m]*v[^m]*M[^m]*h/.test(d)) return true; }
+            }
+            return false;
+          }
+          var cands = Array.from(document.querySelectorAll('.ds-button--iconLabelPrimary, .ds-button--iconLabel, ._4f3769f, button, [role="button"]'));
+          for (var i=0;i<cands.length;i++){
+            var b=cands[i]; var r=b.getBoundingClientRect();
+            if(r.width<=0||r.height<=0) continue;
+            if(r.left>=300) continue;
+            if(hasPlusIcon(b)) return { x: r.x + r.width/2, y: r.y + r.height/2, width: r.width, height: r.height };
+          }
+          return null;
+        })()`);
+        if (!rect || (rect as any).width <= 0 || (rect as any).height <= 0) {
+          // 找不到侧边栏「新建对话」按钮：直接用 URL 导航到 DeepSeek 根路由（新建对话/首页，
+          // 模型选择器 aria 存在），这是应用已验证的「新建对话」可靠入口（避免猜测按钮选择器误点分享）。
+          console.log('[Injector] clickNewConversationButton: 未找到新建对话按钮，改用 loadURL 新建对话页');
+          try {
+            await wc.loadURL(DEEPSEEK_URL);
+            return true;
+          } catch (err) {
+            return false;
+          }
+        }
+        const cx = Math.round((rect as any).x);
+        const cy = Math.round((rect as any).y);
+        await this.disablePointerCapture(wc);
+        await sleep(60);
+        try {
+          (wc as any).focus();
+        } catch (e) {
+          /* ignore */
+        }
+        this.sendMouse(wc, 'mouseMove', cx, cy);
+        await sleep(60);
+        this.sendMouse(wc, 'mouseDown', cx, cy);
+        await sleep(60);
+        this.sendMouse(wc, 'mouseUp', cx, cy);
       }
-      this.sendMouse(wc, 'mouseMove', cx, cy);
-      await sleep(60);
-      this.sendMouse(wc, 'mouseDown', cx, cy);
-      await sleep(60);
-      this.sendMouse(wc, 'mouseUp', cx, cy);
       return true;
     } catch (e) {
       return false;
@@ -1788,6 +1940,30 @@ export class Injector {
         // 稳健定位上传按钮：策略A 由 file input 向上找 clickable 祖先；策略B 取 footer 中「发送前一位」按钮
         function disabledOf(b){ return b.disabled===true || b.getAttribute('aria-disabled')==='true' || (b.classList && b.classList.contains('disabled')); }
         function isToggle(b){ var a=(b.getAttribute('aria-label')||'').toLowerCase(); var t=(b.textContent||'').trim().toLowerCase(); return a.indexOf('思考')>=0||a.indexOf('搜索')>=0||a.indexOf('深度')>=0||a.indexOf('智能')>=0||t.indexOf('思考')>=0||t.indexOf('搜索')>=0; }
+        // 安全过滤：只允许对「真正的回形针上传按钮」做隐藏，绝不藏工具栏容器、绝不藏发送按钮（用户只要求藏上传 UI，上传入口统一走「+」菜单）。
+        function looksLikeSend(b){ if(!b) return false; var a=(b.getAttribute&&b.getAttribute('aria-label')||'').toLowerCase(); var t=(b.textContent||'').trim().toLowerCase(); return a.indexOf('发送')>=0||a.indexOf('send')>=0||a.indexOf('voice')>=0||a.indexOf('话筒')>=0||a.indexOf('语音')>=0||a.indexOf('mic')>=0; }
+        function isOurs(b){ return b && (b.id==='ds-scissors-btn'||b.id==='ds-plus-btn'); }
+        // 精确找「回形针上传按钮」：优先返回真正包住 file input 的那个按钮；否则在锚点(或其父工具栏)内取第一个
+        // 「非思考/搜索切换、非发送、非我们自己注入」的图标按钮。只返回单个离散按钮，绝不返回容器 → 发送按钮不受影响。
+        function safeUpload(anchor){
+          if (!anchor) return null;
+          var scope = (anchor.tagName==='BUTTON'||anchor.tagName==='LABEL'||(anchor.getAttribute&&anchor.getAttribute('role')==='button'))
+            ? (anchor.parentElement||document.body)
+            : (anchor.querySelector ? anchor : null);
+          if (!scope) return null;
+          var btns = Array.prototype.slice.call(scope.querySelectorAll('button,[role="button"]'));
+          var fall = null;
+          for (var i=0;i<btns.length;i++){
+            var b=btns[i];
+            if (isOurs(b)||looksLikeSend(b)||isToggle(b)) continue;
+            if (b.querySelector && b.querySelector('input[type="file"]')) return b;
+            if (!fall) fall = b;
+          }
+          if (fall) return fall;
+          // 兜底：锚点本身若已是离散按钮且非发送/非自己
+          if (!anchor.querySelector('button,[role="button"]')&&!isOurs(anchor)&&!looksLikeSend(anchor)) return anchor;
+          return null;
+        }
         // 实机确认：DeepSeek 输入框与按钮工具栏是兄弟节点，按钮不在输入框祖先链上
         // （input#0 footerBtns=0 已验证）。故以 input[type=file] 上传文件框为可靠锚点。
         function getUploadButton(){
@@ -1853,7 +2029,7 @@ export class Injector {
           // 持续隐藏网页原生上传按钮（回形针）：仅注入「+」按钮的窗口执行，上传入口统一走「+」菜单。
           // 放在注入判断之外：即使工具栏重渲染只重建了上传按钮，也会被立即重新隐藏。
           if (SHOULD_INJECT_PLUS_BUTTON) {
-            var anchor = getUploadButton();
+            var anchor = safeUpload(getUploadButton());
             if (anchor && anchor.style && anchor.style.display !== 'none') {
               anchor.style.display = 'none';
               if (anchor.setAttribute) anchor.setAttribute('aria-hidden', 'true');
@@ -1907,7 +2083,14 @@ export class Injector {
           // B类窗口不注入加号按钮
           if (SHOULD_INJECT_PLUS_BUTTON) {
           (function injectPlusButton() {
+            // 注入前清理上一次残留（DeepSeek React 可能重渲染掉加号按钮而不清 body 里的旧菜单，
+            // 导致重复注入出多个 #ds-plus-menu / 按钮，getElementById 命中旧的 → 蓝框/标签不同步）。
+            // 按钮若仍在（正常情况）直接 return，不做清理。
             if (document.getElementById('ds-plus-btn')) return;
+            try {
+              document.querySelectorAll('#ds-plus-menu').forEach(function (el) { el.remove(); });
+              document.querySelectorAll('#ds-plus-btn').forEach(function (el) { el.remove(); });
+            } catch (e2) {}
             // 与剪刀按钮同尺寸（剪刀已按原生上传按钮自适应），保证三者视觉对齐
             var scissorEl = document.getElementById('ds-scissors-btn');
             var btnSize = scissorEl ? scissorEl.offsetWidth : 32;
@@ -1930,6 +2113,7 @@ export class Injector {
             var items = [
               // 无痕模式：置于加号菜单最上方。图标为「虚线绘制的聊天框」样式（用户指定）。
               { label: '无痕模式', type: 'incognito', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="3 2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' },
+
               { label: '共享文档', type: 'shareDocAll', icon: '${wpsDocIcon}' },
               { label: '共享屏幕', type: 'shareScreen', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>' },
               { label: '上传文件', type: 'uploadFile', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' },
@@ -1940,20 +2124,31 @@ export class Injector {
             //  - 共享类（shareDocAll/shareScreen）：由 window.__dsShareActiveMode 决定。
             function isMenuHighlighted(t) {
               if (t === 'incognito') return window.__dsIncognitoActive === true;
-              return t === (window.__dsShareActiveMode || null);
+              // 共享文档/共享屏幕各自独立置亮，可同时开启同时显示蓝框（不再用单值互斥）
+              if (t === 'shareDocAll') return window.__dsDocShareActive === true;
+              if (t === 'shareScreen') return window.__dsScreenShareActive === true;
+              return false;
+            }
+            // 开启中悬浮时显示「取消无痕」/「取消任务」/「取消共享」文字的菜单项 type 集合（共享类 + 无痕/任务模式）
+            var hoverActionTypes = ['shareDocAll', 'shareScreen', 'incognito'];
+            function hoverActionText(t) {
+              if (t === 'incognito') return '取消无痕';
+              return '取消共享';
             }
             // 共享状态同步：window.__dsShareActiveMode 标记当前共享模式（'shareDocAll'/'shareScreen'/null），
             // 据此给对应「共享」菜单项加蓝色高亮框；统一由此函数刷新，供共享浮层（picker）注入/共享屏幕启停时调用。
-            function syncShareMenuHighlight() {
-              var menuEl = document.getElementById('ds-plus-menu');
+            function syncShareMenuHighlight(menuEl) {
+              // 允许调用方传入当前实际可见的菜单元素：若页面残留了早期重复注入的 #ds-plus-menu，
+              // getElementById 只会命中第一个（旧/隐藏的），导致用户看到的菜单蓝框/标签从不刷新。
+              menuEl = menuEl || document.getElementById('ds-plus-menu');
               if (!menuEl) return;
               var btns = menuEl.querySelectorAll('button');
               for (var si = 0; si < btns.length; si++) {
                 var b = btns[si];
                 var t = b.getAttribute('data-ds-type');
                 if (!t) continue;
-                // 共享类菜单项：恢复原始标签文字（悬浮时的「取消共享」在鼠标离开后由本函数还原）
-                if (t === 'shareDocAll' || t === 'shareScreen') {
+                // 悬浮文字类型菜单项：恢复原始标签文字（悬浮时的「取消无痕/取消共享」在鼠标离开后由本函数还原）
+                if (hoverActionTypes.indexOf(t) !== -1) {
                   var lbl = b.querySelector('.ds-menu-label');
                   if (lbl && lbl.getAttribute('data-ds-label')) lbl.textContent = lbl.getAttribute('data-ds-label');
                 }
@@ -1975,20 +2170,20 @@ export class Injector {
                 var menuItem = document.createElement('button');
                 menuItem.type = 'button';
                 menuItem.setAttribute('data-ds-type', item.type);
-                menuItem.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 13px;border:1px solid transparent;background:transparent;color:#e0e0e0;font-size:13px;cursor:pointer;text-align:left;white-space:nowrap;transition:background 0.12s,border-color 0.12s;';
+                menuItem.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 13px;border:1px solid transparent;border-radius:8px;background:transparent;color:#e0e0e0;font-size:13px;cursor:pointer;text-align:left;white-space:nowrap;transition:background 0.12s,border-color 0.12s;';
                 menuItem.onmouseenter = function () {
                   var t = this.getAttribute('data-ds-type');
                   var isActive = isMenuHighlighted(t);
                   this.style.background = isActive ? 'rgba(90,140,255,0.26)' : 'rgba(255,255,255,0.1)';
-                  // 共享中悬浮：显示「取消共享」，提示点击即可关闭共享（无痕模式无此交互）
-                  if (isActive && (t === 'shareDocAll' || t === 'shareScreen')) {
+                  // 开启中悬浮：显示「取消无痕/取消共享」，提示点击即可关闭（无痕模式同理）
+                  if (isActive && hoverActionTypes.indexOf(t) !== -1) {
                     var lbl = this.querySelector('.ds-menu-label');
-                    if (lbl) lbl.textContent = '取消共享';
+                    if (lbl) lbl.textContent = hoverActionText(t);
                   }
                 };
                 menuItem.onmouseleave = function () {
                   this.style.background = 'transparent';
-                  syncShareMenuHighlight(); // 恢复共享中选项的蓝色高亮与原始标签文字
+                  syncShareMenuHighlight(menu); // 恢复共享/无痕开启中选项的蓝色高亮与原始标签文字
                 };
                 // WPS 程序图标（<img>）保持原色，不加暗化
                 var isWpsIcon = item.icon.indexOf('<img') === 0;
@@ -1996,43 +2191,39 @@ export class Injector {
                 menuItem.addEventListener('click', function (e) {
                   e.preventDefault();
                   e.stopPropagation();
-                  // 无痕模式：纯本地开关（开启 / 关闭）。
-                  // 关键：一旦当前对话已有记录（URL 已含会话 id，如 /a/chat/s/<uuid> 等），
-                  // 无痕模式被锁定——无法手动关闭，只能等「退出该会话/关闭窗口/退出程序」时自动删除。
+                  // 无痕模式：交由主进程切换（toggle 意图）。
+                  // 主进程以自己维护的状态为唯一真源，读取当前是否开启后判定新状态并回写，
+                  // 避免页面本地标志屡次开关后与主进程脱钩（蓝框消失 / 一直显示取消无痕）。
+                  // 只要无痕保持开启直到退出会话/切换对话/关闭窗口/退出程序，才会删除该对话记录。
                   if (item.type === 'incognito') {
-                    if (window.__dsIncognitoActive) {
-                      // 尝试关闭：已有记录则拒绝（保持菜单开启 + 蓝色高亮作为反馈）
-                      var hasRecord = !!location.href.match(new RegExp('(?:/a/chat/s/|/a/chat/|/c/)([^/?#]+)'));
-                      if (hasRecord) {
-                        syncShareMenuHighlight();
-                        return; // 菜单不关闭，保持高亮 = 已锁定
-                      }
-                      window.__dsIncognitoActive = false;
-                      syncShareMenuHighlight();
-                      menu.style.display = 'none';
-                      try { window.__ds && window.__ds.setIncognito(false); } catch (e2) {}
-                    } else {
-                      window.__dsIncognitoActive = true;
-                      syncShareMenuHighlight();
-                      menu.style.display = 'none';
-                      try { window.__ds && window.__ds.setIncognito(true); } catch (e2) {}
+                    menu.style.display = 'none';
+                    syncShareMenuHighlight(menu); // 立刻还原悬浮标签「取消无痕」与蓝色高亮，避免悬停残留卡死
+                    try { window.__ds && window.__ds.toggleIncognito(); } catch (e2) {}
+                    // 让主进程回写后以真实状态刷新蓝框（打开菜单时还会再向主进程复核）
+                    if (window.__ds && typeof window.__ds.getIncognitoState === 'function') {
+                      window.__ds.getIncognitoState().then(function (st) {
+                        console.log('[Injector] incognito 点击后主进程状态=' + st + ' 页面旧标志=' + window.__dsIncognitoActive);
+                        window.__dsIncognitoActive = !!st;
+                        syncShareMenuHighlight(menu);
+                      }).catch(function () { console.log('[Injector] 查询 incognito 状态失败'); });
                     }
                     return;
                   }
                   menu.style.display = 'none';
-                  // 共享类菜单项：再次点击同一项=取消共享；切换类型时先取消旧共享
+                  // 共享类菜单项：再次点击同一项=取消共享；切换类型时先取消旧共享。
+                  // 高亮用各共享类型的独立激活标志（共享文档/共享屏幕可同时开启），
+                  // 取消判断也据此判定，不再依赖旧的单值 __dsShareActiveMode。
                   if (item.type === 'shareDocAll') {
-                    if (window.__dsShareActiveMode === item.type) {
+                    if (isMenuHighlighted(item.type)) {
+                      // 已是激活状态：取消共享文档
                       if (window.__dsDocShareStop) window.__dsDocShareStop();
-                      window.__dsShareActiveMode = null;
                       window.__dsRequestedShare = null;
-                      syncShareMenuHighlight();
+                      syncShareMenuHighlight(menu);
                       return;
                     }
-                    if (window.__dsShareActiveMode && window.__dsDocShareStop) window.__dsDocShareStop();
-                    window.__dsShareActiveMode = item.type;
+                    if (window.__dsDocShareActive && window.__dsDocShareStop) window.__dsDocShareStop();
                     window.__dsRequestedShare = item.type;
-                    syncShareMenuHighlight();
+                    syncShareMenuHighlight(menu);
                   }
                   if (item.type === 'uploadFile') {
                     document.dispatchEvent(new CustomEvent('ds-plus-trigger', { detail: { type: 'uploadFile' } }));
@@ -2059,8 +2250,13 @@ export class Injector {
               var rect = z !== 1 && z > 0 ? { left: r.left / z, top: r.top / z } : { left: r.left, top: r.top };
               if (menu.style.display === 'flex') {
                 menu.style.display = 'none';
+                syncShareMenuHighlight(menu); // 关闭时还原悬浮标签，防止「取消无痕」残留
               } else {
-                syncShareMenuHighlight(); // 打开菜单时刷新共享选项的蓝色高亮状态
+                // 诊断：检测是否残留了重复注入的菜单/按钮（旧可能性导致蓝框不同步）
+                try {
+                  console.log('[Injector] 重复检查 全菜单数=' + document.querySelectorAll('#ds-plus-menu').length + ' 全加号按钮数=' + document.querySelectorAll('#ds-plus-btn').length + ' 全无痕菜单项数=' + document.querySelectorAll('button[data-ds-type="incognito"]').length);
+                } catch (e2) {}
+                syncShareMenuHighlight(menu); // 打开菜单时刷新共享选项的蓝色高亮状态
                 // 先显示菜单以测量高度，再向上定位（offsetHeight 是布局值，不受 zoom 影响）
                 menu.style.display = 'flex';
                 menu.style.visibility = 'hidden';
@@ -2068,12 +2264,21 @@ export class Injector {
                 menu.style.visibility = 'visible';
                 menu.style.left = rect.left + 'px';
                 menu.style.top = (rect.top - menuHeight - 4) + 'px';
+                // 打开时向主进程复核真实的无痕状态，刷新蓝框高亮（防止页面标志陈旧/错乱）
+                if (window.__ds && typeof window.__ds.getIncognitoState === 'function') {
+                  window.__ds.getIncognitoState().then(function (st) {
+                    console.log('[Injector] 打开菜单复核 incognito 状态=' + st + ' 页面旧标志=' + window.__dsIncognitoActive);
+                    window.__dsIncognitoActive = !!st;
+                    syncShareMenuHighlight(menu);
+                  }).catch(function () { console.log('[Injector] 打开菜单复核 incognito 状态失败'); });
+                }
               }
             });
 
             // 点击菜单外部关闭
             document.addEventListener('click', function () {
               menu.style.display = 'none';
+              syncShareMenuHighlight(menu); // 关闭时还原悬浮标签，防止「取消无痕」残留
             }, false);
 
             // 插入到剪刀按钮之前
@@ -2086,9 +2291,12 @@ export class Injector {
           } // end if (SHOULD_INJECT_PLUS_BUTTON)
           // 隐藏网页原生的上传按钮（回形针）：上传入口统一走「+」菜单（用户需求）。
           // 仅当注入「+」按钮时隐藏；B 类窗口无「+」按钮，保留原上传入口。
-          if (SHOULD_INJECT_PLUS_BUTTON && anchor && anchor.style) {
-            anchor.style.display = 'none';
-            if (anchor.setAttribute) anchor.setAttribute('aria-hidden', 'true');
+          if (SHOULD_INJECT_PLUS_BUTTON) {
+            var safeAnchor = safeUpload(anchor);
+            if (safeAnchor && safeAnchor.style) {
+              safeAnchor.style.display = 'none';
+              if (safeAnchor.setAttribute) safeAnchor.setAttribute('aria-hidden', 'true');
+            }
           }
           return true;
         }
@@ -2136,7 +2344,1433 @@ export class Injector {
   }
 
   /**
-   * 在 chat.deepseek.com 页面内注入「新建对话」监听。
+   * 在聊天输入框「智能搜索」按钮右侧注入「模式切换」下拉（普通模式 / 联网模式）。
+   * - 普通模式：插件的「搜索互联网 + 获取网页」两个开关都关闭；
+   * - 联网模式：两个开关都打开，并关闭网页原生「智能搜索」按钮。
+   * 样式参照「+」菜单与共享屏幕悬浮框：深色毛玻璃 + 白色细边框 + 蓝色高亮当前项。
+   * 页面事件经 ds-chat-mode-trigger(CustomEvent) → webviewPreload → IPC.CHAT_MODE_SET → 主进程处理。
+   * 主进程切换后经 syncChatModeToPage 调 window.__dsSyncChatMode(mode) 回写按钮/菜单高亮。
+   */
+  public async injectTokenWidget(wc: WebContents): Promise<boolean> {
+    // 插件关闭：不注入 token 小窗（依赖插件功能）。
+    if (!this.dsppEnabled) return Promise.resolve(false);
+    const code = `(() => {
+      try {
+        if (document.getElementById('ds-token-widget')) return true;
+        var tw = document.createElement('div');
+        tw.id = 'ds-token-widget';
+        tw.style.cssText = 'position:fixed;display:none;align-items:center;justify-content:center;gap:6px;min-width:34px;height:24px;padding:0 10px;border-radius:12px;background:rgba(28,30,38,0.55);backdrop-filter:blur(14px) saturate(1.5);-webkit-backdrop-filter:blur(14px) saturate(1.5);border:1px solid rgba(255,255,255,0.18);color:#eef0f3;font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1;user-select:none;-webkit-user-select:none;cursor:default;z-index:2147483000;';
+        tw.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#5a8cff;flex:none;box-shadow:0 0 6px rgba(90,140,255,0.9);"></span>'
+          + '<span class="ds-token-box" style="display:inline-flex;align-items:flex-start;overflow:hidden;height:15px;transform:translateY(1px);"></span>'
+          + '<div class="ds-token-tip" style="position:absolute;top:calc(100% + 7px);right:0;display:none;flex-direction:column;gap:4px;padding:9px 12px;border-radius:10px;background:rgba(28,30,38,0.6);backdrop-filter:blur(16px) saturate(1.5);-webkit-backdrop-filter:blur(16px) saturate(1.5);border:1px solid rgba(255,255,255,0.16);font-size:11px;font-weight:500;line-height:1.2;white-space:nowrap;">'
+          + '<span style="color:#9aa3b2;">今日 <b class="ds-token-today" style="color:#eef0f3;font-variant-numeric:tabular-nums;font-weight:600;margin-left:4px;">0</b></span>'
+          + '<span style="color:#9aa3b2;">累计 <b class="ds-token-total" style="color:#eef0f3;font-variant-numeric:tabular-nums;font-weight:600;margin-left:4px;">0</b></span>'
+          + '</div>';
+        document.body.appendChild(tw);
+        tw.style.position = 'fixed';
+        var twSlotBox = tw.querySelector('.ds-token-box');
+        var twToday = tw.querySelector('.ds-token-today');
+        var twTotal = tw.querySelector('.ds-token-total');
+        var twTip = tw.querySelector('.ds-token-tip');
+        var SLOT_H = 15;
+        var SLOT_SEQ = '0123456789.kMB';
+        var SLOT_BAND = (function () { var a = []; for (var r = 0; r < 22; r++) { for (var s = 0; s < SLOT_SEQ.length; s++) a.push(SLOT_SEQ[s]); } return a; })();
+        var twCols = [];
+        var twFirst = true;
+        function twNewCol() {
+          var col = document.createElement('span');
+          col.style.cssText = 'display:inline-block;vertical-align:top;overflow:hidden;height:' + SLOT_H + 'px;width:9px;position:relative;';
+          var strip = document.createElement('span');
+          strip.style.cssText = 'display:block;line-height:' + SLOT_H + 'px;font-variant-numeric:tabular-nums;will-change:transform;';
+          col.appendChild(strip);
+          return { col: col, strip: strip, idx: 0, built: false };
+        }
+        function twFillStrip(co) {
+          var frag = document.createDocumentFragment();
+          var cellCss = 'display:flex;align-items:center;justify-content:center;height:' + SLOT_H + 'px;line-height:' + SLOT_H + 'px;font-variant-numeric:tabular-nums;color:#eef0f3;font-weight:600;white-space:nowrap;';
+          for (var i = 0; i < SLOT_BAND.length; i++) {
+            var cell = document.createElement('span');
+            cell.style.cssText = cellCss;
+            cell.textContent = SLOT_BAND[i];
+            frag.appendChild(cell);
+          }
+          co.strip.appendChild(frag);
+          co.built = true;
+        }
+        function twCharIdxLow(char) {
+          var p = SLOT_BAND.indexOf(char); if (p < 0) p = 0;
+          var mid = Math.floor(SLOT_BAND.length / 2);
+          while (p < mid) p += SLOT_SEQ.length;
+          return p;
+        }
+        function twSetIdxVisible(co, char) {
+          co.idx = twCharIdxLow(char);
+          co.strip.style.transform = 'translateY(' + (-co.idx * SLOT_H) + 'px)';
+        }
+        function twRollTo(co, char) {
+          if (!co.built) twFillStrip(co);
+          if (SLOT_BAND[co.idx] === char) return;
+          var seqLen = SLOT_SEQ.length;
+          var curPos = SLOT_SEQ.indexOf(SLOT_BAND[co.idx]);
+          var tarPos = SLOT_SEQ.indexOf(char);
+          var fwd = ((tarPos - curPos) + seqLen) % seqLen;
+          var steps = fwd + seqLen;
+          var base = co.idx + steps;
+          if (base > SLOT_BAND.length - 12) { twSetIdxVisible(co, char); return; }
+          var dur = Math.min(720, Math.max(320, steps * 30));
+          var anim = co.strip.animate(
+            [{ transform: 'translateY(' + (-co.idx * SLOT_H) + 'px)' }, { transform: 'translateY(' + (-base * SLOT_H) + 'px)' }],
+            { duration: dur, easing: 'cubic-bezier(.12,.85,.3,1)', fill: 'forwards' }
+          );
+          co.idx = base;
+          anim.onfinish = function () { try { anim.cancel(); } catch (e9) {} co.strip.style.transform = 'translateY(' + (-base * SLOT_H) + 'px)'; };
+        }
+        var twSetNum = function (text) {
+          try {
+            var targets = text.split('');
+            while (twCols.length < targets.length) twCols.push(twNewCol());
+            while (twCols.length > targets.length) { var r = twCols.pop(); if (r.col.parentNode) r.col.parentNode.removeChild(r.col); }
+            while (twSlotBox.firstChild) twSlotBox.removeChild(twSlotBox.firstChild);
+            for (var i = 0; i < twCols.length; i++) {
+              var co = twCols[i];
+              if (!co.built) twFillStrip(co);
+              if (twFirst) twSetIdxVisible(co, targets[i]);
+              else twRollTo(co, targets[i]);
+              twSlotBox.appendChild(co.col);
+            }
+            twFirst = false;
+          } catch (e4) { twSlotBox.textContent = text; }
+        };
+        tw.addEventListener('pointerenter', function () { try { twTip.style.display = 'flex'; } catch (e5) {} });
+        tw.addEventListener('pointerleave', function () { try { twTip.style.display = 'none'; } catch (e5) {} });
+        var twLastKey = '';
+        function twLayoutRect(el) {
+          var rr = el.getBoundingClientRect();
+          try {
+            var zz = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+            if (zz !== 1 && zz > 0) return { left: rr.left / zz, top: rr.top / zz, right: rr.right / zz, bottom: rr.bottom / zz, width: rr.width / zz, height: rr.height / zz };
+          } catch (eZ) {}
+          return rr;
+        }
+        function twFindComposer() {
+          var ta = document.querySelector('textarea[placeholder*="发送消息"], textarea[aria-label*="发送消息"], textarea, [contenteditable="true"], [role="textbox"]');
+          if (!ta) return null;
+          var comp = ta.parentElement;
+          for (var ci = 0; ci < 8 && comp; ci++) {
+            // composer = 同时含「上传/附加等按钮」与输入框的容器。专家模式下页面没有 input[type=file]，
+            // 不能把 file 作为必需项，否则定位失败 → token 跑位。用 button/role=button 兜底代替。
+            if (comp.querySelector && comp.querySelector('input[type="file"], button, [role="button"]') && comp.querySelector('textarea, [contenteditable="true"]')) break;
+            comp = comp.parentElement;
+          }
+          if (!comp) comp = ta.parentElement;
+          return { ta: ta, comp: comp };
+        }
+        var twPlace = function () {
+          try {
+            var hit = twFindComposer();
+            if (!hit) return;
+            var cRect = twLayoutRect(hit.comp);
+            if (!cRect || cRect.width <= 1 || cRect.height <= 1) return;
+            var bw = tw.offsetWidth || 34;
+            var bh = tw.offsetHeight || 24;
+            var rightAnchor = cRect.right - 8;
+            var left = Math.max(8, rightAnchor - bw);
+            var top = cRect.top - bh - 8;
+            if (top < 8) top = cRect.bottom + 8;
+            var key = left + ',' + top;
+            if (key !== twLastKey) {
+              twLastKey = key;
+              tw.style.right = '';
+              tw.style.left = left + 'px';
+              tw.style.top = top + 'px';
+            }
+          } catch (e3) {}
+        };
+        var twFmt = function (n) {
+          var v = Number(n) || 0;
+          if (v < 1000) return String(Math.round(v));
+          var u, f;
+          if (v >= 1000000000) { u = 'B'; f = v / 1000000000; }
+          else if (v >= 1000000) { u = 'M'; f = v / 1000000; }
+          else { u = 'k'; f = v / 1000; }
+          return f.toFixed(1) + u;
+        };
+        var twPoll = function () { try { document.dispatchEvent(new CustomEvent('ds-token-widget-query')); } catch (e7) {} };
+        var twTimer = null;
+        var posTimer = null;
+        function twStartTimers() {
+          if (twTimer) return;
+          twPoll();
+          twTimer = setInterval(twPoll, 3000);
+          posTimer = setInterval(twPlace, 150);
+        }
+        function twStopTimers() {
+          if (twTimer) { clearInterval(twTimer); twTimer = null; }
+          if (posTimer) { clearInterval(posTimer); posTimer = null; }
+        }
+        var twEnabledNow = false, twTokensNow = 0, twTotalNow = 0;
+        var twShow = function (enabled, tokens, total) {
+          twEnabledNow = enabled === true;
+          twTokensNow = Number(tokens) || 0;
+          twTotalNow = Number(total) || 0;
+          if (enabled) {
+            twSetNum(twFmt(twTokensNow));
+            if (twToday) twToday.textContent = twFmt(twTokensNow);
+            if (twTotal) twTotal.textContent = twFmt(twTotalNow);
+            tw.style.display = 'flex';
+            twStartTimers();
+          } else {
+            tw.style.display = 'none';
+            twStopTimers();
+          }
+          twPlace();
+        };
+        document.addEventListener('ds-token-widget-state', function (ev) {
+          try { var d = ev.detail || {}; twShow(!!d.enabled, Number(d.tokens) || 0, Number(d.totalTokens) || 0); } catch (e6) {}
+        });
+        window.addEventListener('resize', function () { twPlace(); });
+        window.addEventListener('scroll', function () { twPlace(); }, true);
+        var twBodyObserver = null;
+        try {
+          if (typeof MutationObserver === 'function') {
+            twBodyObserver = new MutationObserver(function () {
+              try {
+                if (!document.getElementById('ds-token-widget') && tw && !tw.isConnected) {
+                  if (tw.parentNode !== document.body) document.body.appendChild(tw);
+                  twShow(twEnabledNow, twTokensNow, twTotalNow);
+                }
+              } catch (eS) {}
+            });
+            twBodyObserver.observe(document.body, { childList: true, subtree: false });
+          }
+        } catch (eM) { /* 忽略 */ }
+        twPoll();
+        window.__dsTokenWidget = { show: twShow, query: twPoll, place: twPlace, destroy: function () { twStopTimers(); if (twBodyObserver) { try { twBodyObserver.disconnect(); } catch (eB2) {} } } };
+        return true;
+      } catch (e8) { return false; }
+    })()`;
+    const res = await wc.executeJavaScript(code).catch(() => false);
+    return !!res;
+  }
+
+  public async injectChatModeSwitcher(wc: WebContents, isSub = false, isBWindow = false): Promise<boolean> {
+    // 插件关闭：断开基于插件设计的模式切换按钮 / token 小窗 / 占位文字等注入。
+    if (!this.dsppEnabled) return Promise.resolve(false);
+    const code = `(() => {
+      try {
+        if (window.__dsChatModeUI) return true;
+        // 副窗口（isSub=true）：窄视口二级展开框改为「点击同位进入子菜单」+ 返回按钮；
+        // B 类窗口（isBWindow=true）：强制普通模式 + 记忆关闭。
+        var IS_SUB = ${isSub};
+        var IS_BWINDOW = ${isBWindow};
+        try {
+          document.querySelectorAll('#ds-chat-mode-menu').forEach(function (el) { el.remove(); });
+          document.querySelectorAll('#ds-chat-mode-btn').forEach(function (el) { el.remove(); });
+        } catch (e2) {}
+        // 只匹配「智能搜索」按钮（遮罩/提示专用：不覆盖深度思考等其他 toggle）
+        function findSmartOnly() {
+          var cands = Array.from(document.querySelectorAll('.ds-toggle-button'));
+          for (var i = 0; i < cands.length; i++) {
+            var t = (cands[i].textContent || '').trim();
+            if (t.indexOf('智能搜索') >= 0 || t.indexOf('联网') >= 0 || t.toLowerCase().indexOf('search') >= 0) return cands[i];
+          }
+          return null;
+        }
+        // 锚点：优先「智能搜索」toggle；专家模式等无智能搜索时，退而求其次定位到
+        // 任意可见的 toggle（如「深度思考」，位于工具栏左侧，不会超视口）。
+        function findToggle() {
+          var cands = Array.from(document.querySelectorAll('.ds-toggle-button'));
+          for (var i = 0; i < cands.length; i++) {
+            var t = (cands[i].textContent || '').trim();
+            if (t.indexOf('智能搜索') >= 0 || t.indexOf('联网') >= 0 || t.toLowerCase().indexOf('search') >= 0) return cands[i];
+          }
+          for (var j = 0; j < cands.length; j++) {
+            var r = cands[j].getBoundingClientRect();
+            if (r.width > 1 && r.height > 1) return cands[j];
+          }
+          return null;
+        }
+        function findScissor() { return document.getElementById('ds-scissors-btn'); }
+        // 兜底锚点：输入框 textarea（专家模式等无智能搜索 toggle 的场景也能显示）。
+        // 直接返回输入框本身，place() 会做矩形有效性过滤（隐藏元素 rect 为 0 会被跳过）。
+        function findFallback() {
+          var ta = document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], [contenteditable="true"][aria-label*="发送消息"]');
+          if (ta) return ta;
+          return document.querySelector('textarea');
+        }
+        // 图标（16px，与原生按钮图标同尺寸）：普通模式=虚线圆（跟随外圈色，灰白）；
+        // 增强检索=整图标固定蓝色 rgb(103,158,254)（圆圈+闪电），不随选中态变白，两模式一眼区分（普通=虚线圆、增强=实心蓝闪电）。
+        var icoOff = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5" stroke-dasharray="3.4 2.6"/></svg>';
+        var icoOn = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgb(103,158,254)" stroke-width="1.4"><circle cx="8" cy="8" r="6.5"/><path d="M9.5 2.5L5 9h3l-1 4.5 4.5-6.5h-3l1-4.5z" fill="rgb(103,158,254)" stroke="none"/></svg>';
+        // 任务模式图标：参考导出图（白色造型、透明底，内嵌 base64）。激活时用 CSS 滤镜染蓝。
+        // vertical-align:middle + margin-top:1px 让图标比邻文稍下沉、垂直居中。
+        var icoTask = '<img src="${TASK_MODE_ICON_DATA_URL}" style="display:inline-flex;width:16px;height:16px;border-radius:0;vertical-align:middle;margin-top:1px;object-fit:contain;"/>';
+        // 下拉框「增强检索」项图标：平时白色（跟随文字色），选中激活时变蓝（见 sync 对 .ds-cm-it-ico 的处理）。
+        var icoOnlineMenu = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5"/><path d="M9.5 2.5L5 9h3l-1 4.5 4.5-6.5h-3l1-4.5z" fill="currentColor" stroke="none"/></svg>';
+        // 下拉框「普通模式」项图标：与外面胶囊一致（虚线圆 stroke-dasharray），跟随外圈色（灰白/白）
+        var icoMenuNormal = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5" stroke-dasharray="3.4 2.6"/></svg>';
+        // 按钮：样式对齐原生 ds-toggle-button（实测：胶囊 18px 圆角 / 34px 高 / 13px 500 / padding 10px；
+        // 未激活=透明底+白边白字，激活=深蓝灰底 rgb(40,49,66)+亮蓝字 rgb(103,158,254)+蓝灰边 rgb(72,104,178)）
+        // 定位：改为「流内」——把按钮作为 toggle 的同级节点插入工具栏右侧，参与原生布局，浏览器自动跟随，
+        // 同剪刀/加号按钮；place() 只负责插入 + React 重渲染清掉后重插入兜底，不再需要 JS 重定位。
+        var btn = document.createElement('button');
+        btn.id = 'ds-chat-mode-btn';
+        btn.type = 'button';
+        btn.setAttribute('aria-haspopup', 'true');
+        btn.style.cssText = 'display:none;align-items:center;gap:4px;height:34px;padding:0 10px;margin:0;vertical-align:middle;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:18px;color:rgb(249,250,251);font-size:13px;font-weight:500;line-height:1;cursor:pointer;user-select:none;-webkit-user-select:none;white-space:nowrap;transition:background 0.18s,border-color 0.18s,color 0.18s;';
+        // 胶囊默认只显示两个字（普通/增强），完整名称在下拉菜单里；右侧箭头朝右（▶）
+        btn.innerHTML = '<span class="ds-cm-ico" style="display:inline-flex;align-items:center;justify-content:center;">' + icoOff + '</span><span class="ds-cm-label">普通</span><span class="ds-cm-arrow" style="display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;opacity:0.65;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span>';
+        btn.onmouseenter = function () { if (btn.__dsMode !== 'online') this.style.background = 'rgba(255,255,255,0.08)'; };
+        btn.onmouseleave = function () { if (btn.__dsMode !== 'online') this.style.background = 'rgba(255,255,255,0.04)'; };
+        var menu = document.createElement('div');
+        menu.id = 'ds-chat-mode-menu';
+        // 中性半透明毛玻璃（对齐共享文档悬浮框样式）：深灰半透明 rgba(28,30,38,0.55) + blur + 白细边框 + 内高光
+        menu.style.cssText = 'position:fixed;display:none;flex-direction:column;background:rgba(28,30,38,0.55);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);border:1px solid rgba(255,255,255,0.18);border-radius:12px;padding:4px;min-width:150px;z-index:2147483647;box-shadow:0 8px 28px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.1);';
+        function makeItem(mode, label, ico) {
+          var it = document.createElement('button');
+          it.type = 'button';
+          it.setAttribute('data-ds-cm-mode', mode);
+          // margin:2px 0 让两个菜单项分开，选中框不再紧贴「重叠」
+          it.style.cssText = 'display:flex;align-items:center;gap:8px;margin:2px 0;padding:7px 10px;border:1px solid transparent;border-radius:8px;background:transparent;color:rgb(249,250,251);font-size:13px;cursor:pointer;text-align:left;white-space:nowrap;transition:background 0.12s,border-color 0.12s,color 0.12s;';
+          it.innerHTML = '<span class="ds-cm-it-ico" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-top:1px;opacity:0.85;">' + ico + '</span><span>' + label + '</span>';
+          // 去掉选中的打勾（有蓝框高亮即可），省一点横向空间
+          // hover 不覆盖选中态：选中项 hover 加深蓝底，未选中项 hover 白色半透明，避免两态叠加
+          it.onmouseenter = function () {
+            var m = this.getAttribute('data-ds-cm-mode');
+            var cur = window.__dsChatMode === 'online' || window.__dsChatMode === 'task' ? window.__dsChatMode : 'normal';
+            // hover：选中项用共享文档「选择文档」蓝色系加深，未选中项白色半透明
+            if (m === cur) this.style.background = 'rgba(90,140,255,0.32)';
+            else this.style.background = 'rgba(255,255,255,0.16)';
+          };
+          it.onmouseleave = function () { this.style.background = 'transparent'; sync(); };
+          return it;
+        }
+        menu.appendChild(makeItem('normal', '普通模式', icoMenuNormal));
+        menu.appendChild(makeItem('online', '增强搜索', icoOnlineMenu));
+        menu.appendChild(makeItem('task', '任务模式', icoTask));
+        document.body.appendChild(menu);
+        // === B 类窗口 / 无痕开启时的模式与记忆锁定 ===
+        //  - B 类窗口：强制普通模式（增强/任务项禁用）+ 记忆关闭
+        //  - 无痕开启：记忆关闭，且禁切任务（普通/增强可用但记忆关）
+        var modeLocked = function (m) {
+          if (IS_BWINDOW) return m !== 'normal';            // B 类窗口仅可用普通
+          if (window.__dsIncognitoActive === true) return m === 'task'; // 无痕禁任务
+          return false;
+        };
+        var memoLocked = function () { return IS_BWINDOW || window.__dsIncognitoActive === true; };
+        // 受限点击提示吐司（「该模式下不支持开启此项功能」）
+        var lockToast = document.createElement('div');
+        lockToast.id = 'ds-cm-lock-toast';
+        lockToast.style.cssText = 'position:fixed;display:none;align-items:center;padding:7px 12px;border-radius:9px;background:rgba(24,26,33,0.94);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.18);box-shadow:0 10px 26px rgba(0,0,0,0.4);color:#ffd194;font-size:12px;font-weight:500;line-height:1.4;white-space:nowrap;pointer-events:none;z-index:2147483647;';
+        document.body.appendChild(lockToast);
+        var lockToastTimer = null;
+        var showLockToast = function (x, y) {
+          lockToast.textContent = '该模式下不支持开启此项功能';
+          lockToast.style.display = 'flex';
+          var w = lockToast.offsetWidth || 200, h = lockToast.offsetHeight || 34;
+          lockToast.style.left = Math.max(8, Math.min(x - w / 2, window.innerWidth - w - 8)) + 'px';
+          lockToast.style.top = Math.max(8, Math.min(y - h - 10, window.innerHeight - h - 8)) + 'px';
+          if (lockToastTimer) clearTimeout(lockToastTimer);
+          lockToastTimer = setTimeout(function () { lockToast.style.display = 'none'; }, 1600);
+        };
+        // === 模式项鼠标悬浮解释（悬浮约 350ms 后在按钮上方显示说明，离开即隐藏） ===
+        var modeTip = document.createElement('div');
+        modeTip.id = 'ds-cm-mode-tip';
+        modeTip.style.cssText = 'position:fixed;display:none;align-items:center;gap:6px;padding:7px 11px;border-radius:10px;background:rgba(24,26,33,0.92);backdrop-filter:blur(20px) saturate(1.5);-webkit-backdrop-filter:blur(20px) saturate(1.5);border:1px solid rgba(255,255,255,0.16);box-shadow:0 12px 30px rgba(0,0,0,0.45);color:#dfe3ea;font-size:11.5px;font-weight:500;line-height:1.45;white-space:nowrap;pointer-events:none;z-index:2147483647;';
+        modeTip.textContent = '';
+        document.body.appendChild(modeTip);
+        var MODE_DESC = {
+          normal: '原生网页版问答',
+          online: '增加网络搜索和链接解析工具，多轮搜索结果更加准确',
+          task: '调用python控制本地电脑，编辑读取本地文件，执行各种电脑操作',
+        };
+        var tipTimer = null;
+        var tipDelayTimer = null;
+        var tipTarget = null;
+        // 悬浮一小段时间后再召唤（延迟 350ms），避免鼠标扫过菜单时频繁闪现
+        var tipShow = function (btn, mode) {
+          var d = MODE_DESC[mode]; if (!d) return;
+          tipTarget = btn;
+          if (tipTimer) clearTimeout(tipTimer);
+          if (tipDelayTimer) clearTimeout(tipDelayTimer);
+          tipDelayTimer = setTimeout(function () {
+            if (tipTarget !== btn) return;
+            modeTip.textContent = d;
+            modeTip.style.display = 'flex';
+            try {
+              var r = btn.getBoundingClientRect();
+              var w = modeTip.offsetWidth, h = modeTip.offsetHeight;
+              // 置于当前按钮上方一点（gap 8px），并整体夹在视口内
+              var L = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+              var T = Math.max(8, Math.min(r.top - h - 8, window.innerHeight - h - 8));
+              modeTip.style.left = L + 'px';
+              modeTip.style.top = T + 'px';
+            } catch (e) { /* 定位失败则居中 */ }
+          }, 350);
+        };
+        var tipHide = function () {
+          if (tipDelayTimer) { clearTimeout(tipDelayTimer); tipDelayTimer = null; }
+          if (tipTimer) clearTimeout(tipTimer);
+          modeTip.style.display = 'none';
+          tipTarget = null;
+        };
+        menu.querySelectorAll('button[data-ds-cm-mode]').forEach(function (mi) {
+          mi.addEventListener('mouseenter', function () { tipShow(mi, mi.getAttribute('data-ds-cm-mode')); });
+          mi.addEventListener('mouseleave', tipHide);
+        });
+        // 菜单关闭时隐藏提示
+        var _sqrtSync = sync; sync = function () { modeTip.style.display = 'none'; _sqrtSync(); };
+        // === 普通模式旁「记忆功能」二级悬浮框（嵌套进普通模式项，紧贴其右侧） ===
+        // 普通模式下默认仍注入「记忆提示词」，此处供用户在此关闭（关闭则不再注入该前置提示）。
+        var normIt = menu.querySelector('button[data-ds-cm-mode="normal"]');
+        if (normIt) normIt.style.position = 'relative'; // 让二级框以本项为定位锚点，紧贴右侧
+        var memoFly = document.createElement('div');
+        memoFly.id = 'ds-cm-memo-fly'; // 供 document 捕获监听识别，避免点击框内被误判为切模式/关闭
+        memoFly.style.cssText = 'position:absolute;left:calc(100% + 6px);top:0;display:none;flex-direction:column;gap:1px;background:rgba(24,26,33,0.92);backdrop-filter:blur(22px) saturate(1.6);-webkit-backdrop-filter:blur(22px) saturate(1.6);border:1px solid rgba(255,255,255,0.16);border-radius:12px;padding:6px;min-width:176px;z-index:2147483647;box-shadow:0 14px 34px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);';
+        var memoRow = document.createElement('div'); // 用 div 避免 button 嵌套 span 非法；点击须阻断冒泡
+        memoRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 11px;color:rgb(248,249,250);font-size:13px;font-weight:500;cursor:pointer;border-radius:9px;text-align:left;white-space:nowrap;transition:background 0.12s, transform 0.05s;';
+        var memoLbl = document.createElement('span');
+        memoLbl.textContent = '记忆功能';
+        memoRow.appendChild(memoLbl);
+        var sw = document.createElement('span');
+        sw.style.cssText = 'position:relative;width:34px;height:20px;border-radius:10px;flex:none;background:rgba(255,255,255,0.22);transition:background 0.18s;';
+        var knob = document.createElement('span');
+        knob.style.cssText = 'position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.18s;box-shadow:0 1px 3px rgba(0,0,0,0.35);';
+        sw.appendChild(knob);
+        memoRow.appendChild(sw);
+        memoFly.appendChild(memoRow);
+        if (normIt) normIt.appendChild(memoFly); // 嵌套进普通模式项 → 与菜单共享坐标系、紧贴右侧
+        if (window.__dsMemo === undefined) window.__dsMemo = false; // 默认关（普通模式记忆默认不注入）
+        function syncMemoUI() {
+          // B 类窗口 / 无痕开启 → 记忆强制关（置灰，走锁提示）；否则按偏好
+          var locked = memoLocked();
+          var on = locked ? false : !!window.__dsMemo;
+          sw.style.background = on ? 'rgb(103,158,254)' : 'rgba(255,255,255,0.22)';
+          knob.style.left = on ? '16px' : '2px';
+          sw.style.opacity = locked ? '0.45' : '1';
+          memoRow.style.cursor = locked ? 'not-allowed' : 'pointer';
+        }
+        memoRow.onmouseenter = function () { if (!memoLocked()) memoRow.style.background = 'rgba(255,255,255,0.10)'; };
+        memoRow.onmouseleave = function () { memoRow.style.background = 'transparent'; };
+        memoRow.onmousedown = function () { if (!memoLocked()) memoRow.style.transform = 'scale(0.985)'; };
+        memoRow.onmouseup = function () { memoRow.style.transform = ''; };
+        memoRow.onclick = function (ev) {
+          if (ev && ev.stopPropagation) ev.stopPropagation(); // 阻断冒泡，避免触发「切到普通模式」
+          if (ev && ev.preventDefault) ev.preventDefault();
+          if (memoLocked()) { showLockToast(ev.clientX, ev.clientY); return; } // 受限：不支持开启
+          window.__dsMemo = !window.__dsMemo;
+          syncMemoUI();
+          document.dispatchEvent(new CustomEvent('ds-memory-toggle', { detail: { on: !!window.__dsMemo } }));
+        };
+        syncMemoUI();
+        if (normIt) {
+          // 「>」子菜单箭头（右侧），提示本项有二级菜单；弱化不抢视觉
+          try {
+            var chev = document.createElement('span');
+            chev.innerHTML = '<svg width="7" height="11" viewBox="0 0 7 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.45;display:block;"><path d="M0.5 1l4.5 4.5-4.5 4.5"/></svg>';
+            chev.style.cssText = 'display:inline-flex;align-items:center;margin-left:auto;';
+            normIt.appendChild(chev);
+          } catch (e) { /* 忽略 */ }
+          // 二级框是「普通模式」项的子元素：进入即显示，离开延迟隐藏（避免移到框上的途中/框 6px 间隔时中途消失）
+          var memoHoverTimer = null;
+          var hideMemoLater = function () {
+            if (memoHoverTimer) clearTimeout(memoHoverTimer);
+            memoHoverTimer = setTimeout(function () { memoFly.style.display = 'none'; }, 320);
+          };
+          var placeMemo = function () {
+            // 窄视口（副窗口）不悬浮显示侧栏，走「点击同位子菜单」；主窗口宽视口保持悬浮
+            if (inSubViewport()) { memoFly.style.display = 'none'; return; }
+            // 其它展开框出现时，当前展开框立即消失（不残留鼠标移开的 320ms 延迟）
+            if (skillFly && skillFly.style) skillFly.style.display = 'none';
+            if (wtFly && wtFly.style) wtFly.style.display = 'none';
+            memoFly.style.display = 'flex';
+            var ih = normIt.offsetHeight, fh = memoFly.offsetHeight, fw = memoFly.offsetWidth;
+            memoFly.style.top = Math.round((ih - fh) / 2) + 'px'; // 垂直居中：右框中心≈左按钮中心
+            memoFly.style.left = ''; memoFly.style.right = '';
+            var rect = normIt.getBoundingClientRect();
+            if (rect.right + 8 + fw <= window.innerWidth) {
+              memoFly.style.left = 'calc(100% + 6px)'; // 右侧放得下 → 贴右
+            } else {
+              memoFly.style.right = 'calc(100% + 6px)'; // 副窗口窄 → 翻到普通模式项左侧，不被右边窗口吞掉
+            }
+          }; // 悬浮显示始终挂载（placeXxx 运行时按视口宽度决定是否生效），保证副窗口切回主窗口后悬浮逻辑恢复
+          normIt.addEventListener('mouseenter', placeMemo);
+          normIt.addEventListener('mouseleave', hideMemoLater);
+          memoFly.addEventListener('mouseenter', function () { if (memoHoverTimer) { clearTimeout(memoHoverTimer); memoHoverTimer = null; } });
+          memoFly.addEventListener('mouseleave', hideMemoLater);
+          // 记忆二级框：阻断 mousedown/click/pointerdown 冒泡，避免点击时整个下拉/二级框消失，并保证开关切换生效
+          memoFly.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+          memoFly.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+          memoFly.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); });
+        }
+        // 菜单隐藏时同步隐藏记忆悬浮框
+        new MutationObserver(function () {
+          if (menu.style.display === 'none') memoFly.style.display = 'none';
+        }).observe(menu, { attributes: true, attributeFilter: ['style'] });
+        // === 任务模式旁 skill 自动激活二级悬浮框（首条/每条两个开关） ===
+        var tskIt = menu.querySelector('button[data-ds-cm-mode="task"]');
+        if (tskIt) tskIt.style.position = 'relative';
+        var skillFly = document.createElement('div');
+        skillFly.id = 'ds-cm-skill-fly'; // 供 document 捕获监听识别，点击框内不切模式/不关闭
+        skillFly.style.cssText = 'position:absolute;left:calc(100% + 6px);top:0;display:none;flex-direction:column;gap:1px;background:rgba(24,26,33,0.92);backdrop-filter:blur(22px) saturate(1.6);-webkit-backdrop-filter:blur(22px) saturate(1.6);border:1px solid rgba(255,255,255,0.16);border-radius:12px;padding:6px;min-width:232px;z-index:2147483647;box-shadow:0 14px 34px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);';
+        if (window.__dsSkillAuto === undefined) window.__dsSkillAuto = { first: true, every: true };
+        function makeSkillRow(label, key) {
+          var row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 11px;color:rgb(248,249,250);font-size:12.5px;font-weight:500;cursor:pointer;border-radius:9px;text-align:left;white-space:nowrap;transition:background 0.12s;';
+          var t = document.createElement('span');
+          t.textContent = label;
+          row.appendChild(t);
+          var sw = document.createElement('span');
+          sw.style.cssText = 'position:relative;width:34px;height:20px;border-radius:10px;flex:none;background:rgba(255,255,255,0.22);transition:background 0.18s;';
+          var knob = document.createElement('span');
+          knob.style.cssText = 'position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.18s;box-shadow:0 1px 3px rgba(0,0,0,0.35);';
+          sw.appendChild(knob);
+          row.appendChild(sw);
+          row._key = key; row._sw = sw; row._knob = knob;
+          return row;
+        }
+        var firstRow = makeSkillRow('新对话首条消息自动激活', 'first');
+        var everyRow = makeSkillRow('当前对话每条消息自动激活', 'every');
+        // 「技能」分组标题：说明下方两个开关作用于 skill / 技能
+        var sTitle = document.createElement('div');
+        sTitle.style.cssText = 'padding:3px 11px 4px;font-size:11px;color:rgba(255,255,255,0.5);font-weight:600;letter-spacing:0.5px;';
+        sTitle.textContent = '技能';
+        skillFly.appendChild(sTitle);
+        skillFly.appendChild(firstRow);
+        skillFly.appendChild(everyRow);
+        if (tskIt) tskIt.appendChild(skillFly);
+        function skillRowPaint(row, on) {
+          row._sw.style.background = on ? 'rgb(103,158,254)' : 'rgba(255,255,255,0.22)';
+          row._knob.style.left = on ? '16px' : '2px';
+        }
+        function skillSync() {
+          var s = window.__dsSkillAuto;
+          skillRowPaint(firstRow, s.first);
+          skillRowPaint(everyRow, s.every);
+        }
+        [firstRow, everyRow].forEach(function (row) {
+          row.onmouseenter = function () { row.style.background = 'rgba(255,255,255,0.10)'; };
+          row.onmouseleave = function () { row.style.background = 'transparent'; };
+          row.onmousedown = function () { row.style.transform = 'scale(0.985)'; };
+          row.onmouseup = function () { row.style.transform = ''; };
+          row.onclick = function (ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            if (ev && ev.preventDefault) ev.preventDefault();
+            var s = window.__dsSkillAuto;
+            if (row._key === 'first') s.first = !s.first;
+            else { s.every = !s.every; if (s.every) s.first = true; } // 开「每条」联动开「首条」
+            skillSync();
+            document.dispatchEvent(new CustomEvent('ds-skill-auto-toggle', { detail: { first: s.first, every: s.every } }));
+          };
+        });
+        skillSync();
+        // 与插件侧 skill 自动激活设置同步：发起查询，收到插件实际状态后覆盖默认值并刷新开关
+        document.addEventListener('ds-skill-auto-state', function (evt) {
+          try {
+            var d = evt.detail;
+            var s = window.__dsSkillAuto;
+            if (typeof d.first === 'boolean') s.first = d.first;
+            if (typeof d.every === 'boolean') s.every = d.every;
+            skillSync();
+          } catch (e3) { /* 忽略 */ }
+        });
+        document.dispatchEvent(new CustomEvent('ds-skill-auto-query'));
+        if (tskIt) {
+          // 「>」子菜单箭头（右侧），提示本项有二级菜单
+          try {
+            var chevT = document.createElement('span');
+            chevT.style.cssText = 'display:inline-flex;align-items:center;margin-left:auto;';
+            chevT.innerHTML = '<svg width="7" height="11" viewBox="0 0 7 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.45;display:block;"><path d="M0.5 1l4.5 4.5-4.5 4.5"/></svg>';
+            tskIt.appendChild(chevT);
+          } catch (e) { /* 忽略 */ }
+          var skillHoverTimer = null;
+          var hideSkillLater = function () {
+            if (skillHoverTimer) clearTimeout(skillHoverTimer);
+            skillHoverTimer = setTimeout(function () { skillFly.style.display = 'none'; }, 320);
+          };
+          var placeSkill = function () {
+            if (inSubViewport()) { skillFly.style.display = 'none'; return; }
+            if (memoFly && memoFly.style) memoFly.style.display = 'none';
+            if (wtFly && wtFly.style) wtFly.style.display = 'none';
+            skillFly.style.display = 'flex';
+            var ih = tskIt.offsetHeight, fh = skillFly.offsetHeight, fw = skillFly.offsetWidth;
+            skillFly.style.top = Math.round((ih - fh) / 2) + 'px';
+            skillFly.style.left = ''; skillFly.style.right = '';
+            var rect = tskIt.getBoundingClientRect();
+            if (rect.right + 8 + fw <= window.innerWidth) {
+              skillFly.style.left = 'calc(100% + 6px)';
+            } else {
+              skillFly.style.right = 'calc(100% + 6px)';
+            }
+          };
+          tskIt.addEventListener('mouseenter', placeSkill);
+          tskIt.addEventListener('mouseleave', hideSkillLater);
+          skillFly.addEventListener('mouseenter', function () { if (skillHoverTimer) { clearTimeout(skillHoverTimer); skillHoverTimer = null; } });
+          skillFly.addEventListener('mouseleave', hideSkillLater);
+          skillFly.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+          skillFly.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+          skillFly.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); });
+        }
+        // 菜单隐藏时同步隐藏 skill 悬浮框
+        new MutationObserver(function () {
+          if (menu.style.display === 'none') skillFly.style.display = 'none';
+        }).observe(menu, { attributes: true, attributeFilter: ['style'] });
+        // === 增强搜索旁网页工具二级悬浮框（搜索互联网 web_search / 获取网页 web_fetch 两个开关） ===
+        var onlIt = menu.querySelector('button[data-ds-cm-mode="online"]');
+        if (onlIt) onlIt.style.position = 'relative';
+        var wtFly = document.createElement('div');
+        wtFly.id = 'ds-cm-webtool-fly'; // 供 document 捕获监听识别，点击框内不切模式/不关闭
+        wtFly.style.cssText = 'position:absolute;left:calc(100% + 6px);top:0;display:none;flex-direction:column;gap:1px;background:rgba(24,26,33,0.92);backdrop-filter:blur(22px) saturate(1.6);-webkit-backdrop-filter:blur(22px) saturate(1.6);border:1px solid rgba(255,255,255,0.16);border-radius:12px;padding:6px;min-width:220px;z-index:2147483647;box-shadow:0 14px 34px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);';
+        if (window.__dsWebTools === undefined) window.__dsWebTools = { search: true, fetch: true };
+        function makeWebRow(label) {
+          var row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 11px;color:rgb(248,249,250);font-size:12.5px;font-weight:500;cursor:pointer;border-radius:9px;text-align:left;white-space:nowrap;transition:background 0.12s;';
+          var t = document.createElement('span');
+          t.textContent = label;
+          row.appendChild(t);
+          var sw = document.createElement('span');
+          sw.style.cssText = 'position:relative;width:34px;height:20px;border-radius:10px;flex:none;background:rgba(255,255,255,0.22);transition:background 0.18s;';
+          var knob = document.createElement('span');
+          knob.style.cssText = 'position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.18s;box-shadow:0 1px 3px rgba(0,0,0,0.35);';
+          sw.appendChild(knob);
+          row.appendChild(sw);
+          row._sw = sw; row._knob = knob;
+          return row;
+        }
+        var searchRow = makeWebRow('搜索互联网');
+        var fetchRow = makeWebRow('获取网页');
+        wtFly.appendChild(searchRow);
+        wtFly.appendChild(fetchRow);
+        if (onlIt) onlIt.appendChild(wtFly);
+        // === 窄窗口/副窗口：二级内容「同位」渲染进一级菜单（替换三项模式项），返回按钮回一级 ===
+        // 窄视口（副窗口为主窗口切换/直接呼出）统一用「在一级菜单里渲染新的」，避免侧栏被窗缘截断。
+        function subFlyFor(m) { return m === 'task' ? skillFly : (m === 'online' ? wtFly : memoFly); }
+        function makeBackRow(fly) {
+          if (fly._dsHasBack) return fly._dsHasBack;
+          var back = document.createElement('div');
+          back.className = 'ds-cm-sub-back'; // 默认隐藏，仅在「一级菜单内原地渲染」时通过 CSS 显示
+          back.setAttribute('data-ds-sub-back', '1');
+          back.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 11px;margin:1px 2px 4px;border-radius:9px;color:rgba(255,255,255,0.75);font-size:13px;font-weight:500;cursor:pointer;user-select:none;-webkit-user-select:none;transition:background 0.12s;';
+          back.innerHTML = '<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></span><span>返回</span>';
+          back.onmouseenter = function () { this.style.background = 'rgba(255,255,255,0.10)'; };
+          back.onmouseleave = function () { this.style.background = 'transparent'; };
+          back.onclick = function (ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            if (ev && ev.preventDefault) ev.preventDefault();
+            leaveSub(); // 返回上一级：收起二级、露出三个模式项
+          };
+          fly.insertBefore(back, fly.firstChild);
+          fly._dsHasBack = back;
+          return back;
+        }
+        // 二级内容的一级宿主：菜单内的普通流式容器 → 二级面板放进它即「原地替换」三个模式项
+        var subHost = document.createElement('div');
+        subHost.id = 'ds-cm-subhost';
+        subHost.style.cssText = 'display:none;flex-direction:column;gap:1px;width:100%;';
+        menu.appendChild(subHost);
+        // 鼠标进入任一二级面板（悬浮侧栏或原位子菜单）时，立即收掉模式项的解释提示
+        [memoFly, skillFly, wtFly, subHost].forEach(function (f) { if (f) f.addEventListener('mouseenter', tipHide); });
+        // 记录各二级框的原宿主（对应的一级模式项），返回一级及重复进入时便于归位
+        if (memoFly) memoFly._origParent = normIt;
+        if (skillFly) skillFly._origParent = tskIt;
+        if (wtFly) wtFly._origParent = onlIt;
+        // 窄视口判定：副窗口恒窄（360px 上下）；主窗口在极窄时同样受益（侧栏不被截断）
+        function inSubViewport() { return window.innerWidth < 760; }
+        function leaveSub() {
+          if (subHost && subHost._curFly) {
+            var cur = subHost._curFly;
+            cur.classList && cur.classList.remove('ds-cm-fly-inmenu'); // 恢复二级面板原有盒子样式
+            subHost.removeChild(cur);
+            if (cur._origParent) cur._origParent.appendChild(cur); // 归位回模式项
+            cur.style.display = 'none';
+            subHost._curFly = null;
+          }
+          if (subHost) subHost.style.display = 'none';
+          // 还原为 flex（不能用 ''，那会清掉 makeItem 里 cssText 设置的内联 display:flex，
+          // 导致按钮退回默认 inline-block，图标/文字/箭头挤到一块并随视图迁移带到主窗口）
+          if (normIt) normIt.style.display = 'flex';
+          if (tskIt) tskIt.style.display = 'flex';
+          if (onlIt) onlIt.style.display = 'flex';
+        }
+        function enterSub(m) {
+          var fly = subFlyFor(m) || memoFly;
+          makeBackRow(fly);
+          // 若已在二级且目标相同，仅确保显示
+          if (subHost._curFly !== fly) {
+            if (subHost._curFly) { // 迁走上一块二级面板（回归其模式项）
+              var old = subHost._curFly;
+              old.classList && old.classList.remove('ds-cm-fly-inmenu');
+              subHost.removeChild(old);
+              if (old._origParent) old._origParent.appendChild(old);
+              old.style.display = 'none';
+              subHost._curFly = null;
+            }
+            if (fly.parentNode) fly.parentNode.removeChild(fly); // 从模式项里摘出
+            fly.classList && fly.classList.add('ds-cm-fly-inmenu'); // 去掉盒子样式 → 在菜单内[原框]渲染
+            subHost.appendChild(fly);
+            fly.style.display = 'flex';
+            subHost._curFly = fly;
+          }
+          // 隐藏三个模式项 → 菜单里只剩二级内容（原位替换）
+          [normIt, tskIt, onlIt].forEach(function (it) { if (it) it.style.display = 'none'; });
+          subHost.style.display = 'flex';
+        }
+        // 菜单关闭时统一收起二级，保证下次打开为干净的一级状态
+        new MutationObserver(function () {
+          if (menu.style.display === 'none') leaveSub();
+        }).observe(menu, { attributes: true, attributeFilter: ['style'] });
+        function wtRowPaint(row, on) {
+          row._sw.style.background = on ? 'rgb(103,158,254)' : 'rgba(255,255,255,0.22)';
+          row._knob.style.left = on ? '16px' : '2px';
+        }
+        function wtSync() {
+          var w = window.__dsWebTools;
+          wtRowPaint(searchRow, w.search);
+          wtRowPaint(fetchRow, w.fetch);
+        }
+        [searchRow, fetchRow].forEach(function (row, idx) {
+          row.onmouseenter = function () { row.style.background = 'rgba(255,255,255,0.10)'; };
+          row.onmouseleave = function () { row.style.background = 'transparent'; };
+          row.onmousedown = function () { row.style.transform = 'scale(0.985)'; };
+          row.onmouseup = function () { row.style.transform = ''; };
+          row.onclick = function (ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            if (ev && ev.preventDefault) ev.preventDefault();
+            var w = window.__dsWebTools;
+            if (idx === 0) w.search = !w.search; else w.fetch = !w.fetch;
+            wtSync();
+            document.dispatchEvent(new CustomEvent('ds-web-tools-toggle', { detail: { search: w.search, fetch: w.fetch } }));
+          };
+        });
+        wtSync();
+        // 与插件侧网页工具设置同步：发起查询，收到实际状态后覆盖默认值并刷新开关
+        document.addEventListener('ds-web-tools-state', function (evt) {
+          try {
+            var d = evt.detail;
+            var w = window.__dsWebTools;
+            if (typeof d.search === 'boolean') w.search = d.search;
+            if (typeof d.fetch === 'boolean') w.fetch = d.fetch;
+            wtSync();
+          } catch (e3) { /* 忽略 */ }
+        });
+        document.dispatchEvent(new CustomEvent('ds-web-tools-query'));
+        if (onlIt) {
+          try {
+            var chevW = document.createElement('span');
+            chevW.style.cssText = 'display:inline-flex;align-items:center;margin-left:auto;';
+            chevW.innerHTML = '<svg width="7" height="11" viewBox="0 0 7 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.45;display:block;"><path d="M0.5 1l4.5 4.5-4.5 4.5"/></svg>';
+            onlIt.appendChild(chevW);
+          } catch (e) { /* 忽略 */ }
+          var wtHoverTimer = null;
+          var hideWtLater = function () {
+            if (wtHoverTimer) clearTimeout(wtHoverTimer);
+            wtHoverTimer = setTimeout(function () { wtFly.style.display = 'none'; }, 320);
+          };
+          var placeWt = function () {
+            if (inSubViewport()) { wtFly.style.display = 'none'; return; }
+            if (memoFly && memoFly.style) memoFly.style.display = 'none';
+            if (skillFly && skillFly.style) skillFly.style.display = 'none';
+            wtFly.style.display = 'flex';
+            var ih = onlIt.offsetHeight, fh = wtFly.offsetHeight, fw = wtFly.offsetWidth;
+            wtFly.style.top = Math.round((ih - fh) / 2) + 'px';
+            wtFly.style.left = ''; wtFly.style.right = '';
+            var rect = onlIt.getBoundingClientRect();
+            if (rect.right + 8 + fw <= window.innerWidth) {
+              wtFly.style.left = 'calc(100% + 6px)';
+            } else {
+              wtFly.style.right = 'calc(100% + 6px)';
+            }
+          };
+          onlIt.addEventListener('mouseenter', placeWt);
+          onlIt.addEventListener('mouseleave', hideWtLater);
+          wtFly.addEventListener('mouseenter', function () { if (wtHoverTimer) { clearTimeout(wtHoverTimer); wtHoverTimer = null; } });
+          wtFly.addEventListener('mouseleave', hideWtLater);
+          wtFly.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+          wtFly.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+          wtFly.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); });
+        }
+        new MutationObserver(function () {
+          if (menu.style.display === 'none') wtFly.style.display = 'none';
+        }).observe(menu, { attributes: true, attributeFilter: ['style'] });
+        // 模式按钮图标切换的丝滑过渡 keyframes
+        var micoStyle = document.createElement('style');
+        micoStyle.textContent = '@keyframes dsPivot{from{opacity:0;transform:scale(0.5) rotate(-10deg)}to{opacity:1;transform:scale(1) rotate(0)}}'
+          // 窄窗口/副窗口：二级内容在「一级菜单」内原地渲染时，去掉二级面板自带的盒子样式，
+          // 使其看起来如同菜单原有行元素（复用一级菜单的毛玻璃框，避免又弹出一个新菜单框）。
+          + '#ds-cm-subhost .ds-cm-fly-inmenu{position:static!important;left:auto!important;top:auto!important;right:auto!important;width:auto!important;min-width:100%!important;background:transparent!important;border:none!important;border-radius:0!important;box-shadow:none!important;padding:2px!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;}'
+          // 返回按钮默认隐藏（主窗口悬浮二级框不带它），仅在「一级菜单内原地渲染」时显示
+          + '.ds-cm-sub-back{display:none!important;} #ds-cm-subhost .ds-cm-fly-inmenu .ds-cm-sub-back{display:flex!important;}';
+        document.body.appendChild(micoStyle);
+        // 增强检索模式下：透明遮罩盖住原生「智能搜索」按钮，阻止用户自行开启；
+        // 点击遮罩弹出黄色半透明圆角提示（可穿透、几秒后消失）。
+        var mask = document.createElement('div');
+        mask.id = 'ds-cm-mask';
+        mask.style.cssText = 'position:fixed;display:none;z-index:2147483646;cursor:not-allowed;';
+        mask.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          showToast();
+        }, true);
+        document.body.appendChild(mask);
+        var toast = document.createElement('div');
+        toast.id = 'ds-cm-toast';
+        // 黄色半透明提示：白字（参考共享屏幕悬浮窗白字）+ 轻投影保证可读，去掉 blur 避免叠影
+        toast.style.cssText = 'position:fixed;display:none;align-items:center;gap:6px;padding:9px 16px;border-radius:12px;background:rgba(255,176,32,0.5);border:1px solid rgba(255,255,255,0.3);box-shadow:0 6px 20px rgba(0,0,0,0.28);color:#ffffff;font-size:13px;font-weight:500;line-height:1.3;text-shadow:0 1px 2px rgba(0,0,0,0.35);pointer-events:none;white-space:nowrap;z-index:2147483647;';
+        toast.innerHTML = '<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span><span>增强搜索中不支持开启原生联网</span>';
+        document.body.appendChild(toast);
+        // === token 显示悬浮块（设置中开关，默认关；今日数字，悬浮展示「今日/累计」，位置紧跟输入框右上方） ===
+        try {
+          if (window.__dsTokenWidget) throw 0; // 已由独立 injectTokenWidget 注入，跳过避免重复
+          var tw = document.createElement('div');
+          tw.id = 'ds-token-widget';
+          tw.style.cssText = 'position:fixed;display:none;align-items:center;justify-content:center;gap:6px;min-width:34px;height:24px;padding:0 10px;border-radius:12px;background:rgba(28,30,38,0.55);backdrop-filter:blur(14px) saturate(1.5);-webkit-backdrop-filter:blur(14px) saturate(1.5);border:1px solid rgba(255,255,255,0.18);color:#eef0f3;font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1;user-select:none;-webkit-user-select:none;cursor:default;z-index:2147483000;';
+          tw.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#5a8cff;flex:none;box-shadow:0 0 6px rgba(90,140,255,0.9);"></span>'
+            + '<span class="ds-token-box" style="display:inline-flex;align-items:flex-start;overflow:hidden;height:15px;transform:translateY(1px);"></span>'
+            + '<div class="ds-token-tip" style="position:absolute;top:calc(100% + 7px);right:0;display:none;flex-direction:column;gap:4px;padding:9px 12px;border-radius:10px;background:rgba(28,30,38,0.6);backdrop-filter:blur(16px) saturate(1.5);-webkit-backdrop-filter:blur(16px) saturate(1.5);border:1px solid rgba(255,255,255,0.16);font-size:11px;font-weight:500;line-height:1.2;white-space:nowrap;">'
+            + '<span style="color:#9aa3b2;">今日 <b class="ds-token-today" style="color:#eef0f3;font-variant-numeric:tabular-nums;font-weight:600;margin-left:4px;">0</b></span>'
+            + '<span style="color:#9aa3b2;">累计 <b class="ds-token-total" style="color:#eef0f3;font-variant-numeric:tabular-nums;font-weight:600;margin-left:4px;">0</b></span>'
+            + '</div>';
+          document.body.appendChild(tw);
+          tw.style.position = 'fixed';
+          var twSlotBox = tw.querySelector('.ds-token-box');
+          var twToday = tw.querySelector('.ds-token-today');
+          var twTotal = tw.querySelector('.ds-token-total');
+          var twTip = tw.querySelector('.ds-token-tip');
+          // ===== 老虎机：每个字符一列（列内 0-9/.kMB 循环的竖带），上滑循环到目标字符 =====
+          var SLOT_H = 15; // 单格高度
+          var SLOT_SEQ = '0123456789.kMB'; // 每个数字/字母出现的顺序（0-9 循环 → 目标）
+          var SLOT_BAND = (function () { var a = []; for (var r = 0; r < 22; r++) { for (var s = 0; s < SLOT_SEQ.length; s++) a.push(SLOT_SEQ[s]); } return a; })();
+          var twCols = [];
+          var twFirst = true; // 首次渲染不滚动，直接落位
+          function twNewCol() {
+            var col = document.createElement('span');
+            col.style.cssText = 'display:inline-block;vertical-align:top;overflow:hidden;height:' + SLOT_H + 'px;width:9px;position:relative;';
+            var strip = document.createElement('span');
+            strip.style.cssText = 'display:block;line-height:' + SLOT_H + 'px;font-variant-numeric:tabular-nums;will-change:transform;';
+            col.appendChild(strip);
+            return { col: col, strip: strip, idx: 0, built: false };
+          }
+          function twFillStrip(co) {
+            var frag = document.createDocumentFragment();
+            var cellCss = 'display:flex;align-items:center;justify-content:center;height:' + SLOT_H + 'px;line-height:' + SLOT_H + 'px;font-variant-numeric:tabular-nums;color:#eef0f3;font-weight:600;white-space:nowrap;';
+            for (var i = 0; i < SLOT_BAND.length; i++) {
+              var cell = document.createElement('span');
+              cell.style.cssText = cellCss;
+              cell.textContent = SLOT_BAND[i];
+              frag.appendChild(cell);
+            }
+            co.strip.appendChild(frag);
+            co.built = true;
+          }
+          function twCharIdxLow(char) {
+            var p = SLOT_BAND.indexOf(char); if (p < 0) p = 0;
+            var mid = Math.floor(SLOT_BAND.length / 2);
+            while (p < mid) p += SLOT_SEQ.length;
+            return p;
+          }
+          function twSetIdxVisible(co, char) {
+            co.idx = twCharIdxLow(char);
+            co.strip.style.transform = 'translateY(' + (-co.idx * SLOT_H) + 'px)';
+          }
+          function twRollTo(co, char) {
+            if (!co.built) twFillStrip(co);
+            if (SLOT_BAND[co.idx] === char) return;
+            var seqLen = SLOT_SEQ.length;
+            var curPos = SLOT_SEQ.indexOf(SLOT_BAND[co.idx]);
+            var tarPos = SLOT_SEQ.indexOf(char);
+            var fwd = ((tarPos - curPos) + seqLen) % seqLen;
+            var steps = fwd + seqLen; // 至少转一整圈再落位
+            var base = co.idx + steps;
+            if (base > SLOT_BAND.length - 12) { // 竖带快到底，无声重定位到中部同字符
+              twSetIdxVisible(co, char);
+              return;
+            }
+            var dur = Math.min(720, Math.max(320, steps * 30));
+            var anim = co.strip.animate(
+              [{ transform: 'translateY(' + (-co.idx * SLOT_H) + 'px)' }, { transform: 'translateY(' + (-base * SLOT_H) + 'px)' }],
+              { duration: dur, easing: 'cubic-bezier(.12,.85,.3,1)', fill: 'forwards' }
+            );
+            co.idx = base;
+            anim.onfinish = function () { try { anim.cancel(); } catch (e9) {} co.strip.style.transform = 'translateY(' + (-base * SLOT_H) + 'px)'; };
+          }
+          var twSetNum = function (text) {
+            try {
+              var targets = text.split('');
+              while (twCols.length < targets.length) twCols.push(twNewCol());
+              while (twCols.length > targets.length) { var r = twCols.pop(); if (r.col.parentNode) r.col.parentNode.removeChild(r.col); }
+              while (twSlotBox.firstChild) twSlotBox.removeChild(twSlotBox.firstChild);
+              for (var i = 0; i < twCols.length; i++) {
+                var co = twCols[i];
+                if (!co.built) twFillStrip(co);
+                if (twFirst) twSetIdxVisible(co, targets[i]);
+                else twRollTo(co, targets[i]);
+                twSlotBox.appendChild(co.col);
+              }
+              twFirst = false;
+            } catch (e4) {
+              twSlotBox.textContent = text;
+            }
+          };
+          // 悬浮提示
+          tw.addEventListener('pointerenter', function () { try { twTip.style.display = 'flex'; } catch (e5) {} });
+          tw.addEventListener('pointerleave', function () { try { twTip.style.display = 'none'; } catch (e5) {} });
+          // 定位：与「无痕模式」悬浮徽章完全一致——锚定 composer 容器、右侧对齐其右缘、悬于其上方 8px。
+          // composer = 含上传框+输入框的外层容器；找不到时回退到输入框父容器。全程 zoom 感知，
+          // 这样引用条插入输入框上方后，token 仍吸附在 composer 顶边之上，不会与引用条重合。
+          var twLastKey = '';
+          function twLayoutRect(el) {
+            var rr = el.getBoundingClientRect();
+            try {
+              var zz = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+              if (zz !== 1 && zz > 0) return { left: rr.left / zz, top: rr.top / zz, right: rr.right / zz, bottom: rr.bottom / zz, width: rr.width / zz, height: rr.height / zz };
+            } catch (eZ) {}
+            return rr;
+          }
+          function twFindComposer() {
+            // 优先 textarea；专家/深度思考等对话输入框可能是 contenteditable / role=textbox，一并纳入兜底
+            var ta = document.querySelector('textarea[placeholder*="发送消息"], textarea[aria-label*="发送消息"], textarea');
+            if (!ta) ta = document.querySelector('[contenteditable="true"], [role="textbox"], textarea');
+            if (!ta) return null;
+            var comp = ta.parentElement;
+            for (var ci = 0; ci < 8 && comp; ci++) {
+              // 专家模式下页面没有 input[type=file]，file 不能作为必需项；用 button/role=button 兜底判断 composer。
+              if (comp.querySelector && comp.querySelector('input[type="file"], button, [role="button"]') && comp.querySelector('textarea, [contenteditable="true"]')) break;
+              comp = comp.parentElement;
+            }
+            if (!comp) comp = ta.parentElement;
+            return { ta: ta, comp: comp };
+          }
+          var twPlace = function () {
+            try {
+              var hit = twFindComposer();
+              if (!hit) return;
+              var cRect = twLayoutRect(hit.comp);
+              if (!cRect || cRect.width <= 1 || cRect.height <= 1) return;
+              var bw = tw.offsetWidth || 34;
+              var bh = tw.offsetHeight || 24;
+              var rightAnchor = cRect.right - 8;      // 右缘对齐 composer，留 8px（与无痕一致）
+              var left = Math.max(8, rightAnchor - bw); // 左侧越界钳制
+              var top = cRect.top - bh - 8;           // 悬于 composer 上方 8px（与无痕一致）
+              if (top < 8) top = cRect.bottom + 8;
+              var key = left + ',' + top;
+              if (key !== twLastKey) {
+                twLastKey = key;
+                tw.style.right = '';                  // 改用 left 定位，与无痕一致
+                tw.style.left = left + 'px';
+                tw.style.top = top + 'px';
+              }
+            } catch (e3) {}
+          };
+          // 数值格式化：<1k 原样，>=1k→k，>=1M→M，>=1B→B；加单位后保留 1 位小数（含末尾 .0）
+          var twFmt = function (n) {
+            var v = Number(n) || 0;
+            if (v < 1000) return String(Math.round(v));
+            var u, f;
+            if (v >= 1000000000) { u = 'B'; f = v / 1000000000; }
+            else if (v >= 1000000) { u = 'M'; f = v / 1000000; }
+            else { u = 'k'; f = v / 1000; }
+            return f.toFixed(1) + u;
+          };
+          var twPoll = function () { try { document.dispatchEvent(new CustomEvent('ds-token-widget-query')); } catch (e7) {} };
+          var twTimer = null;
+          var posTimer = null;
+          // 状态驱动：token 小窗开启才跑 3s 数据轮询 + 150ms 位置轮询；关闭立即停，长开不空转。
+          function twStartTimers() {
+            if (twTimer) return;
+            twPoll();
+            twTimer = setInterval(twPoll, 3000);
+            posTimer = setInterval(twPlace, 150);
+          }
+          function twStopTimers() {
+            if (twTimer) { clearInterval(twTimer); twTimer = null; }
+            if (posTimer) { clearInterval(posTimer); posTimer = null; }
+          }
+          var twShow = function (enabled, tokens, total) {
+            twEnabledNow = enabled === true;
+            twTokensNow = Number(tokens) || 0;
+            twTotalNow = Number(total) || 0;
+            if (enabled) {
+              twSetNum(twFmt(twTokensNow));
+              if (twToday) twToday.textContent = twFmt(twTokensNow);
+              if (twTotal) twTotal.textContent = twFmt(twTotalNow);
+              tw.style.display = 'flex';
+              twStartTimers();
+            } else {
+              tw.style.display = 'none';
+              twStopTimers();
+            }
+            twPlace();
+          };
+          var twEnabledNow = false, twTokensNow = 0, twTotalNow = 0;
+          document.addEventListener('ds-token-widget-state', function (ev) {
+            try { var d = ev.detail || {}; twShow(!!d.enabled, Number(d.tokens) || 0, Number(d.totalTokens) || 0); } catch (e6) {}
+          });
+          window.addEventListener('resize', function () { twPlace(); });
+          window.addEventListener('scroll', function () { twPlace(); }, true);
+          // 自愈：专家/深度思考等模式切换时页面可能重建/清掉注入的 token 节点，一旦缺失自动重建并恢复显示。
+          var twBodyObserver = null;
+          try {
+            if (typeof MutationObserver === 'function') {
+              twBodyObserver = new MutationObserver(function () {
+                try {
+                  if (!document.getElementById('ds-token-widget') && tw && !tw.isConnected) {
+                    if (tw.parentNode !== document.body) document.body.appendChild(tw);
+                    twShow(twEnabledNow, twTokensNow, twTotalNow);
+                  }
+                } catch (eS) {}
+              });
+              twBodyObserver.observe(document.body, { childList: true, subtree: false });
+            }
+          } catch (eM) { /* 忽略 */ }
+          twPoll(); // 首次拉取开关状态（receive 到 ds-token-widget-state 后按 enabled 决定是否启动轮询）
+          window.__dsTokenWidget = { show: twShow, query: twPoll, place: twPlace, destroy: function () { twStopTimers(); if (twBodyObserver) { try { twBodyObserver.disconnect(); } catch (eB2) {} } } };
+        } catch (e8) { /* 忽略 */ }
+        // === 占位文字覆盖层：把「给 DeepSeek 发送消息」显示改为「输入 / 召唤技能」 ===
+        // 不直接改 textarea 的 placeholder 属性（内部有 11 处选择器依赖 placeholder*="发送消息"
+        // 来定位主聊天输入框、区分底部搜索框），而是注入一个透明文字层，输入为空时显示、有值时隐藏。
+        var ph = document.createElement('div');
+        ph.id = 'ds-cm-placeholder';
+        // 改为绝对定位插入输入框父容器：随输入框自然移动（不同步按视口追踪），吃滚动/布局自动跟随。
+        ph.style.cssText = 'position:absolute;top:0;left:0;display:none;align-items:center;pointer-events:none;z-index:2147483646;color:rgba(148,151,158,0.55);font-weight:400;letter-spacing:0;white-space:nowrap;';
+        ph.textContent = '输入 / 召唤技能';
+        // 隐藏原生 placeholder 文字（变透明），避免与注入层「输入 / 召唤技能」重叠。
+        // 只针对包含「发送消息」的主聊天输入框（React 重建后属性仍在），不影响页面底部搜索框的占位。
+        var phHideStyle = document.createElement('style');
+        phHideStyle.id = 'ds-cm-hidden-ph';
+        phHideStyle.textContent = 'textarea[placeholder*="发送消息"]::placeholder{color:transparent!important;} textarea[placeholder*="发送消息"]::-webkit-input-placeholder{color:transparent!important;} textarea[placeholder*="发送消息"]::-moz-placeholder{color:transparent!important;} textarea[placeholder*="发送消息"]:-ms-input-placeholder{color:transparent!important;}';
+        (document.head || document.documentElement).appendChild(phHideStyle);
+        function syncPlaceholder() {
+          try {
+            var ta = null;
+            var candP = document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], textarea');
+            if (candP) ta = candP;
+            // 专家/深度思考等对话输入框可能是 contenteditable / role=textbox，一并兜底
+            if (!ta) ta = document.querySelector('[contenteditable="true"], [role="textbox"], textarea');
+            if (!ta || !ta.isConnected) { ph.style.display = 'none'; return; }
+            var hasText = ta.value !== undefined ? ta.value.length > 0 : ((ta.textContent || '').trim().length > 0);
+            if (hasText) { ph.style.display = 'none'; return; }
+            var st = getComputedStyle(ta);
+            var r = ta.getBoundingClientRect();
+            var z = 1;
+            try { z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1; } catch (e2) {}
+            if (!(z > 0)) z = 1;
+            ph.style.fontSize = st.fontSize;
+            var pl = (parseFloat(st.paddingLeft) || 0);
+            var pt = (parseFloat(st.paddingTop) || 0);
+            // 宿主 = 输入框父容器；让其为定位锚点，把占位文字插进去，随输入框自然移动。
+            var host = ta.parentElement;
+            if (!host) { ph.style.display = 'none'; return; }
+            try {
+              var hr = getComputedStyle(host);
+              if (hr.position === 'static') host.style.position = 'relative';
+            } catch (eH) {}
+            if (ph.parentNode !== host) { try { host.appendChild(ph); } catch (eA) {} }
+            // 相对宿主定位：ta.offsetLeft/top 是相对宿主(已 relative)的偏移，加 padding 对齐输入内容
+            ph.style.left = Math.round(ta.offsetLeft + pl + 3) + 'px';
+            ph.style.top = Math.round(ta.offsetTop + pt + 2) + 'px';
+            ph.style.display = 'block';
+          } catch (e3) { ph.style.display = 'none'; }
+        }
+        // 输入内容时同步显隐（捕获阶段，兼容动态 textarea）
+        document.addEventListener('input', function (e) {
+          try {
+            if (e.target && e.target.nodeName === 'TEXTAREA') { placeNow(); }
+          } catch (e4) {}
+        }, true);
+        var toastTimer = null;
+        function showToast() {
+          toast.style.display = 'flex';
+          toast.style.visibility = 'hidden';
+          var tw = toast.offsetWidth;
+          toast.style.visibility = 'visible';
+          var sm = findSmartOnly();
+          var z = 1;
+          try { z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1; } catch (e2) {}
+          if (!(z > 0)) z = 1;
+          if (sm) {
+            var r = sm.getBoundingClientRect();
+            var left = (r.left + r.width / 2 - tw / 2) / z;
+            var top = (r.top - toast.offsetHeight - 8) / z;
+            if (left < 8) left = 8;
+            toast.style.left = Math.round(left) + 'px';
+            toast.style.top = Math.round(top) + 'px';
+          } else {
+            toast.style.left = Math.round(window.innerWidth / 2 - tw / 2) + 'px';
+            toast.style.top = '100px';
+          }
+          if (toastTimer) clearTimeout(toastTimer);
+          toastTimer = setTimeout(function () { toast.style.display = 'none'; }, 3000);
+        }
+        // 遮罩位置随「智能搜索」按钮同步（增强模式下显示，其余模式隐藏）
+        function syncMask() {
+          var sm = findSmartOnly();
+          // 增强检索 / 任务模式都禁用原生联网 → 显示遮罩
+          var mode = window.__dsChatMode === 'online' || window.__dsChatMode === 'task' ? 'online' : 'normal';
+          if (mode === 'online' && sm) {
+            var r = sm.getBoundingClientRect();
+            var z = 1;
+            try { z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1; } catch (e2) {}
+            if (!(z > 0)) z = 1;
+            mask.style.left = Math.round(r.left / z) + 'px';
+            mask.style.top = Math.round(r.top / z) + 'px';
+            mask.style.width = Math.round(r.width / z) + 'px';
+            mask.style.height = Math.round(r.height / z) + 'px';
+            mask.style.display = 'block';
+          } else {
+            mask.style.display = 'none';
+          }
+        }
+        function sync() {
+          var mode = window.__dsChatMode === 'online' ? 'online' : (window.__dsChatMode === 'task' ? 'task' : 'normal');
+          var enhanced = mode === 'online' || mode === 'task';
+          btn.__dsMode = mode;
+          var lbl = btn.querySelector('.ds-cm-label');
+          if (lbl) lbl.textContent = mode === 'online' ? '增强' : (mode === 'task' ? '任务' : '普通');
+          var ico = btn.querySelector('.ds-cm-ico');
+          // 只有模式真的变了才重建图标 + 播放入场动画；避免「鼠标掠过下拉项触发 sync」导致的反复缩放
+          var modeChanged = window.__dsLastChatMode !== mode;
+          window.__dsLastChatMode = mode;
+          if (ico) {
+            if (modeChanged) {
+              ico.innerHTML = enhanced ? (mode === 'task' ? icoTask : icoOn) : icoOff;
+              // 图标切换的丝滑入场：重新触发一个「缩小到原大小」的过渡动画
+              ico.style.animation = 'none';
+              void ico.offsetWidth; // 强制 reflow 以重启动画
+              ico.style.animation = 'dsPivot 0.24s cubic-bezier(0.22,1,0.36,1)';
+            }
+          }
+          // 任务模式激活 → 把白色造型图标用 CSS 滤镜染成蓝色（与增强检索一致的蓝色系）
+          if (ico && mode === 'task') {
+            var im = ico.querySelector('img');
+            if (im) im.style.filter = 'invert(1) brightness(0) saturate(100%) invert(49%) sepia(97%) saturate(2900%) hue-rotate(208deg) brightness(100%) contrast(108%)';
+          } else if (ico) {
+            var uim = ico.querySelector('img');
+            if (uim) uim.style.filter = '';
+          }
+          var its = menu.querySelectorAll('button[data-ds-cm-mode]');
+          for (var i = 0; i < its.length; i++) {
+            var it = its[i];
+            var m = it.getAttribute('data-ds-cm-mode');
+            var check = it.querySelector('.ds-cm-check');
+            var itico = it.querySelector('.ds-cm-it-ico');
+            var locked = modeLocked(m); // B 类窗口/无痕下不可用的模式项置灰
+            if (locked) {
+              it.style.borderColor = 'transparent';
+              it.style.background = 'transparent';
+              it.style.color = 'rgba(249,250,251,0.30)';
+              it.style.cursor = 'not-allowed';
+              if (itico) {
+                itico.style.color = 'rgba(249,250,251,0.35)';
+                var limg = itico.querySelector('img');
+                if (limg) limg.style.filter = 'grayscale(1) opacity(0.4)';
+              }
+              if (check) check.style.opacity = '0';
+              continue;
+            }
+            if (m === mode) {
+              it.style.borderColor = 'rgba(90,140,255,0.9)';
+              it.style.background = 'rgba(90,140,255,0.18)';
+              it.style.color = '#ffffff';
+              // 选中项图标点亮为蓝色（文字保持白），满足「增强检索/任务 平时白、激活蓝」的区分
+              if (itico) {
+                itico.style.color = 'rgb(103,158,254)';
+                // 任务模式项是 <img>，需用滤镜把白色染蓝
+                var nimg = itico.querySelector('img');
+                if (nimg) nimg.style.filter = 'invert(1) brightness(0) saturate(100%) invert(49%) sepia(97%) saturate(2900%) hue-rotate(208deg) brightness(100%) contrast(108%)';
+              }
+              if (check) check.style.opacity = '1';
+            } else {
+              it.style.borderColor = 'transparent';
+              it.style.background = 'transparent';
+              it.style.color = 'rgb(249,250,251)';
+              it.style.cursor = 'pointer';
+              if (itico) {
+                itico.style.color = '';
+                var uimg = itico.querySelector('img');
+                if (uimg) uimg.style.filter = '';
+              }
+              if (check) check.style.opacity = '0';
+            }
+          }
+          if (enhanced) {
+            btn.style.borderColor = 'rgb(72,104,178)';
+            btn.style.background = 'rgb(40,49,66)';
+            btn.style.color = 'rgb(103,158,254)';
+          } else {
+            btn.style.borderColor = 'rgba(255,255,255,0.12)';
+            btn.style.background = 'rgba(255,255,255,0.04)';
+            btn.style.color = 'rgb(249,250,251)';
+          }
+          syncMask();
+          syncMemoUI(); // 无痕等状态变化时同步记忆开关的置灰/状态
+        }
+        window.__dsSyncChatMode = sync;
+        function toggleMenu() {
+          var r = btn.getBoundingClientRect();
+          var z = 1;
+          try { z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1; } catch (e2) {}
+          var rect = z !== 1 && z > 0 ? { left: r.left / z, top: r.top / z } : { left: r.left, top: r.top };
+          if (menu.style.display === 'flex') {
+            menu.style.display = 'none';
+          } else {
+            sync();
+            menu.style.display = 'flex';
+            menu.style.visibility = 'hidden';
+            var mh = menu.offsetHeight;
+            menu.style.visibility = 'visible';
+            menu.style.left = Math.max(8, rect.left - 8) + 'px';
+            menu.style.top = (rect.top - mh - 4) + 'px';
+            // 每次打开菜单都重新从插件侧读取 skill 自动激活状态，覆盖页面残留旧值
+            document.dispatchEvent(new CustomEvent('ds-skill-auto-query'));
+            // 同时刷新网页工具（web_search/web_fetch）状态
+            document.dispatchEvent(new CustomEvent('ds-web-tools-query'));
+          }
+        }
+        // 事件委托（捕获阶段）：SPA 切换会话后按钮被 React 移动/重建也始终可点，不依赖按钮自身监听
+        document.addEventListener('click', function (e) {
+          var target = e.target;
+          try {
+            if (!target || !target.closest) { menu.style.display = 'none'; return; }
+            // 点击记忆二级框：任何位置都不关闭菜单、也不触发切模式；不拦停事件，让它继续到达内部开关（否则点不动）
+            if (target.closest('#ds-cm-memo-fly')) {
+              e.preventDefault();
+              return;
+            }
+            // 点击「自动匹配skill」二级框：同上，不关闭菜单、不切模式，让内部开关生效
+            if (target.closest('#ds-cm-skill-fly')) {
+              e.preventDefault();
+              return;
+            }
+            // 点击「网页工具」二级框：同上，不关闭菜单、不切模式，让内部开关生效
+            if (target.closest('#ds-cm-webtool-fly')) {
+              e.preventDefault();
+              return;
+            }
+            var inBtn = target.closest('#ds-chat-mode-btn');
+            var inMenu = target.closest('#ds-chat-mode-menu');
+            if (inBtn) {
+              e.preventDefault();
+              e.stopPropagation();
+              toggleMenu();
+              return;
+            }
+            if (inMenu) {
+              var it = target.closest('button[data-ds-cm-mode]');
+              if (it) {
+                e.preventDefault();
+                e.stopPropagation();
+                var m = it.getAttribute('data-ds-cm-mode');
+                var cur = window.__dsChatMode === 'online' || window.__dsChatMode === 'task' ? window.__dsChatMode : 'normal';
+                if (modeLocked(m)) { showLockToast(e.clientX, e.clientY); return; } // 受限项：置灰 + 提示，不支持切换
+                if (m === cur) {
+                  // 窄窗口/副窗口：点当前已选模式 → 原位进入该模式的次级子菜单（节省空间，不被截断）
+                  if (inSubViewport()) { enterSub(m); return; }
+                  menu.style.display = 'flex'; return; // 主窗口点当前已选模式：保持展开，不关闭
+                }
+                if (inSubViewport()) leaveSub(); // 切到其他模式前收起可能展开的二级
+                menu.style.display = 'none';
+                document.dispatchEvent(new CustomEvent('ds-chat-mode-trigger', { detail: { mode: m } }));
+              }
+              return;
+            }
+            menu.style.display = 'none';
+          } catch (e3) { menu.style.display = 'none'; }
+        }, true);
+        // 窄窗口（副窗口）：收成 34px 圆形图标（与原生按钮同尺寸、同 10px 间距），隐藏文字与箭头
+        function applyResponsive() {
+          var narrow = window.innerWidth < 760;
+          var lbl = btn.querySelector('.ds-cm-label');
+          var arrow = btn.querySelector('.ds-cm-arrow');
+          if (narrow) {
+            if (lbl) lbl.style.display = 'none';
+            if (arrow) arrow.style.display = 'none';
+            btn.style.width = '34px';
+            btn.style.height = '34px';
+            btn.style.padding = '0';
+            btn.style.justifyContent = 'center';
+            btn.style.borderRadius = '50%';
+          } else {
+            if (lbl) lbl.style.display = '';
+            if (arrow) arrow.style.display = '';
+            btn.style.width = '';
+            btn.style.height = '34px';
+            btn.style.padding = '0 12px';
+            btn.style.justifyContent = '';
+            btn.style.borderRadius = '18px';
+          }
+        }
+        // 单次重排：模式按钮/占位文字/token 悬浮块一起同步更新。
+        function dsRepaintNow() {
+          try { applyResponsive(); } catch (eRp0) {}
+          try { place(); } catch (eRp1) { console.log('[cm-place] dsRepaintNow 异常', String(eRp1)); }
+          try { if (window.__dsTokenWidget) window.__dsTokenWidget.place(); } catch (eRp2) {}
+        }
+        // 布局事件统一入口：rAF 合并 + 有限收敛。开侧边栏/插件侧窗口时 React 数帧内分步重排，
+        // 锚点逐级移位；这里在坐标仍变化时多追几帧（convergeLeft），稳定即停，避免“只读到中间帧”
+        // 的滞后，也避免死循环刷屏/按钮闪烁。注意：不监 body（body 尺寸常被持续噪声触发，会无限循环）。
+        var pending = false;
+        var convergeLeft = 0;
+        var moTick = 0;
+        // 收敛执行本体：rAF 合并；坐标仍在移动则多追几帧（convergeLeft），稳定即停。
+        function doRepaint() {
+          var b = (btn.style.left || '') + '|' + (btn.style.top || '');
+          try { dsRepaintNow(); } catch (eLo) { console.log('[cm-place] scheduled 异常', String(eLo)); }
+          var a = (btn.style.left || '') + '|' + (btn.style.top || '');
+          if (b !== a) convergeLeft = 10;
+          else if (convergeLeft > 0) convergeLeft--;
+          if (convergeLeft > 0) { pending = false; schedulePlace(); }
+        }
+        function schedulePlace() {
+          if (pending) return;
+          pending = true;
+          requestAnimationFrame(function () { pending = false; doRepaint(); });
+        }
+        // 立即重排（真实位移信号：窗口 resize / 文档根 RO / 输入框 RO / input）——开侧边栏/插件侧窗秒跟。
+        function placeNow() {
+          if (convergeLeft > 0) return; // 已在收敛中，交给循环
+          if (moTick) { clearTimeout(moTick); moTick = 0; }
+          schedulePlace();
+        }
+        // 噪声去抖（MutationObserver：页面动画/后台常每帧触发）——120ms 合并一次，压刷屏又不耽误真变化。
+        function placeDebounced() {
+          if (pending) return;                          // 已有排队的 rAF，合并
+          if (convergeLeft > 0) { schedulePlace(); return; } // 收敛中 → 立即跟
+          if (moTick) return;                           // 去抖窗口内已排过
+          moTick = setTimeout(function () { moTick = 0; schedulePlace(); }, 120);
+        }
+        window.addEventListener('resize', placeNow);
+        if (typeof ResizeObserver !== 'undefined') {
+          var ro = new ResizeObserver(placeNow);
+          ro.observe(document.documentElement);
+          window.__dsChatModeRO = ro;
+        }
+        // 放置策略：流内注入——把按钮作为锚点（智能搜索 toggle → 剪刀 → textarea）的同级节点插入其右侧，
+        // 参与原生工具栏布局，浏览器自动跟随（同 剪刀/加号 按钮）。React 重渲染冲掉按钮时，
+        // 由 MutationObserver → place() 重新插入兜底。无有效锚点时隐藏按钮。
+        function place() {
+          var cands = [findToggle(), findScissor(), findFallback()];
+          var anchor = null;
+          for (var i = 0; i < cands.length; i++) {
+            var c = cands[i];
+            if (!c) continue;
+            var cr = c.getBoundingClientRect();
+            if (cr.width > 1 && cr.height > 1) { anchor = c; break; }
+          }
+          if (!anchor) {
+            btn.style.display = 'none';
+            syncMask();
+            syncPlaceholder();
+            return false;
+          }
+          // 流内插入：确保按钮正好是锚点的下一个兄弟（anchor.nextSibling === btn 即已就位）。
+          // 否则插到锚点之后（btn 不在容器内时 insertBefore 会自动把它搬回来）。
+          var container = anchor.parentElement;
+          if (container && anchor.nextSibling !== btn) {
+            try { container.insertBefore(btn, anchor.nextSibling); } catch (e2) {}
+          }
+          btn.style.display = 'inline-flex';
+          // 清掉历史 fixed 定位遗留的 left/top（旧版曾用固定定位）
+          btn.style.left = '';
+          btn.style.top = '';
+          applyResponsive();
+          syncMask();
+          syncPlaceholder();
+          return true;
+        }
+        place();
+        // MutationObserver 统一走 placeDebounced（120ms 去抖 + rAF 合并 + 有限收敛），不直接回调 place()：
+        // place() 首次插入节点会再次触发 MO，若直接回调会形成「移动按钮→触发 mutation→再移动→…」风暴。
+        var mo = new MutationObserver(placeDebounced);
+        mo.observe(document.body, { childList: true, subtree: true });
+        // === 输入框实时跟随（参考「+」共享文档浮层：对输入框挂 ResizeObserver 原位重排） ===
+        // 根因：textarea 多行输入增高时只改 inline style，不触发 body 子树 MutationObserver，
+        // documentElement 尺寸也不随之变化 → 模式按钮 / 占位文字 / token 悬浮块只靠低频轮询或
+        // scroll/resize 事件才重定位，滞后于随输入框一起流动的原生「+」工具栏。
+        // 现对实时输入框（及其容器）挂 ResizeObserver，输入框增高/工具栏显隐时即可帧级同步重排。
+        var dsInputRO = null;
+        var dsInputROTarget = null;
+        function dsEnsInputRO() {
+          try {
+            var cand = document.querySelector('textarea[placeholder*="发送消息"], textarea[aria-label*="发送消息"], textarea');
+            if (!cand || !cand.isConnected) return;
+            if (cand === dsInputROTarget && dsInputRO) return;
+            if (dsInputRO) { try { dsInputRO.disconnect(); } catch (eROd) {} dsInputRO = null; }
+            if (typeof ResizeObserver !== 'function') return;
+            var ro = new ResizeObserver(function () {
+              // 输入框/容器尺寸变化 → 立即同步重排（模式按钮/占位文字 + token 悬浮块）
+              placeNow();
+            });
+            ro.observe(cand);
+            // 容器高度变化（如切会话、副窗口工具栏显隐）同样驱动跟随
+            try { if (cand.parentElement) ro.observe(cand.parentElement); } catch (ePa) {}
+            dsInputRO = ro; dsInputROTarget = cand;
+          } catch (eRO2) { /* 忽略 */ }
+        }
+        dsEnsInputRO();
+        // 低频兜底刷新观察目标：React 静默重建/替换 textarea 后重新挂载 RO
+        setInterval(dsEnsInputRO, 1000);
+        // === 智能搜索钳制看门狗：任务/增强检索模式下，原生「智能搜索」任何时候被打开启
+        //    （含 Ctrl+R 刷新后页面把开关重置为默认开这种导航竞态）都立即检测并点掉，杜绝漏网。
+        //    普通模式不干预，让用户能自行开关。
+        (function () {
+          function isToggleOn(el) {
+            if (el.getAttribute) {
+              if (el.getAttribute('aria-pressed') === 'true') return true;
+              if (el.getAttribute('aria-checked') === 'true') return true;
+            }
+            if (el.classList && (el.classList.contains('ds-toggle-button--selected')
+                || el.classList.contains('active') || el.classList.contains('on')
+                || el.classList.contains('checked') || el.classList.contains('pressed'))) return true;
+            return false;
+          }
+          var onStreak = 0;
+          function clampSmartSearch() {
+            try {
+              var mode = window.__dsChatMode;
+              if (mode !== 'online' && mode !== 'task') { onStreak = 0; return; } // 普通模式不干预
+              var sm = findSmartOnly();
+              if (!sm) { onStreak = 0; return; }
+              if (isToggleOn(sm)) {
+                // 必须连续 2 个周期(≈800ms)仍为开才点掉：避免误伤切回普通时主进程的「恢复打开」，
+                // 因为那瞬间 __dsChatMode 可能还短暂停留在 online/task。
+                onStreak++;
+                if (onStreak >= 2) { sm.click(); onStreak = 0; }
+              } else {
+                onStreak = 0;
+              }
+            } catch (e) { onStreak = 0; }
+          }
+          clampSmartSearch();
+          setInterval(clampSmartSearch, 400);
+        })();
+        window.__dsChatModeUI = true;
+        console.log('[Injector] 模式切换下拉已注入');
+        return true;
+      } catch (e) { console.error('[Injector] injectChatModeSwitcher 异常', e); return false; }
+    })()`;
+    try {
+      return Boolean(await wc.executeJavaScript(code));
+    } catch (e) {
+      console.error('[Injector] injectChatModeSwitcher 失败:', e);
+      return false;
+    }
+  }
+
+  /** 主进程 → 页面：同步模式切换按钮/菜单的当前模式高亮（'normal' | 'online' | 'task'）。 */
+  public async syncChatModeToPage(wc: WebContents, mode: 'normal' | 'online' | 'task'): Promise<boolean> {
+    try {
+      const v = mode === 'online' ? "'online'" : mode === 'task' ? "'task'" : "'normal'";
+      await wc.executeJavaScript(
+        `(() => { try { window.__dsChatMode = ${v}; if (window.__dsSyncChatMode) window.__dsSyncChatMode(); return true; } catch (e) { return false; } })()`
+      );
+      return true;
+    } catch (e) {
+      console.error('[Injector] syncChatModeToPage 失败:', e);
+      return false;
+    }
+  }
+
+  /**
    * 仅监听「新建对话」按钮点击（捕获阶段，兼容动态渲染），
    * 触发后经 window.__ds.reportNewConversation()（webviewPreload 暴露）经 IPC 通知主进程，
    * 由 WindowManager.applyDefaultModelMode 自动切换到用户在设置中配置的默认模型模式。
@@ -2167,9 +3801,17 @@ export class Injector {
         function isNewChatButton(el) {
           if (!el || !el.getAttribute) return false;
           var txt = (el.textContent || '').replace(/\\s+/g, '').toLowerCase();
+          // 长度守卫：真正的「新建对话」按钮文本很短。巨型祖先容器（如侧栏大 div）的 textContent
+          // 会聚合「新建…对话…」等大量文字，若用整体文本比对会误命中（点模式时 setSmartSearch 的
+          // 合成点击冒泡上去即触发误报），因此超过 50 字的一律不当作新建对话。
+          if (txt.length > 50) return false;
           var aria = (el.getAttribute('aria-label') || '').toLowerCase();
+          var traeref = (el.getAttribute('data-trae-ref') || '').toLowerCase();
           // 精确优先：兼容「新建对话」前后带图标/空格/其它文案的变体
           if (txt.indexOf('新建对话') >= 0 || txt === '新对话' || txt.indexOf('newchat') >= 0) return true;
+          // 官方侧栏「新建对话」按钮是 icon 按钮（无文字/无 aria），data-trae-ref="e0"；文字入口为「开启新对话」
+          if (traeref === 'e0') return true;
+          if (txt.indexOf('开启新对话') >= 0 || txt.indexOf('新对话') >= 0) return true;
           if (aria.indexOf('新建对话') >= 0 || aria.indexOf('newchat') >= 0) return true;
           // 放宽：覆盖「新建 / New chat / New conversation」等变体（参考实现以显式点击新建对话按钮为准）
           if (txt.indexOf('新建') >= 0 && txt.indexOf('对话') >= 0) return true;
@@ -2182,9 +3824,16 @@ export class Injector {
         document.addEventListener('click', function (e) {
           try {
             var node = e.target;
+            // 守卫：点击落在我们注入的「模式切换」UI（按钮/下拉/各二级框）内时，绝不当作「新建对话」——
+            // 否则点任务/增强检索会误触发 NEW_CONV 把刚选的模式复位成普通。
+            var ui = node && node.closest ? node.closest('#ds-chat-mode-btn, #ds-chat-mode-menu, [id^="ds-cm-"]') : null;
+            if (ui) {
+              console.log('[PAGE-NEWCONV-GUARD] 命中模式UI，跳过 id=' + (ui.id || ui.tagName));
+              return;
+            }
             while (node && node !== document.body) {
               if (node.getAttribute && isNewChatButton(node)) {
-                console.log('[PAGE-NEWCONV] 命中新建对话按钮，350ms 后上报 IPC');
+                console.log('[PAGE-NEWCONV] 命中新建对话按钮 id=' + (node.id || '') + ' class=' + (typeof node.className === 'string' ? node.className : '') + ' txt=' + JSON.stringify((node.textContent || '').slice(0, 40)) + '，350ms 后上报 IPC');
                 setTimeout(report, 350); return;
               }
               // 诊断：遇到会话相关按钮但未命中规则，记录真实文本/aria，便于主理人精修匹配
@@ -2200,6 +3849,31 @@ export class Injector {
             }
           } catch (err) {}
         }, true);
+        // 快捷键 Ctrl/Cmd+J 新建对话 → 同样复位为设置的默认模式（官方内置新建对话快捷键）。
+        document.addEventListener('keydown', function (e) {
+          try {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'j' || e.key === 'J')) {
+              console.log('[PAGE-NEWCONV] 命中 Ctrl+J 新建对话');
+              setTimeout(report, 300);
+            }
+          } catch (err3) {}
+        });
+        // URL 兜底：从「有会话 id 的历史会话」导航到「根页(无 id) 的新对话」→ 也复位（覆盖任意触发方式，
+        // 如快捷键、按钮、侧栏入口等）。仅在 有id→无id 迁移时触发，避免同一对话内误复位。
+        (function () {
+          var lastU = location.href.split('#')[0];
+          function navCheck() {
+            var u = location.href.split('#')[0];
+            var prevHad = /\\/a\\/chat\\/[^/?#]+/.test(lastU);
+            var had = /\\/a\\/chat\\/[^/?#]+/.test(u);
+            lastU = u;
+            if (prevHad && !had) { setTimeout(report, 200); }
+          }
+          var pr = history.replaceState, pu = history.pushState;
+          history.replaceState = function () { var r = pr.apply(this, arguments); setTimeout(navCheck, 0); return r; };
+          history.pushState = function () { var r = pu.apply(this, arguments); setTimeout(navCheck, 0); return r; };
+          window.addEventListener('popstate', navCheck);
+        })();
         return true;
       } catch (e) { return false; }
     })()`;
@@ -2385,7 +4059,7 @@ export class Injector {
   }
 
   /**
-   * 注入「回答滚动方式」控制（设置 → 对话 → 模型行为 → 回答滚动方式）：
+   * 注入「回答滚动方式」控制（设置 → 板块 → 对话 → 回答滚动方式）：
    *   - stay（停留开头，默认）：AI 生成回答时不干预滚动，用户保持当前位置；
    *   - follow（跟随回答）：AI 生成时持续滚动到底部，始终显示最新输出（复刻简单模式体验）。
    * 生成状态检测复用 AnswerWatcher 思路（停止按钮 / 最后一条 AI 文本长度变化）。
@@ -2823,6 +4497,116 @@ export class Injector {
     return true;
   }
 
+  /**
+   * 「引用」模式（参考 better-deepseek 的 quoteReply）：点击后在聊天输入框上方渲染一个**引用条**
+   * （带引用样式/预览/可关闭），回车（无修饰键）时把选中文本按 markdown 引用块拼入输入框，
+   * 发送后 DeepSeek 渲染成引用块。不是把 `> ` 文本平铺塞进输入框。
+   */
+  public async injectQuoteBar(wc: WebContents, selectedText: string): Promise<boolean> {
+    const header = '针对你刚才这段内容：';
+    const sel = JSON.stringify(selectedText);
+    const hdr = JSON.stringify(header);
+    const code = `(() => {
+      try {
+        function disabledOf(b){ return b.disabled===true || b.getAttribute('aria-disabled')==='true'; }
+        function getComposerFooter(input){
+          if(!input) return null;
+          var chain=[]; var p=input.parentElement;
+          for(var i=0;i<6 && p;i++){ chain.push(p); p=p.parentElement; }
+          var best=null,bestN=-1;
+          for(var j=0;j<chain.length;j++){ var n=chain[j].querySelectorAll('button').length; if(n>bestN){bestN=n;best=chain[j];} }
+          return best;
+        }
+        function findChatInput() {
+          var sp = document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], [contenteditable][aria-label*="发送消息"]');
+          if (sp) return sp;
+          var cands = document.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]');
+          var best = null, bestN = -1;
+          for (var ci = 0; ci < cands.length; ci++) {
+            var f = getComposerFooter(cands[ci]);
+            if (!f) continue;
+            var n = f.querySelectorAll('button').length;
+            if (n > bestN) { bestN = n; best = cands[ci]; }
+          }
+          return best;
+        }
+        var input = findChatInput();
+        if (!input) return JSON.stringify({ok:false,reason:'no-input'});
+        var sel = ${sel};
+        var hdr = ${hdr};
+        var old = document.getElementById('ds-cm-quote-bar');
+        if (old) old.remove();
+        var bar = document.createElement('div');
+        bar.id = 'ds-cm-quote-bar';
+        // 采用 better-deepseek 的 .bd-quote-bar 深色主题外观
+        bar.style.cssText = 'display:flex;align-items:center;gap:8px;box-sizing:border-box;width:auto;min-height:34px;padding:7px 12px;margin:8px 10px;border:1px solid rgba(148,163,184,0.2);border-radius:10px;background:rgba(148,163,184,0.12);font:12px/1.4 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#a6b0bf;';
+        var icon = document.createElement('span');
+        icon.style.cssText = 'display:flex;flex-shrink:0;align-items:center;color:#98a4b5;';
+        icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 17h3l2-4V7H5v6h3zm8 0h3l2-4V7h-6v6h3z"/></svg>';
+        var preview = document.createElement('span');
+        preview.style.cssText = 'flex:1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:#a6b0bf;font-size:12px;line-height:1.4;';
+        preview.textContent = sel.split('\\n').slice(0,2).join(' ').slice(0,80);
+        var x = document.createElement('button');
+        x.type = 'button';
+        x.textContent = '×';
+        x.title = '删除引用';
+        x.setAttribute('aria-label', '删除引用');
+        x.style.cssText = 'flex-shrink:0;display:flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:1px solid rgba(148,163,184,0.4);border-radius:6px;background:rgba(148,163,184,0.16);color:#dfe6f0;font:600 15px/1 system-ui,sans-serif;cursor:pointer;transition:background 0.15s,color 0.15s,border-color 0.15s;';
+        x.onmouseenter = function(){ x.style.background = 'rgba(229,90,90,0.28)'; x.style.color = '#ffffff'; x.style.borderColor = 'rgba(229,90,90,0.6)'; };
+        x.onmouseleave = function(){ x.style.background = 'rgba(148,163,184,0.16)'; x.style.color = '#dfe6f0'; x.style.borderColor = 'rgba(148,163,184,0.4)'; };
+        x.onclick = function(){ bar.remove(); };
+        bar.appendChild(icon);
+        bar.appendChild(preview);
+        bar.appendChild(x);
+        var host = input.parentElement;
+        if (host) host.insertBefore(bar, input);
+        // 引用条抬高输入框 → 让吸附输入框的悬浮元素（token 小窗/占位文字/模式按钮等）重新贴位，避免与其重合
+        function reflowFloaters(){
+          try { if (window.dsMark) window.dsMark(); } catch(e){}
+          try { if (window.__dsTokenWidget && window.__dsTokenWidget.place) window.__dsTokenWidget.place(); } catch(e){}
+        }
+        x.onclick = function(){ bar.remove(); reflowFloaters(); };
+        reflowFloaters();
+        // 回车（无修饰键）时把引用块拼入输入框，走正常发送
+        var handler = function(ev){
+          if (ev.key !== 'Enter' || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+          if (!bar || !bar.isConnected) return;
+          var quoted = sel.split('\\n').filter(function(l){ return l && l.trim() !== ''; }).map(function(l){ return '> ' + l; }).join('\\n');
+          if (!quoted) return;
+          var cur = (input.getAttribute && input.getAttribute('contenteditable')==='true') ? (input.textContent||'') : (input.value||'');
+          var final = cur ? hdr + '\\n---\\n' + quoted + '\\n---\\n' + cur : hdr + '\\n---\\n' + quoted;
+          input.focus();
+          if (input.getAttribute && input.getAttribute('contenteditable')==='true'){ input.textContent = final; }
+          else {
+            try { var desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input),'value'); if(desc && desc.set){ desc.set.call(input, final); } else { input.value = final; } } catch(e){ try{ input.value = final; } catch(e2){} }
+          }
+          input.dispatchEvent(new Event('input', { bubbles:true }));
+          try { input.dispatchEvent(new InputEvent('input', { bubbles:true, data:final, inputType:'insertText' })); } catch(e){}
+          input.dispatchEvent(new Event('change', { bubbles:true }));
+          bar.remove();
+          reflowFloaters();
+        };
+        // 输入框为空时按退格/删除 → 关闭引用条（也把删除按钮的 × 一并用于此判定）
+        var delHandler = function(ev){
+          if (ev.key !== 'Backspace' && ev.key !== 'Delete') return;
+          if (!bar || !bar.isConnected) return;
+          var cur = (input.getAttribute && input.getAttribute('contenteditable')==='true') ? (input.textContent||'') : (input.value||'');
+          if (cur && cur.replace(/\\s/g,'') !== '') return; // 输入框里有实际内容时不删引用
+          bar.remove();
+          reflowFloaters();
+        };
+        input.addEventListener('keydown', handler);
+        input.addEventListener('keydown', delHandler);
+        return JSON.stringify({ok:true});
+      } catch(e){ return JSON.stringify({ok:false,reason:'err:'+e}); }
+    })()`;
+    const res = await wc.executeJavaScript(code).catch(() => '');
+    let obj: any;
+    try { obj = JSON.parse(res); } catch { obj = res; }
+    if (typeof obj === 'boolean') return obj;
+    return !!(obj && obj.ok);
+  }
+
   // -------------------- 内部辅助 --------------------
 
   /** 在输入框填入文本（兼容 React 受控组件）。轮询等待输入框出现并重试（覆盖 B 窗口加载时机）。 */
@@ -2928,7 +4712,8 @@ export class Injector {
           return best;
         }
         function findSend(){
-          var primary=document.querySelector('.ds-button--primary, [class*="--primary"]');
+          // 精准：发送/停止是唯一「圆形主按钮」，用稳定 ds- 语义类组合锁定（比任意 --primary 更精准）
+          var primary=document.querySelector('[role="button"].ds-button--circle.ds-button--primary, .ds-button--circle.ds-button--primary, .ds-button--primary, [class*="--primary"]');
           if(primary && !disabledOf(primary)) return {b:primary, via:'primary'};
           var all=Array.from(document.querySelectorAll('button, [role="button"], .ds-button'));
           for(var i=0;i<all.length;i++){ var a=(all[i].getAttribute('aria-label')||'').toLowerCase(); if((a.indexOf('发送')>=0||a.indexOf('send')>=0)&&!disabledOf(all[i])) return {b:all[i],via:'label'}; }
@@ -2969,23 +4754,120 @@ export class Injector {
   }
 
   /**
-   * 同步页面「无痕模式」标志与加号菜单高亮（主进程在开启/关闭/离开无痕会话时调用）。
+   * 同步页面「无痕模式」标志、加号菜单高亮，并在开启时于输入框上方靠右显示「无痕模式」悬浮徽章
+   * （眼睛+斜杠图标 + 文字，样式仿共享文档悬浮框）。由主进程在开启/关闭/离开无痕会话时调用。
    * 页面侧注入脚本已定义 window.__dsIncognitoActive 与 window.__dsSyncIncognitoMenu。
    */
-  public async setIncognitoState(wc: WebContents, on: boolean): Promise<void> {
-    if (!wc || wc.isDestroyed()) return;
-    try {
-      await wc.executeJavaScript(
-        `(() => {
+  public setIncognitoState(wc: WebContents, on: boolean): Promise<void> {
+    if (!wc || wc.isDestroyed()) return Promise.resolve();
+    // 页面侧「无痕模式」徽章：开启时创建并定位到输入框上方靠右，关闭时移除。
+    // 幂等：重复开启先移除旧徽章再重建；跟随滚动/缩放/输入框尺寸变化实时定位。
+    const badgeCode = `(() => {
+      try {
+        var active = ${on ? 'true' : 'false'};
+        window.__dsIncognitoActive = active;
+        // 无痕状态变化 → 同步模式下拉的可选项置灰/记忆开关（受限即置灰不可点）
+        try { if (typeof window.__dsSyncChatMode === 'function') window.__dsSyncChatMode(); } catch (e5) {}
+        // CSS zoom 坐标换算：与共享文档悬浮框一致，避免 fixed 定位被 zoom 放大导致偏移
+        function layoutRect(el) {
+          var r = el.getBoundingClientRect();
           try {
-            window.__dsIncognitoActive = ${on ? 'true' : 'false'};
-            if (typeof window.__dsSyncIncognitoMenu === 'function') window.__dsSyncIncognitoMenu();
+            var z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+            if (z !== 1 && z > 0) return { left: r.left / z, top: r.top / z, right: r.right / z, bottom: r.bottom / z, width: r.width / z, height: r.height / z };
           } catch (e) {}
-        })()`
-      );
-    } catch {
-      /* 页面未就绪则忽略（did-finish-load 后重新注入时页面标志会再次同步） */
-    }
+          return r;
+        }
+        function cleanBadge() {
+          var b = document.getElementById('ds-incognito-badge');
+          if (b) b.remove();
+          if (window.__dsIncognitoPosTimer) { clearInterval(window.__dsIncognitoPosTimer); window.__dsIncognitoPosTimer = null; }
+          if (window.__dsIncognitoRo) { try { window.__dsIncognitoRo.disconnect(); } catch (e) {} window.__dsIncognitoRo = null; }
+          if (window.__dsIncognitoScroll) { window.removeEventListener('scroll', window.__dsIncognitoScroll, true); window.__dsIncognitoScroll = null; }
+          if (window.__dsIncognitoResize) { window.removeEventListener('resize', window.__dsIncognitoResize); window.__dsIncognitoResize = null; }
+        }
+        if (!active) { cleanBadge(); if (typeof window.__dsSyncIncognitoMenu === 'function') window.__dsSyncIncognitoMenu(); return; }
+        cleanBadge();
+        var badge = document.createElement('div');
+        badge.id = 'ds-incognito-badge';
+        badge.style.cssText = 'position:fixed;display:flex;align-items:center;gap:6px;height:24px;padding:0 10px 0 8px;background:rgba(28,30,38,0.55);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);border:1px solid rgba(255,255,255,0.18);border-radius:12px;z-index:2147483646;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;cursor:pointer;transition:background 0.2s,border-color 0.2s;';
+        // 悬浮样式（仅注入一次）：悬浮时正文显示「取消无痕」+ 背景微变；点击徽章即退出无痕模式
+        if (!document.getElementById('ds-incognito-badge-css')) {
+          var badgeStyle = document.createElement('style');
+          badgeStyle.id = 'ds-incognito-badge-css';
+          badgeStyle.textContent = '#ds-incognito-badge .ds-badge-hover{display:none;} #ds-incognito-badge:hover{background:rgba(226,160,74,0.26);border-color:rgba(255,255,255,0.32);} #ds-incognito-badge:hover .ds-badge-normal{display:none;} #ds-incognito-badge:hover .ds-badge-hover{display:inline;}'
+          + '#ds-incognito-badge.compact{width:24px!important;height:24px!important;min-width:24px;padding:0!important;gap:0;border-radius:7px!important;justify-content:center;}' // 窄屏：与 token 同高的圆角方形图标框
+          + '#ds-incognito-badge.compact .ds-badge-normal,#ds-incognito-badge.compact .ds-badge-hover,#ds-incognito-badge.compact .ds-badge-dot{display:none!important;}' // 只留眼睛，去掉文字与绿点
+          + '#ds-incognito-badge.compact:hover svg{color:#ffd28f!important;}'; // 悬浮时图标变黄（同取消无痕文字色）
+          document.head.appendChild(badgeStyle);
+        }
+        // 眼睛 + 斜杠图标（用户指定：无痕即"看不到"，去掉原眼镜图标）
+        badge.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#9db5ff;flex:none;display:block;"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1.91 1.91 0 0 1 0 1.8 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1.91 1.91 0 0 1 0-1.8 10.75 10.75 0 0 1 4.446-5.147"/><path d="m2 2 20 20"/></svg>' +
+          '<span class="ds-badge-normal" style="color:#e8eaed;font-size:12px;font-weight:500;white-space:nowrap;">无痕模式</span>' +
+          '<span class="ds-badge-hover" style="color:#ffd28f;font-size:12px;font-weight:500;white-space:nowrap;">取消无痕</span>' +
+          '<span class="ds-badge-dot" style="width:6px;height:6px;border-radius:50%;background:#34c759;flex:none;display:block;"></span>';
+        badge.onclick = function (e) { e.preventDefault(); e.stopPropagation(); try { if (window.__ds && window.__ds.toggleIncognito) window.__ds.toggleIncognito(); } catch (er) {} };
+        document.body.appendChild(badge);
+        function findInput() {
+          return document.querySelector('textarea[aria-label*="发送消息"], textarea[placeholder*="发送消息"], textarea, [contenteditable="true"], [role="textbox"]');
+        }
+        function position() {
+          var inp = findInput();
+          if (!inp) return;
+          var composer = inp.parentElement;
+          for (var i = 0; i < 8 && composer; i++) {
+            if (composer.querySelector && composer.querySelector('input[type="file"]') && composer.querySelector('textarea, [contenteditable="true"]')) break;
+            composer = composer.parentElement;
+          }
+          if (!composer) composer = inp.parentElement;
+          var cRect = layoutRect(composer);
+          // 空间不足（副窗口等窄视口）→ 折叠为与 token 同高的圆角方形图标（样式 .compact 隐藏文字与绿点），悬浮图标变黄
+          var compact = window.innerWidth < 760;
+          badge.classList.toggle('compact', compact);
+          var bw = badge.offsetWidth || (compact ? 24 : 120);
+          var bh = badge.offsetHeight || 24;
+          // 右锚：默认对齐 composer 右缘（留 8px）；若右上 token 悬浮块可见，让位到其左侧（紧凑态贴更近 4px），避免重叠
+          var gap = compact ? 4 : 8;
+          var rightAnchor = cRect.right - gap;
+          try {
+            var twEl = document.getElementById('ds-token-widget');
+            if (twEl && twEl.isConnected && twEl.style && twEl.style.display !== 'none') {
+              var tRect = layoutRect(twEl);
+              if (tRect.width > 1 && tRect.height > 1 && tRect.left > cRect.left) {
+                rightAnchor = tRect.left - gap;
+              }
+            }
+          } catch (eT) { /* 忽略 */ }
+          var left = Math.max(8, rightAnchor - bw);
+          var top = cRect.top - bh - 8;            // 与 token 一致：距输入框上方 8px
+          if (top < 8) top = cRect.bottom + 8;     // 空间不足则翻到下方（同样 8px）
+          badge.style.left = left + 'px';
+          badge.style.top = top + 'px';
+        }
+        position();
+        window.__dsIncognitoScroll = function () { position(); };
+        window.addEventListener('scroll', window.__dsIncognitoScroll, true);
+        window.__dsIncognitoResize = function () { position(); };
+        window.addEventListener('resize', window.__dsIncognitoResize);
+        try {
+          var iTarget = findInput();
+          if (iTarget && typeof ResizeObserver === 'function') {
+            window.__dsIncognitoRo = new ResizeObserver(function () { position(); });
+            window.__dsIncognitoRo.observe(iTarget);
+          }
+        } catch (e2) {}
+        window.__dsIncognitoPosTimer = setInterval(function () { position(); }, 500);
+        if (typeof window.__dsSyncIncognitoMenu === 'function') window.__dsSyncIncognitoMenu();
+      } catch (e3) {}
+    })()`;
+    // 串行链：按调用顺序依次执行，避免快速开关时 executeJavaScript 乱序导致标志/徽章停在历史值。
+    const prev = this.incognitoStateChain.get(wc.id) || Promise.resolve();
+    const next = prev.catch(() => {}).then(() => {
+      if (wc.isDestroyed()) return;
+      // 页面未就绪则忽略（did-finish-load 后重新注入时页面标志会再次同步）
+      return wc.executeJavaScript(badgeCode).catch(() => {});
+    });
+    this.incognitoStateChain.set(wc.id, next);
+    return next;
   }
 
   /**

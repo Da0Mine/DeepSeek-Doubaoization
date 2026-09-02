@@ -13,12 +13,20 @@ contextBridge.exposeInMainWorld('__dsScreenShare', {
       /* 忽略 */
     }
   },
+  sendSwitchVision(): void {
+    try {
+      ipcRenderer.send(IPC.SCREEN_SHARE_SWITCH_VISION);
+    } catch {
+      /* 忽略 */
+    }
+  },
 });
 
 declare global {
   interface Window {
     __dsScreenShare: {
       sendStop(): void;
+      sendSwitchVision(): void;
     };
   }
 }

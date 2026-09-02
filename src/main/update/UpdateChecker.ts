@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type {
   ReleaseAsset,
+  ReleaseHistoryItem,
   UpdateDownloadProgress,
   UpdateInfo,
 } from '../../shared/types';
@@ -20,6 +21,9 @@ export const RELEASES_PAGE_URL = `https://github.com/${GITHUB_REPO}/releases`;
 
 /** GitHub API：最新 release。 */
 const LATEST_RELEASE_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+
+/** GitHub API：release 历史（最近 20 个）。 */
+const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=20`;
 
 /** GitHub 文件加速前缀（https://github.cnmclash.de5.net/，拼接原始链接即可）。 */
 export const GH_PROXY_PREFIX = 'https://github.cnmclash.de5.net/';
@@ -91,6 +95,42 @@ export class UpdateChecker {
   /** 在默认浏览器打开 Release 列表页。 */
   openReleasesPage(): void {
     shell.openExternal(RELEASES_PAGE_URL).catch(() => {});
+  }
+
+  /**
+   * 拉取更新历史（每个版本更新了什么）。失败返回 []（由界面提示已是最新或网络问题）。
+   */
+  async fetchHistory(): Promise<ReleaseHistoryItem[]> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
+    try {
+      const res = await net.fetch(RELEASES_API, {
+        headers: {
+          'User-Agent': 'DeepSeek-Desktop',
+          Accept: 'application/vnd.github+json',
+        },
+        signal: controller.signal,
+      });
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        tag_name?: string;
+        name?: string;
+        html_url?: string;
+        body?: string | null;
+        published_at?: string | null;
+      }[];
+      return (Array.isArray(data) ? data : []).map((r) => ({
+        version: String(r.tag_name || '').replace(/^v/i, '') || '?',
+        name: String(r.name || r.tag_name || ''),
+        url: r.html_url || RELEASES_PAGE_URL,
+        body: r.body || null,
+        publishedAt: r.published_at || null,
+      }));
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** 从最近一次检查结果中查找当前平台适用的安装包资产（win32 → .exe；darwin → .dmg；linux → .AppImage）。 */

@@ -39,6 +39,10 @@ export function isDebugLogEnabled(): boolean {
 /** 记录一条调试日志：落盘 + 终端打印。 */
 export function logf(tag: string, msg: string, extra?: unknown): void {
   if (!ENABLED) return;
+  // 高频噪音 tag / 一次性诊断 dump（无调试价值、会刷屏）直接丢弃：
+  //  layout=每次布局/缩放都打；INPUT_HOOK=每次文本选择/剪贴板都打；web:LOG/WARN=聊天页自身 console；
+  //  dom-probe=滚动容器 DOM 结构一次性 dump，体量大且无用。
+  if (tag === 'layout' || tag === 'INPUT_HOOK' || tag === 'web:LOG' || tag === 'web:WARN' || tag === 'dom-probe') return;
   const ts = new Date().toISOString();
   let line = `[${ts}] [${tag}] ${msg}`;
   if (extra !== undefined) {

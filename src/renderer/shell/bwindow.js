@@ -1,4 +1,4 @@
-/* B 类临时窗口交互（原生 JS）：仅关闭 / 最小化 / 最大化 / 置顶 + 翻译语言下拉框 + 主题变量下发。 */
+/* B 类临时窗口交互（原生 JS）：仅关闭 / 最小化 / 置顶 + 翻译语言下拉框 + 主题变量下发。 */
 (function () {
   'use strict';
 
@@ -12,11 +12,9 @@
     var shell = window.shell;
     if (!shell) return;
     var btnMin = document.getElementById('btn-min');
-    var btnMax = document.getElementById('btn-max');
     var btnClose = document.getElementById('btn-close');
     var btnPin = document.getElementById('btn-pin');
     if (btnMin) btnMin.onclick = function () { shell.minimize(); };
-    if (btnMax) btnMax.onclick = function () { shell.toggleMax(); };
     if (btnClose) btnClose.onclick = function () { shell.close(); };
     function setPinIcon(pinned) {
       if (!btnPin) return;

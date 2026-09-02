@@ -2,14 +2,14 @@
  * 主窗口：自绘标题栏（加载 titlebar.html）+ WebContentsView 内嵌 chat.deepseek.com。
  * 所有窗口共享 session.defaultSession，登录态自动持久化跨启动。
  */
-import { BrowserWindow, type WebContents, WebContentsView, nativeTheme, screen } from 'electron';
+import { BrowserWindow, type WebContents, WebContentsView, nativeImage, nativeTheme, screen } from 'electron';
 import {
   DEEPSEEK_URL,
   SHELL_PRELOAD,
   TITLEBAR_HEIGHT,
   TITLEBAR_HTML,
   WEBVIEW_PRELOAD,
-  iconIfExists,
+  appIconIfExists,
 } from '../constants';
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
@@ -17,6 +17,7 @@ import type { ConfigStore } from '../config/ConfigStore';
 import { installLinkOpenHandler } from './browserWindow';
 import { logf } from '../logger';
 import { getLoginItem } from '../loginItem';
+import { getSidebarPane } from '../plugins/sidebarReservation';
 
 /** 依据配置主题 + 系统深浅，计算窗口底色（首帧防白屏）。 */
 function resolveBackgroundColor(config: ConfigStore): string {
@@ -36,22 +37,36 @@ export interface MainWindowResult {
 const chatWindows = new Map<BrowserWindow, () => WebContentsView | null>();
 let displayMetricsListenerAdded = false;
 
+/** 每个视图最近一次实际应用的 bounds（redundancy 守卫：跳过低效/回环布局）。 */
+const lastBounds = new WeakMap<WebContentsView, { x: number; y: number; width: number; height: number }>();
+
 /**
  * 实际设置 WebContentsView 边界（同步核心）。
  * 含防零/防负与销毁守卫：窗口或视图已销毁、或尺寸非法时直接返回，不设置错误 bounds。
+ * 冗余守卫：target 与上次设置完全一致时跳过 setBounds 与日志，切断「布局→触发 resize→再布局」的
+ * 无意义回环（否则侧边栏、主窗口 relayout 会无限互踢，终端疯狂刷 LOG:layout）。
  */
 function applyViewBounds(win: BrowserWindow, view: WebContentsView, titlebarHeight = TITLEBAR_HEIGHT): void {
   if (win.isDestroyed() || view.webContents.isDestroyed()) return;
   const { width, height } = win.getContentBounds();
   if (width <= 0 || height <= 0) return;
-  // 诊断用：仅当项目根目录存在 .debug-autolog（或 DS_DEBUG=1）时才落盘/打印，生产环境无感。
-  logf('layout', 'applyViewBounds', { width, height, titlebar: titlebarHeight });
-  view.setBounds({
+  // 侧边栏打开时为其预留右缘宽度，chat 只铺到侧边栏左侧。否则每次 resize 都会短暂铺满全宽
+  // 再被侧边栏压回，WebContentsView 两侧交替导致网页 viewport 左右横跳（见 sidebarReservation）。
+  const pane = getSidebarPane(win);
+  const target = {
     x: 0,
     y: titlebarHeight,
-    width,
+    width: Math.max(0, width - pane),
     height: Math.max(0, height - titlebarHeight),
-  });
+  };
+  const prev = lastBounds.get(view);
+  if (prev && prev.x === target.x && prev.y === target.y && prev.width === target.width && prev.height === target.height) {
+    return; // 尺寸未变：跳过，避免回环 / 刷屏
+  }
+  lastBounds.set(view, target);
+  view.setBounds(target);
+  // 诊断用：仅当项目根目录存在 .debug-autolog（或 DS_DEBUG=1）时才落盘/打印，生产环境无感。
+  logf('layout', 'applyViewBounds', { width, height, titlebar: titlebarHeight, pane });
 }
 
 /** 每个窗口的延迟布局 timer（WeakMap 避免内存泄漏，且窗口销毁后自动回收 key）。 */
@@ -274,7 +289,7 @@ export function createMainWindow(
     title: 'DeepSeek',
     backgroundColor: resolveBackgroundColor(config),
     show: false,
-    icon: iconIfExists(),
+    icon: appIconIfExists(),
     webPreferences: {
       preload: SHELL_PRELOAD,
       contextIsolation: true,
@@ -285,6 +300,14 @@ export function createMainWindow(
   });
 
   win.loadFile(TITLEBAR_HTML);
+
+  // 强制任务栏/窗口图标用新图标（deepseek-app-256.png）：frame:false + AppUserModelId 下
+  // BrowserWindow 构造的 icon 选项可能不覆盖任务栏图标，用 nativeImage + setIcon 显式强设。
+  const appIconPath = appIconIfExists();
+  if (appIconPath) {
+    const img = nativeImage.createFromPath(appIconPath);
+    if (!img.isEmpty()) win.setIcon(img);
+  }
 
   const view = createChatView(win, getView ?? (() => null));
   layoutView(win, view);

@@ -1,72 +1,101 @@
-/* 自定义标题栏样式（原生 CSS，不依赖任何框架）。配色由主进程经 --ds-* 变量下发。 */
-* {
+@import 'tokens.css';
+
+/* 主窗口 / 副窗口 / B 类窗口统一走此 CSS */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ds-border, #d1d5db);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ds-accent, #3370ff);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  /* 背景跟随主题变量；走 Electron 原生标题栏（titleBarOverlay），
+     系统根据窗口焦点自动变灰/恢复正常亮度（titleBarStyle: 'hidden' 含 overlay 色） */
+  background: var(--ds-bg, #dfdfe3); }
+
+#titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: var(--ds-bg, #dfdfe3);
+  border-bottom: 1px solid var(--ds-border, #d1d5db);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  -webkit-app-region: drag;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  z-index: 2147483647;
   box-sizing: border-box;
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-  height: 40px; /* 标题栏高度，与 constants.TITLEBAR_HEIGHT 对应 */
-  overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  font-size: var(--ds-font-size, 13px);
-  background: var(--ds-tb-bg, #f3f3f3);
-  color: var(--ds-tb-fg, #333);
-}
-
-#titlebar {
-  -webkit-app-region: drag;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 8px;
-  user-select: none;
-  border-bottom: 1px solid var(--ds-border, #e0e0e0);
-  background: var(--ds-tb-bg, #f3f3f3);
-}
-
 .tb-left {
+  -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
-  height: 100%;
-  gap: 10px;
-  min-width: 0;
-}
-
-/* 左侧非按钮元素（logo / 登录状态）保持垂直居中 */
-.tb-left > .tb-logo,
-.tb-left > .tb-status {
-  align-self: center;
+  padding-left: 16px;
 }
 
 .tb-logo {
-  font-weight: 600;
+  font-size: var(--text-label);
+  font-weight: var(--fw-medium);
+  color: var(--ds-tb-fg, #333);
+  user-select: none;
   letter-spacing: 0.3px;
 }
 
-.tb-status {
-  font-size: var(--text-caption);
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: var(--ds-border, #e0e0e0);
-  color: var(--ds-tb-fg, #555);
-  white-space: nowrap;
-  line-height: var(--lh-body);
+/* 导航按钮组（Edge 风格的后退/前进/刷新）：紧跟标题文字右侧，仅主窗口显示。
+   与右侧按钮一致，撑满整个标题栏高度，可点击范围更大。 */
+.tb-nav {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  margin-left: 10px;
+  gap: 2px;
 }
-
-.tb-status.ok {
-  background: rgba(76, 175, 80, 0.18);
-  color: #2e7d32;
+.tb-nav-btn {
+  height: 100%;
+  align-self: stretch;
+  min-width: 34px;
+  padding: 0 8px;
 }
-
-.tb-status.warn {
-  background: rgba(244, 67, 54, 0.18);
-  color: #c62828;
+.tb-nav-btn svg {
+  stroke-width: 2.1;
+}
+.tb-nav-btn svg.tb-refresh {
+  stroke-width: 2.4;
+}
+/* 不可导航（无可前进/后退历史）时呈半透明，仅显示不可点击 */
+.tb-nav-btn.is-disabled {
+  opacity: 0.34;
+  cursor: default;
+}
+.tb-nav-btn.is-disabled:hover {
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none;
+}
+.tb-nav-btn.is-disabled:active {
+  transform: none;
 }
 
 .tb-right {
+  -webkit-app-region: no-drag;
   display: flex;
   align-items: stretch;
   gap: 6px;
@@ -107,6 +136,19 @@ body {
   stroke-linejoin: round;
 }
 
+/* 固定在窗口栏的扩展按钮（位于插件按钮左侧、设置按钮右侧）。
+   默认隐藏：仅当存在固定扩展（:not(:empty)）才显示为 flex，避免空容器撑出多余间距。 */
+#tb-pinned { display: none; }
+#tb-pinned:not(:empty) { display: flex; align-items: stretch; gap: 2px; }
+.tb-pinned { position: relative; padding: 0 8px !important; min-width: 34px !important; }
+.tb-pinned-ico {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
 /* 窗口控制图标（最小化/最大化/关闭）：描边略粗，与主副窗口切换图标笔画保持一致 */
 .tb-btn svg.tb-wc {
   stroke-width: 2.2;
@@ -116,22 +158,24 @@ body {
   transform: translateY(1px);
 }
 
-/* 更新图标按钮：发现新版本时显示，右上角带红点角标提示 */
 .tb-btn-update {
+  color: var(--ds-accent, #3370ff) !important;
   position: relative;
+}
+.tb-btn-update:hover {
+  background: rgba(51, 112, 255, 0.12) !important;
 }
 .tb-update-dot {
   position: absolute;
-  top: 7px;
-  right: 8px;
-  width: 7px;
-  height: 7px;
+  top: 9px;
+  right: 10px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: #ff3b30;
-  border: 1px solid var(--ds-tb-bg, #f3f3f3);
+  background: var(--ds-danger, #ff3b30);
+  box-shadow: 0 0 0 1px var(--ds-bg, #dfdfe3);
 }
 
-/* 置顶按钮状态：置顶时图标实心填充 */
 .tb-btn-pin.pinned svg {
-  fill: currentColor;
+  stroke: var(--ds-accent, #3370ff);
 }

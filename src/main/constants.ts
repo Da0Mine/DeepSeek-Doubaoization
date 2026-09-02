@@ -36,6 +36,8 @@ export const CONFIG_PATH: string = (() => {
 export const SHELL_PRELOAD = path.join(__dirname, '..', 'preload', 'shellPreload.js');
 export const WEBVIEW_PRELOAD = path.join(__dirname, '..', 'preload', 'webviewPreload.js');
 export const SCREEN_SHARE_TASKBAR_PRELOAD = path.join(__dirname, '..', 'preload', 'screenShareTaskbarPreload.js');
+/** DeepSeek++ 侧边栏（dspp:// 协议加载 sidepanel.html）专用 preload。 */
+export const DSPP_SIDEPANEL_PRELOAD = path.join(__dirname, '..', 'preload', 'dsppSidepanelPreload.js');
 
 /** 外壳渲染资源目录（__dirname = dist/main => dist/renderer/shell）。 */
 export const SHELL_DIR = path.join(__dirname, '..', 'renderer', 'shell');
@@ -43,11 +45,15 @@ export const TITLEBAR_HTML = path.join(SHELL_DIR, 'titlebar.html');
 export const OVERLAY_HTML = path.join(SHELL_DIR, 'overlay.html');
 export const TRANSLATE_HTML = path.join(SHELL_DIR, 'translate.html');
 export const SETTINGS_HTML = path.join(SHELL_DIR, 'settings.html');
+/** 插件管理面板（内嵌于主窗口的 WebContentsView）。 */
+export const EXTENSIONS_HTML = path.join(SHELL_DIR, 'extensions.html');
+/** 内置插件（DeepSeek++）所在目录：随 copy-assets 复制到 dist/renderer/extensions/deepseek-pp。 */
+export const EXTENSIONS_BUILTIN_DIR = path.join(__dirname, '..', 'renderer', 'extensions', 'deepseek-pp');
+/** 内置插件展示名（与扩展 manifest 名称一致，locale 解析为 DeepSeek++）。 */
+export const EXTENSIONS_BUILTIN_NAME = 'DeepSeek++';
 export const BWINDOW_HTML = path.join(SHELL_DIR, 'bwindow.html');
 /** 内置浏览器窗口外壳（多标签页标签栏 UI）。 */
 export const BROWSER_HTML = path.join(SHELL_DIR, 'browser.html');
-/** 使用说明引导视图（内嵌于主窗口的 WebContentsView）。 */
-export const ONBOARDING_HTML = path.join(SHELL_DIR, 'onboarding.html');
 /** 更新提醒弹框（覆盖主窗口的透明窗口，发现新版本时弹出）。 */
 export const UPDATE_PROMPT_HTML = path.join(SHELL_DIR, 'updatePrompt.html');
 /** 共享屏幕模式提示弹框（覆盖主窗口的透明窗口，专家/快速模式限制时弹出）。 */
@@ -57,19 +63,33 @@ export const FIRST_RUN_HTML = path.join(SHELL_DIR, 'firstRun.html');
 
 /** 图标目录。 */
 export const ICON_DIR = path.join(__dirname, '..', 'renderer', 'assets', 'icons');
-export const ICON_PNG = path.join(ICON_DIR, 'icon.png');
-export const ICON_ICO = path.join(ICON_DIR, 'icon.ico');
+/** 托盘图标（DeepSeek 官方图标，保持不变）。 */
+export const TRAY_ICON = path.join(ICON_DIR, 'icon.ico');
+/** 应用图标（窗口标题栏 / 任务栏 / 快捷方式）：白 logo + 蓝底(#5D72F5)圆角矩形。 */
+export const APP_ICON = path.join(ICON_DIR, 'deepseek-app-256.png');
 
 /**
- * 若图标存在则返回路径，否则返回 undefined（Electron 将使用默认图标，不阻断启动）。
- * 优先使用 DeepSeek 官方图标 icon.ico；缺失时回退到占位 icon.png（由 copy-assets 生成）。
- * Windows 上 Electron 的 nativeImage.createFromPath 原生支持 .ico。
+ * 托盘图标路径：icon.ico（DeepSeek 官方图标）；缺失时回退 undefined（Electron 用默认，不阻断）。
+ * 与窗口/应用图标分离，保证托盘图标始终不变。
  */
 export function iconIfExists(): string | undefined {
   try {
-    if (fs.existsSync(ICON_ICO)) return ICON_ICO;
-    if (fs.existsSync(ICON_PNG)) return ICON_PNG;
+    if (fs.existsSync(TRAY_ICON)) return TRAY_ICON;
     return undefined;
+  } catch (e) {
+    return undefined;
+  }
+}
+
+/**
+ * 窗口（标题栏 / 任务栏 / 快捷方式）应用图标路径：优先 deepseek-app-256.png（白 logo 蓝底圆角矩形，即任务栏新图标），
+ * 缺失时回退托盘图标。与托盘分离，二者可各自定制。
+ * 说明：Electron nativeImage.createFromPath 在 Windows 原生支持 PNG，任务栏显示新 PNG 图标无需转 .ico。
+ */
+export function appIconIfExists(): string | undefined {
+  try {
+    if (fs.existsSync(APP_ICON)) return APP_ICON;
+    return TRAY_ICON;
   } catch (e) {
     return undefined;
   }

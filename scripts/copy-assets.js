@@ -28,18 +28,18 @@ function copyDir(src, dest) {
 
 function ensureIcon() {
   const iconDir = path.join(DEST, 'assets', 'icons');
-  const icoPath = path.join(iconDir, 'icon.ico');
-  const pngPath = path.join(iconDir, 'icon.png');
-  // 已有真实图标（由 src 复制来的 icon.ico 或 icon.png）则不生成占位
-  if (fs.existsSync(icoPath) || fs.existsSync(pngPath)) return;
+  const trayIcon = path.join(iconDir, 'icon.ico');
+  const appIcon = path.join(iconDir, 'deepseek-app-256.png');
+  // 已有真实图标（由 src 复制来的 icon.ico / deepseek-app-256.png）则不生成占位
+  if (fs.existsSync(trayIcon) || fs.existsSync(appIcon)) return;
   fs.mkdirSync(iconDir, { recursive: true });
   // 1x1 透明 PNG 的 base64（占位图标，待替换为正式图标）
   const png = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
     'base64'
   );
-  fs.writeFileSync(pngPath, png);
-  console.log('[copy-assets] 已生成占位图标', pngPath);
+  fs.writeFileSync(path.join(iconDir, 'favicon.ico'), png);
+  console.log('[copy-assets] 已生成占位图标', path.join(iconDir, 'favicon.ico'));
 }
 
 try {

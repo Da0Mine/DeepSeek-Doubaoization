@@ -1,0 +1,14 @@
+{
+  "extension_name": {
+    "message": "DeepSeek++",
+    "description": "浏览器界面中显示的扩展名称"
+  },
+  "extension_description": {
+    "message": "DeepSeek 的 Agentic 记忆、Skill、执行、自动化和 MCP 工具",
+    "description": "浏览器界面中显示的扩展描述"
+  },
+  "extension_action_title": {
+    "message": "DeepSeek++",
+    "description": "工具栏按钮标题"
+  }
+}

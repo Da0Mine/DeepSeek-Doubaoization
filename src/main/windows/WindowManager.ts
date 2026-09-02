@@ -11,7 +11,7 @@ import { createMainWindow, layoutView, createChatView } from './mainWindow';
 import { createSubWindow } from './subWindow';
 import { createBWindow as createBWindowFactory } from './bWindow';
 import { IPC } from '../ipc/channels';
-import { TITLEBAR_HEIGHT } from '../constants';
+import { TITLEBAR_HEIGHT, DEEPSEEK_URL } from '../constants';
 import { applyThinkCollapse } from '../inject/thinkCollapse';
 import type { Injector } from '../inject/Injector';
 import type { ScreenShareManager } from '../screenShare/ScreenShareManager';
@@ -64,6 +64,8 @@ export class WindowManager {
   private suppressRestoreOnClose = new WeakSet<BrowserWindow>();
   /** 对话当前是否在副窗口（true=在副窗口，false=在主窗口）。驱动「主副切换」的隐藏方向。 */
   private conversationInSub = false;
+  /** 副窗口「重置为新对话」的惰性定时器（windowId -> Timer）：定时模式（15/30/60）关闭后到点后台释放。 */
+  private subResetTimers = new Map<string, NodeJS.Timeout>();
   /** 正在执行模型切换的 webContents id 集合：防止同一会话并发多次点击 radio 互相打断（问题 1 根因）。 */
   private switchingWc = new Set<number>();
   /** 各 webContents 上次应用默认模型的时间戳：用于去抖，避免一次「新建对话」被重复触发。 */
@@ -74,6 +76,8 @@ export class WindowManager {
   private lastToggleSyncAt = new Map<number, number>();
   private onWebViewReady: ((wc: WebContents, type: WindowType) => void) | null = null;
   private injector: Injector | null = null;
+  /** 复位「插件模式为普通」钩子（由 main.ts 注入；WindowManager 无权访问 extensionManager/extensionHost）。 */
+  public resetChatModeHook: ((wc: WebContents) => void) | null = null;
   private screenShare: ScreenShareManager | null = null;
   /** 已应用默认模式的会话 id（wcId -> 会话 id 或 ''=新建页）：判断「同会话重复触发」用。 */
   private lastAppliedDefaultSession = new Map<number, string>();
@@ -139,17 +143,14 @@ export class WindowManager {
       }
       this.syncIncognitoUI(wc, true);
     } else {
-      // 已有记录的会话被锁定，无法手动关闭（页面侧已拦截；此处双保险）：
-      // 被标记的会话 id 只能由「离开会话 / 关闭窗口 / 退出程序」时自动删除。
-      if (this.incognitoActiveWc.has(wc.id)) {
-        const id = this.getCurrentChatId(wc);
-        if (id && this.incognitoIds.has(id)) {
-          this.syncIncognitoUI(wc, true);
-          return;
-        }
-      }
+      // 手动关闭无痕模式：直接取消当前会话/待锁定状态的无痕标记。
+      // （仅当无痕保持开启，直到「离开会话 / 切换对话 / 关闭窗口 / 退出程序」时才自动删除该对话记录）
       this.incognitoActiveWc.delete(wc.id);
       this.incognitoPending.delete(wc.id);
+      const closeId = this.getCurrentChatId(wc);
+      if (closeId && this.incognitoIds.has(closeId)) {
+        this.unmarkIncognito(closeId);
+      }
       this.syncIncognitoUI(wc, false);
     }
   }
@@ -170,6 +171,15 @@ export class WindowManager {
   /** 当前是否仍有待清理的无痕对话（退出程序前判断）。 */
   public hasIncognito(): boolean {
     return this.incognitoIds.size > 0 || this.incognitoActiveWc.size > 0;
+  }
+
+  /**
+   * 查询某 webContents 当前无痕状态是否开启（主进程为唯一真源）。
+   * 页面每次「打开/关闭」都由主进程据此判定新状态并回写，避免页面本地标志陈旧导致蓝框错乱。
+   */
+  public isIncognitoOn(wc: WebContents | null | undefined): boolean {
+    if (!wc || wc.isDestroyed()) return false;
+    return this.incognitoActiveWc.has(wc.id) || this.incognitoPending.has(wc.id);
   }
 
   /**
@@ -287,7 +297,6 @@ export class WindowManager {
     this.injector?.setIncognitoState(wc, on).catch(() => {});
   }
 
-  /** 从磁盘加载无痕标记（软件临时关闭/崩溃后恢复）。 */
   private loadIncognitoStore(): void {
     try {
       if (!fs.existsSync(this.incognitoPath)) return;
@@ -351,8 +360,93 @@ export class WindowManager {
     this.trackActive(win, id);
     this.trackClosed(win, id);
     this.bindCloseToTray(win, id);
+    this.trackSubWindowReset(win, id);
     this.attachWebViewReady(view, type, true, skipDefaultModel);
     return id;
+  }
+
+  /**
+   * 副窗口「重置为新对话」：仅在常驻 chat 副窗口（type==='sub'）生效，其余（识图/翻译/解释/提取）不重置。
+   * 规则（记录关闭/隐藏时刻，打开时判断是否重置）：
+   *  - 关闭 = 通过快捷键隐藏或点关闭按钮（hide / close）；最小化不算（不触发 hide）。
+   *  - 配置 subWindowResetNew：never=永不重置；open=每次打开都重置；
+   *    15/30/60=关闭超过对应分钟数才重置，否则保留原对话。
+   */
+  private trackSubWindowReset(win: BrowserWindow, id: string): void {
+    const entry = this.entries.get(id);
+    // 仅对常驻 chat 副窗口生效（type==='sub' 且有 chat 视图）
+    if (!entry || entry.type !== 'sub' || !entry.view?.webContents) return;
+    // 关闭/隐藏时：记录时刻，并按配置在后台释放会话（重开时用户看不到刷新过程）
+    win.on('hide', () => {
+      this.scheduleSubWindowReset(id);
+    });
+    // 重新打开/显示时：若到点前的惰性定时器尚未触发且本次未到重置时间，保留原对话（取消定时）
+    win.on('show', () => {
+      const t = this.subResetTimers.get(id);
+      if (t) {
+        clearTimeout(t);
+        this.subResetTimers.delete(id);
+      }
+    });
+  }
+
+  /**
+   * 关闭副窗口后在后台安排「重置为新对话」：
+   *  - 'open'：立即加载根地址释放当前会话；
+   *  - '15'/'30'/'60'：启动定时器，到点后若窗口仍未重新打开则后台释放。
+   * 均在窗口隐藏期间执行，重开时直接呈现已就绪的新对话页，避免可见的刷新过程。
+   */
+  private scheduleSubWindowReset(id: string): void {
+    const mode = this.config.get('subWindowResetNew');
+    if (mode !== 'open' && mode !== '15' && mode !== '30' && mode !== '60') return;
+    const entry = this.entries.get(id);
+    const wc = entry?.view?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+
+    const release = (): void => {
+      // 释放前确保窗口仍处于隐藏状态（若已重新打开则用户正查看旧对话，不应打断）
+      const cur = this.entries.get(id)?.win;
+      if (cur && !cur.isDestroyed() && cur.isVisible()) return;
+      this.resetSubWindowConversation(wc).catch(() => {});
+    };
+
+    if (mode === 'open') {
+      release();
+      return;
+    }
+    // 同窗口新安排前先清掉旧定时器（关闭→重开→再关闭）
+    const old = this.subResetTimers.get(id);
+    if (old) {
+      clearTimeout(old);
+      this.subResetTimers.delete(id);
+    }
+    const min = Number(mode);
+    const t = setTimeout(release, min * 60 * 1000);
+    this.subResetTimers.set(id, t);
+    if (typeof t.unref === 'function') t.unref();
+  }
+
+  /**
+   * 在指定副窗口 chat 视图上重置为新对话：重新加载 DeepSeek 根地址（无会话 id 的新对话页）。
+   * 用加载根地址而非点击「新建对话」按钮——后者是展开模型选择器、不保证另起对话，重置会不生效。
+   * 重置后由 did-finish-load / attachWebViewReady 重新注入 watcher 并应用默认模型。
+   */
+  private async resetSubWindowConversation(wc: WebContents): Promise<void> {
+    if (!wc || wc.isDestroyed()) return;
+    try {
+      // 先取当前 URL，避免重复加载同一会话页
+      const cur = wc.getURL().split('#')[0] || '';
+      logf('subReset', `reset wc=${wc.id} cur=${cur || '(空)'}`);
+      if (/\/a\/chat\/s?\/[^/?#]*[0-9a-f]/.test(cur)) {
+        // 在具体会话页：加载根地址进入新对话
+        await wc.loadURL(DEEPSEEK_URL).catch((e) => logf('subReset', `loadURL 失败: ${e?.message || e}`));
+      } else {
+        // 已在新对话（根地址）：无需重复加载
+        logf('subReset', '已在根地址，跳过重置加载');
+      }
+    } catch (e) {
+      console.error('[WindowManager] 副窗口重置为新对话失败:', e);
+    }
   }
 
   /** 在 chat 视图加载完成 / 导航后触发就绪回调（用于注入剪刀按钮）。
@@ -369,8 +463,11 @@ export class WindowManager {
     // 幂等守卫：同一 webContents 只接线一次，避免「主副切换 / 迁移重接 / 反复创建副窗口」
     // 反复调用时叠加 did-finish-load / console-message 等监听器，触发
     // MaxListenersExceededWarning（潜在的 EventEmitter 内存泄漏）。
-    if (view.webContents && this.wiredWebContents.has(view.webContents)) return;
-    if (view.webContents) this.wiredWebContents.add(view.webContents);
+    // 用「WebContents 自带标记 + WeakSet」双重保险：即使 WeakSet 弱引用因 GC 失效，
+    // 只要 webContents 还活着，标记仍在，就一定不会重复接线 did-stop-loading。
+    const wiredWc = view.webContents as (Electron.WebContents & { __dsWired?: boolean }) | null;
+    if (wiredWc && (wiredWc.__dsWired || this.wiredWebContents.has(wiredWc))) return;
+    if (wiredWc) { wiredWc.__dsWired = true; this.wiredWebContents.add(wiredWc); }
     const fire = () => this.onWebViewReady?.(view.webContents, type);
     const applyDefaultMode = (): Promise<void> => this.applyDefaultModelMode(view.webContents);
     /**
@@ -405,7 +502,9 @@ export class WindowManager {
         this.syncIncognitoOnNavigate(wcId, prevId, curId, view.webContents);
         // 任何会话变化（新建 / 切换历史会话）都按设置重新同步「深度思考 / 智能搜索」开关，
         // 覆盖网页记住的手动开关状态（B 类窗口 applyDefaultModel=false 不参与）。
-        if (idChanged && applyDefaultModel) {
+        // ⚠️ 例外：空会话发首条拿到 id（!prevHasId && curHasId）只是本会话的「首条交棒」，不算换会话——
+        // 若此时强制同步会把用户在空会话里手动关闭的智能搜索/深度思考又拉回默认，故跳过。
+        if (applyDefaultModel && idChanged && !(!prevHasId && curHasId)) {
           this.syncChatToggles(view.webContents).catch(() => {});
         }
         if (prevHasId && !curHasId) {
@@ -437,6 +536,11 @@ export class WindowManager {
       // pushState/replaceState/popstate 并在 URL 变化 500ms 后重新折叠；整脚本重跑会
       // 在切换过渡期立即点击所有 think 块 toggle，引发 React 重渲染、扰乱消息列表滚动。
       detectConversationChange();
+      // 主窗口标题栏后退/前进按钮状态随 SPA 路由即时刷新
+      if (this.findIdByWebContents(view.webContents) === 'main') this.pushMainNavState();
+    });
+    view.webContents.on('did-stop-loading', () => {
+      if (this.findIdByWebContents(view.webContents) === 'main') this.pushMainNavState();
     });
     view.webContents.on('did-navigate', () => {
       fire();
@@ -444,6 +548,7 @@ export class WindowManager {
       applyThinkCollapse(view.webContents, this.config.get('collapseThinking'));
       if (applyDefaultModel) applyDefaultMode().catch(() => {});
       detectConversationChange();
+      if (this.findIdByWebContents(view.webContents) === 'main') this.pushMainNavState();
       // 完整导航会重建 document，页内点击监听可能丢失，重新注入一次（flag 防重复）
       injectWatcher();
       injectAnswerWatch();
@@ -517,10 +622,16 @@ export class WindowManager {
     const prevSession = this.lastAppliedDefaultSession.get(wc.id) ?? null;
     this.lastAppliedDefaultSession.set(wc.id, curSession);
     if (prevSession !== null && prevSession === curSession) {
-      logf('applyDefault', `同会话重复触发（session=${curSession}），跳过默认应用（尊重手动状态）`);
+      logf('applyDefault', `同会话重复触发（session=${curSession}），跳过默认应用`);
       return;
     }
     logf('applyDefault', `会话变化（${prevSession} → ${curSession}），应用默认设置`);
+    // 新建对话（进入无会话 id 的新页面）→ 复位插件「模式」为普通（关联网/Shell Local），
+    // 由 main.ts 注入的钩子执行（WindowManager 无权访问 extensionManager/extensionHost）。
+    if (curSession === '' && this.resetChatModeHook) {
+      logf('applyDefault', `新建对话页：复位插件模式为普通模式`);
+      try { this.resetChatModeHook(wc); } catch (e) { console.error('[WindowManager] resetChatModeHook 异常', e); }
+    }
     const id = this.findIdByWebContents(wc);
     const entryType = id ? this.entries.get(id)?.type : undefined;
     if (id) {
@@ -568,7 +679,7 @@ export class WindowManager {
         const dtOk = await this.injector.setDeepThink(wc, this.config.get('deepThinkEnabled') === true).catch(() => false);
         logf('applyDefault', `setDeepThink(${this.config.get('deepThinkEnabled') === true}) 结果=${dtOk}`);
       }
-      // 智能搜索：新建对话/窗口就绪时按设置同步（默认开启）。
+      // 智能搜索：会话变化（新建/切换）时按设置硬覆盖为默认值，让用户设置真正生效。
       if (this.injector) {
         await this.injector.setSmartSearch(wc, this.config.get('smartSearchEnabled') === true).catch(() => {});
       }
@@ -600,7 +711,13 @@ export class WindowManager {
     }
     this.lastToggleSyncAt.set(wcId, now);
     const deepThink = this.config.get('deepThinkEnabled') === true;
-    const smartSearch = this.config.get('smartSearchEnabled') === true;
+    let smartSearch = this.config.get('smartSearchEnabled') === true;
+    // 任务/增强检索模式下原生「智能搜索」必须保持关闭（该模式走插件自己的联网 + 遮罩），
+    // 不能随会话切换被默认值重新打开。读取页面当前模式，若为 online/task 则强制关。
+    try {
+      const mode = (await wc.executeJavaScript(`window.__dsChatMode || 'normal'`));
+      if (mode === 'online' || mode === 'task') smartSearch = false;
+    } catch { /* 读取失败则按默认值处理 */ }
     await this.injector.setDeepThink(wc, deepThink).catch(() => {});
     await this.injector.setSmartSearch(wc, smartSearch).catch(() => {});
     logf('syncToggle', `同步开关 wcId=${wcId} deepThink=${deepThink} smartSearch=${smartSearch}`);
@@ -622,23 +739,17 @@ export class WindowManager {
   private attachWebConsole(view: WebContentsView | null): void {
     if (!view) return;
     view.webContents.on('console-message', (e) => {
-      // 兼容 Electron 35+ 新签名：回调参数为单对象（含 level/message/lineNumber 等），
-      // level 为字符串 'info'|'warning'|'error'|'debug'（旧版为数字 + 位置参数，已废弃）。
+      // 兼容 Electron 35+ 新签名：回调参数为单对象（含 level/message/lineNumber 等）。
       const level = typeof e === 'object' && e !== null ? (e as { level?: unknown }).level : undefined;
       const message = typeof e === 'object' && e !== null ? (e as { message?: unknown }).message : '';
       const msg = typeof message === 'string' ? message : String(message ?? '');
-      // 注入脚本的诊断 dump（[Injector-DUMP]/[ThinkCollapse]/[Injector]/[Page-NewConv]/[Tray-] 等）
-      // 默认静默，仅在项目根存在 .debug-autolog 调试标记时才打印到终端，避免刷屏
-      // （用户偏好：日志自读不给用户看）。仍照常落盘供主理人自检。
-      const isInjectorDiag = /^\[(Injector-DUMP|ThinkCollapse|Injector|Page-NewConv|Tray-)/.test(msg);
-      if (isInjectorDiag && !DEBUG_AUTOLOG) {
-        logf('web:dbg', msg);
+      // 诊断类日志全量转发，便于排查；其余仅 error。
+      if (msg.indexOf('[PAGE-NEWCONV') >= 0 || msg.indexOf('[cm-') >= 0) {
+        logf('web:DG', msg);
         return;
       }
-      const tag = level === 'error' ? 'ERR' : level === 'warning' ? 'WARN' : 'LOG';
-      console.log(`[web:${tag}] ${msg}`);
-      // 网页内日志（含注入脚本的 [PAGE-NEWCONV*] 诊断）一并落盘，便于主理人自检
-      logf(`web:${tag}`, msg);
+      if (String(level ?? '').toLowerCase() !== 'error') return; // 聊天页自身日志太多，仅转发 error 防刷屏
+      logf('web:ERR', msg);
     });
 
     // 隐藏 webContents 自带的所有滚动条：DeepSeek 整个 SPA 页面渲染为 12000+ 像素高，
@@ -910,23 +1021,9 @@ export class WindowManager {
       });
     }
     this.attachWebViewReady(view, 'sub', false);
-    // B 类窗口：页面渲染后按配置同步联网搜索和深度思考开关
-    // 使用 did-finish-load 配合 retry，因为 React 渲染可能延迟
-    const applyBWindowToggles = async (): Promise<void> => {
-      if (!this.injector) return;
-      // manageMain=true → 截图场景，manageMain=false → 划词场景
-      const isScreenshot = manageMain;
-      const targetDeep = isScreenshot ? this.config.get('screenshotDeepThinkEnabled') : this.config.get('textSelectionDeepThinkEnabled');
-      const targetSmart = isScreenshot ? this.config.get('screenshotSmartSearchEnabled') : this.config.get('textSelectionSmartSearchEnabled');
-      for (let i = 0; i < 30; i++) {
-        if (view.webContents.isDestroyed()) return;
-        const smartOk = await this.injector.setSmartSearch(view.webContents, targetSmart).catch(() => false);
-        const deepOk = await this.injector.setDeepThink(view.webContents, targetDeep).catch(() => false);
-        if (smartOk && deepOk) return;
-        await new Promise(r => setTimeout(r, 500));
-      }
-    };
-    view.webContents.on('did-finish-load', () => { applyBWindowToggles(); });
+    // B 类窗口的深度思考 / 智能搜索 / 对话模式开关已统一由调用方（截图动作 handlers、划词动作 handlers）
+    // 按「每个按钮」的细分配置（screenshotButtons / textSelectionButtons）显式设置，
+    // 此处不再套用任何全局开关，避免与 per-button 设置竞争覆盖。
     this.currentBId = id;
     // 截图呼出 B 窗口时最小化主窗口，避免主窗口遮挡 B 窗口。
     // 划词等场景不接管主窗口（主窗口保持用户放置的状态，不被隐藏也不被弹出）。
@@ -1396,6 +1493,62 @@ export class WindowManager {
     return { win: main.win, view: main.view };
   }
 
+  /** 主窗口内嵌聊天视图的 webContents（未创建/已销毁返回 null）。 */
+  public getMainChatContents(): Electron.WebContents | null {
+    const main = this.getMainWindow();
+    if (!main || !main.view || main.view.webContents.isDestroyed()) return null;
+    return main.view.webContents;
+  }
+
+  /** 主窗口聊天视图的导航能力。 */
+  public getMainNavState(): { canGoBack: boolean; canGoForward: boolean } {
+    const wc = this.getMainChatContents();
+    if (!wc) return { canGoBack: false, canGoForward: false };
+    try {
+      const nh = (wc as { navigationHistory?: { canGoBack(): boolean; canGoForward(): boolean } }).navigationHistory;
+      if (nh) return { canGoBack: nh.canGoBack(), canGoForward: nh.canGoForward() };
+      return { canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward() };
+    } catch {
+      return { canGoBack: false, canGoForward: false };
+    }
+  }
+
+  /** 标题栏 -> 主：对主窗口聊天视图执行 后退/前进/刷新。 */
+  public mainChatNav(action: 'back' | 'forward' | 'reload'): void {
+    const wc = this.getMainChatContents();
+    if (!wc) return;
+    try {
+      const nh = (wc as { navigationHistory?: { goBack(): void; goForward(): void; canGoBack(): boolean; canGoForward(): boolean } }).navigationHistory;
+      if (action === 'back') {
+        if (nh ? nh.canGoBack() : wc.canGoBack()) {
+          if (nh) nh.goBack();
+          else wc.goBack();
+        }
+      } else if (action === 'forward') {
+        if (nh ? nh.canGoForward() : wc.canGoForward()) {
+          if (nh) nh.goForward();
+          else wc.goForward();
+        }
+      } else {
+        wc.reload();
+      }
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  /** 主进程 -> 主窗口外壳：推送聊天视图导航可用状态，供标题栏后退/前进按钮高亮。 */
+  public pushMainNavState(): void {
+    try {
+      const main = this.getMainWindow();
+      if (main && !main.win.webContents.isDestroyed()) {
+        main.win.webContents.send(IPC.CHAT_NAV_STATE_CHANGED, this.getMainNavState());
+      }
+    } catch {
+      /* 忽略 */
+    }
+  }
+
   /** 复制指定窗口（同类型、偏移位置的新窗口）。 */
   public copyWindow(id: string): string | null {
     const entry = this.entries.get(id);
@@ -1509,6 +1662,13 @@ export class WindowManager {
     this.screenshotHidden = [];
   }
 
+  /** 截图动作「复制到剪贴板」时调用：从截图恢复列表中移除主窗口，
+   *  使遮罩关闭后的 restoreChatWindowsAfterScreenshot 不再恢复/唤起主窗口，
+   *  主窗口保持截图前的隐藏状态，待用户主动打开。其他窗口照常恢复。 */
+  public forgetScreenshotMain(): void {
+    this.screenshotHidden = this.screenshotHidden.filter((rec) => rec.id !== 'main');
+  }
+
   /** 截图结束后恢复被隐藏窗口到截图前的可见性（保持主副切换状态）。 */
   public restoreChatWindowsAfterScreenshot(): void {
     let mainWasVisible = false;
@@ -1525,6 +1685,37 @@ export class WindowManager {
     if (mainWasVisible) {
       this.showMainWindowRaised();
     }
+  }
+
+  /** 安静恢复截图/共享屏幕期间被隐藏的窗口：只恢复可见性，不把主窗口 raise 到前台。
+   *  用于共享屏幕等「只是短暂取屏、不应打断用户当前窗口焦点」的场景，
+   *  避免发送消息后主窗口被带回到最前，打断用户正在进行的副窗口操作。 */
+  public restoreChatWindowsQuietly(): void {
+    for (const rec of this.screenshotHidden) {
+      const entry = this.entries.get(rec.id);
+      if (entry && !entry.win.isDestroyed() && rec.visible) {
+        entry.win.show();
+      }
+    }
+    this.screenshotHidden = [];
+  }
+
+  /** 返回当前「聚焦窗口」是否为某个 DeepSeek 对话窗口，是则返回其对话 webContents。
+   *  基于 BrowserWindow.getFocusedWindow()：在其它非本软件应用的窗口里聚焦时为 null，
+   *  避免「最大化主窗口盖满屏幕导致点内误判为 in-app」的假阳性。 */
+  public getFocusedChatWebContents(): WebContents | null {
+    const fw = BrowserWindow.getFocusedWindow();
+    if (!fw || fw.isDestroyed()) return null;
+    const main = this.getMainWindow();
+    if (main && main.win === fw && main.view && !main.view.webContents.isDestroyed()) {
+      return main.view.webContents;
+    }
+    for (const [, entry] of this.entries) {
+      if (entry.win === fw && entry.view && !entry.view.webContents.isDestroyed()) {
+        return entry.view.webContents;
+      }
+    }
+    return null;
   }
 
   /** 获取当前活动窗口的对话 webContents（无则回退主窗口）。 */
@@ -1547,6 +1738,18 @@ export class WindowManager {
       if (entry.view && entry.view.webContents === wc) return id;
     }
     return null;
+  }
+
+  /** 该 webContents 是否属于 B 类窗口（小 9:16 临时窗，createBWindow）。B 类窗口强制普通模式 + 关闭记忆。
+   *  注意：B 类窗口与副窗口在 web-view-ready 钩子里 type 都是 'sub'，二者以 entry id 前缀区分（B=`b-`，副=`sub-`）。 */
+  public isBWindowWebContents(wc: WebContents | null | undefined): boolean {
+    if (!wc || wc.isDestroyed()) return false;
+    for (const [id, entry] of this.entries) {
+      if ((entry.view && entry.view.webContents === wc) || entry.win.webContents === wc) {
+        return id.startsWith('b-');
+      }
+    }
+    return false;
   }
 
   /** 通过 webContents 反查宿主 BrowserWindow（兼容 WebContentsView 的 chat 视图）。 */
@@ -1642,6 +1845,11 @@ export class WindowManager {
       }
     });
     win.on('closed', () => {
+      const t = this.subResetTimers.get(id);
+      if (t) {
+        clearTimeout(t);
+        this.subResetTimers.delete(id);
+      }
       this.entries.delete(id);
       if (this.activeId === id) this.activeId = null;
       if (this.currentSubId === id) {

@@ -5,7 +5,7 @@
  * 外壳加载 browser.html（标签栏 UI），通过 IPC 与主进程交互。
  */
 import { BrowserWindow, WebContents, WebContentsView, shell, nativeTheme } from 'electron';
-import { BROWSER_HTML, SHELL_PRELOAD, WEBVIEW_PRELOAD, TITLEBAR_HEIGHT, DEEPSEEK_URL, iconIfExists } from '../constants';
+import { BROWSER_HTML, SHELL_PRELOAD, WEBVIEW_PRELOAD, TITLEBAR_HEIGHT, DEEPSEEK_URL, appIconIfExists } from '../constants';
 import { IPC } from '../ipc/channels';
 import type { ConfigStore } from '../config/ConfigStore';
 import { logf } from '../logger';
@@ -153,7 +153,7 @@ export class BrowserWindowManager {
       title: '浏览器',
       backgroundColor: dark ? '#1e1e1e' : '#ffffff',
       show: false,
-      icon: iconIfExists(),
+      icon: appIconIfExists(),
       webPreferences: {
         preload: SHELL_PRELOAD,
         contextIsolation: true,

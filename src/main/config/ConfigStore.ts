@@ -27,6 +27,8 @@ const DEFAULT_CONFIG: ConfigShape = {
   smartSearchEnabled: true,
   /** 副窗口和 B 类窗口默认置顶（主窗口不参与）。默认开启。 */
   alwaysOnTop: true,
+  /** 副窗口关闭后重新打开时重置为新对话：默认永不。 */
+  subWindowResetNew: 'never',
   /** 全局字号相对偏移（0=默认，-2~+2）。旧版为绝对 px 值，新版改为相对偏移。 */
   fontSize: 0,
   /** 主窗口专属字号偏移（0=跟随全局）。 */
@@ -55,6 +57,18 @@ const DEFAULT_CONFIG: ConfigShape = {
   /** 一键呼出「共享WPS文档」选择器的快捷键：默认空，由用户自行设置。 */
   docShareShortcut: '',
   defaultModelMode: 'simple',
+  /** 新建对话 / 启动时应用的默认「模式」：normal=普通，online=增强搜索，task=任务。 */
+  defaultChatMode: 'normal',
+  /** 普通模式下是否注入「记忆提示词」前置提示（默认关；开启才注入）。 */
+  conversationMemory: false,
+  /** 任务模式「新对话首条消息自动激活」子开关（默认开）。 */
+  taskSkillAutoFirst: true,
+  /** 任务模式「当前对话每条消息自动激活」子开关（默认开）。 */
+  taskSkillAutoEvery: true,
+  /** 增强搜索展开框「搜索互联网」偏好（默认开；进入增强/任务模式时按此开启插件侧 web_search）。 */
+  webToolSearch: true,
+  /** 增强搜索展开框「获取网页」偏好（默认开；进入增强/任务模式时按此开启插件侧 web_fetch）。 */
+  webToolFetch: true,
   /** 截图「发送到新对话」窗口的模型模式：默认识图模式（用户要求，可改为快速模式）。 */
   screenshotSendNewMode: 'vision',
   screenShareSwitchVision: true,
@@ -79,6 +93,8 @@ const DEFAULT_CONFIG: ConfigShape = {
   annotationColors: ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#ffffff'],
   /** 默认折叠模型的思考过程（深度思考/思维链），默认开启。 */
   collapseThinking: true,
+  /** 聊天页「token 小窗」悬浮块开关，默认开启。 */
+  floatingTokenWidget: true,
   /** AI 流式输出回答时的界面滚动方式：stay=停留开头（默认），follow=跟随回答。 */
   answerScrollMode: 'stay',
   /** 截图翻译默认目标语言。 */
@@ -87,29 +103,26 @@ const DEFAULT_CONFIG: ConfigShape = {
   cleanBWindowHistoryOnTextSelection: true,
   /** 关闭截图 B 窗口时自动删除该对话记录。默认开启。 */
   cleanBWindowHistoryOnScreenshot: true,
-  /** 划词发送新对话模型模式：simple=快速模式，expert=专家模式。默认 simple。 */
-  textSelectionSendNewMode: 'simple',
-  /** 划词 B 窗口是否开启深度思考。默认关闭。 */
-  textSelectionDeepThinkEnabled: false,
-  /** 划词 B 窗口是否开启智能搜索。默认关闭。 */
-  textSelectionSmartSearchEnabled: false,
-  /** 截图 B 窗口是否开启深度思考。默认关闭。 */
-  screenshotDeepThinkEnabled: false,
-  /** 截图 B 窗口是否开启智能搜索。默认关闭。 */
-  screenshotSmartSearchEnabled: false,
+  // 划词窗口的深度思考 / 智能搜索 / 对话模式已移至每个划词按钮的细分配置（见 textSelectionButtons），不再使用全局开关。
+  // 截图窗口的深度思考 / 智能搜索 / 对话模式同理，已移至每个截图按钮的细分配置（见 screenshotButtons），不再使用截图全局开关。
+  // 截图按钮列表：固定三项（提取文字 / 翻译 / 解释），每项含深思考/智能搜索/对话模式细分。
+  // 截图是识图场景，对话模式(mode)可选：simple=快速模式（默认）、vision=识图模式。
+  screenshotButtons: JSON.stringify([
+    { label: '提取文字', prompt: '请提取图片中的所有文字，保留原有排版。', deepThink: false, smartSearch: false, mode: 'simple' },
+    { label: '翻译', prompt: '请将以下内容翻译为{targetLang}：\n{content}', deepThink: false, smartSearch: false, mode: 'simple' },
+    { label: '解释', prompt: '请详细解释以下内容，并给出背景知识：\n{content}', deepThink: false, smartSearch: false, mode: 'simple' },
+  ]),
 
   // ---- 划词功能（I-12） ----
   textSelectionEnabled: true,
   textSelectionButtons: JSON.stringify([
-    { label: '问问DeepSeek', prompt: '', type: 'quote' },
-    { label: '复制', prompt: '' },
-    { label: '翻译', prompt: '请将以下内容翻译为{targetLang}：\n{content}' },
-    { label: '解释', prompt: '请详细解释以下内容，并给出背景知识：\n{content}' },
+    { label: '问问DeepSeek', prompt: '', type: 'quote', deepThink: false, smartSearch: false, mode: 'simple' },
+    { label: '复制', prompt: '', deepThink: false, smartSearch: false, mode: 'simple' },
+    { label: '翻译', prompt: '请将以下内容翻译为{targetLang}：\n{content}', deepThink: false, smartSearch: false, mode: 'simple' },
+    { label: '解释', prompt: '请详细解释以下内容，并给出背景知识：\n{content}', deepThink: false, smartSearch: false, mode: 'simple' },
   ]),
   /** 划词功能开关快捷键，默认空，需手动设置。 */
   textSelectionShortcut: '',
-  /** 首次使用说明引导：默认未完成，首次启动主窗口时自动弹出；完成后可在设置中重新打开。 */
-  onboardingCompleted: false,
   /** 首次运行登录引导 / 用户须知：默认未展示，展示完即置 true（仅首次运行触发一次）。 */
   firstRunNoticeShown: false,
   /** 启动时自动检查更新：默认开启。 */
@@ -158,14 +171,45 @@ export class ConfigStore {
       merged.subWindowShortcut = 'Alt+Space';
     }
 
-    // 迁移：确保「问问DeepSeek」按钮存在（旧版配置可能没有）
+    // 迁移：确保「问问DeepSeek」按钮存在 + 为每个按钮补齐细分项（deepThink/smartSearch/mode）
     try {
       const btns = JSON.parse(merged.textSelectionButtons || '[]') as any[];
       const hasQuote = btns.some((b: any) => b.type === 'quote' || b.label === '问问DeepSeek');
       if (!hasQuote) {
         btns.unshift({ label: '问问DeepSeek', prompt: '', type: 'quote' });
-        merged.textSelectionButtons = JSON.stringify(btns);
       }
+      // 旧版按钮没有细分配置：补齐默认（深度思考关、智能搜索关、对话模式=快速模式）
+      btns.forEach((b: any) => {
+        if (b.deepThink === undefined) b.deepThink = false;
+        if (b.smartSearch === undefined) b.smartSearch = false;
+        if (b.mode === undefined) b.mode = 'simple';
+      });
+      merged.textSelectionButtons = JSON.stringify(btns);
+    } catch {
+      // 解析失败则跳过迁移
+    }
+
+    // 迁移：补齐截图按钮（screenshotButtons）的细分项（deepThink/smartSearch/mode），
+    // 并将旧版截图提示词模板（extractText/translate/explain）的值迁移进对应按钮的 prompt，
+    // 保证旧用户升级后提示词不丢失。截图全局开关已废弃（screenshotDeepThinkEnabled 等），
+    // 不再迁移（其值已被默认关闭取代）。
+    try {
+      const sbtns = JSON.parse(merged.screenshotButtons || '[]') as any[];
+      const legacyPrompts: Record<string, string> = {
+        '提取文字': merged.extractTextPromptTemplate as unknown as string,
+        '翻译': merged.translatePromptTemplate as unknown as string,
+        '解释': merged.explainPromptTemplate as unknown as string,
+      };
+      sbtns.forEach((b: any) => {
+        if (b.deepThink === undefined) b.deepThink = false;
+        if (b.smartSearch === undefined) b.smartSearch = false;
+        if (b.mode === undefined) b.mode = 'simple';
+        // 旧模板值非空且按钮 prompt 为空时，迁移进按钮（避免覆盖用户已自定义的 prompt）
+        if (legacyPrompts[b.label] && !b.prompt) {
+          b.prompt = legacyPrompts[b.label];
+        }
+      });
+      merged.screenshotButtons = JSON.stringify(sbtns);
     } catch {
       // 解析失败则跳过迁移
     }

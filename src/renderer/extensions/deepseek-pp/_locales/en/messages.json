@@ -1,0 +1,14 @@
+{
+  "extension_name": {
+    "message": "DeepSeek++",
+    "description": "Extension name shown in browser UI"
+  },
+  "extension_description": {
+    "message": "Agentic memory, skills, execution, automation, and MCP tools for DeepSeek",
+    "description": "Extension description shown in browser UI"
+  },
+  "extension_action_title": {
+    "message": "DeepSeek++",
+    "description": "Toolbar action title"
+  }
+}

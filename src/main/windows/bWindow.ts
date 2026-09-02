@@ -12,7 +12,7 @@ import {
   SUB_WINDOW_RATIO,
   TITLEBAR_HEIGHT,
   WEBVIEW_PRELOAD,
-  iconIfExists,
+  appIconIfExists,
 } from '../constants';
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
@@ -203,7 +203,7 @@ export function createBWindow(sourceRect: ScreenshotRect, config: ConfigStore): 
     title: '结果',
     backgroundColor: '#ffffff',
     show: false,
-    icon: iconIfExists(),
+    icon: appIconIfExists(),
     // 构造时即设置 alwaysOnTop，确保 bwindow.js 初始化 shell.isAlwaysOnTop() 返回正确值，
     // 渲染进程 UI 状态（pinned class）与主进程实际状态从首帧起就同步。
     // 之前在 ready-to-show 中才设置，导致 bwindow.js 读到 false，图标显示空心，

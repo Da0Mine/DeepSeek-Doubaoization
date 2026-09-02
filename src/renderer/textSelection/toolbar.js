@@ -24,6 +24,7 @@
     // 各按钮对应的图标 SVG（白色镂空线条风格）
     var ICON_MAP = {
       '问问DeepSeek': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>',
+      '引用': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 17h3l2-4V7H5v6h3z"/><path d="M15 17h3l2-4V7h-6v6h3z"/></svg>',
       '复制': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
       '翻译': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
       '解释': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
@@ -75,10 +76,9 @@
         toolbar.appendChild(button);
       });
 
-      // 内容渲染完成后回报实际宽度，主进程据此自适应窗口尺寸并显示
-      requestAnimationFrame(function () {
-        shell.send('toolbar:resize', { width: toolbar.offsetWidth });
-      });
+      // 同步量取实际宽度并回报：窗口此刻可能尚未显示，requestAnimationFrame 对隐藏窗口不触发，
+      // 用 offsetWidth（强制同步布局）直接拿真实宽度，主进程据此一次性定宽并显示。
+      shell.send('toolbar:resize', { width: toolbar.offsetWidth });
     }
 
     // 订阅主进程内容下发（窗口复用后每次划词动态更新）

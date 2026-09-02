@@ -13,7 +13,7 @@ import {
   SUB_WINDOW_WIDTH,
   SUB_WINDOW_HEIGHT,
   SUB_WINDOW_RATIO,
-  iconIfExists,
+  appIconIfExists,
 } from '../constants';
 import { IPC } from '../ipc/channels';
 import { ThemeManager } from '../theme/ThemeManager';
@@ -58,7 +58,7 @@ export function createSubWindow(
     title: WINDOW_TITLES[type],
     backgroundColor: resolveBackgroundColor(config),
     show: false,
-    icon: iconIfExists(),
+    icon: appIconIfExists(),
     webPreferences: {
       preload: SHELL_PRELOAD,
       contextIsolation: true,

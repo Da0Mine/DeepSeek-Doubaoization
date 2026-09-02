@@ -12,6 +12,7 @@ import type { Injector } from '../inject/Injector';
 import type { ConfigStore } from '../config/ConfigStore';
 import { logf } from '../logger';
 import { SCREEN_SHARE_TASKBAR_PRELOAD } from '../constants';
+import { focusChatInputOnShow } from '../windows/mainWindow';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -47,9 +48,31 @@ export class ScreenShareManager {
     this.showIndicators();
     this.showTaskbarButton();
     this.injectEnterInterceptor();
-    this.syncShareMenuToPage('shareScreen');
+    this.syncShareMenuToPage(true);
     this.resetIdleTimer();
+    // 打开共享屏幕通常意味着用户紧接着要输入消息：重新聚焦当前窗口的聊天输入框，
+    // 避免快捷键/点击打开共享屏幕后焦点被重置（无法直接输入）。
+    // 点击「+」菜单触发时页面可能仍在处理点击/切换模型后的重渲染，延迟并多次重试以确保聚焦成功。
+    this.focusChatInputAfterStart();
     logf('ScreenShare', '进入共享屏幕模式');
+  }
+
+  /** 开启共享屏幕后聚焦聊天输入框：延迟 + 多次重试，规避页面点击后 re-render 抢占焦点。 */
+  private focusChatInputAfterStart(): void {
+    const wc = this.windows?.getActiveWebContents();
+    if (!wc || wc.isDestroyed()) return;
+    let attempts = 0;
+    const tryFocus = (delay: number): void => {
+      setTimeout(() => {
+        if (!this.active) return;
+        if (wc.isDestroyed()) return;
+        focusChatInputOnShow(wc);
+        attempts++;
+        // 最多反复确认 5 次（250ms/500ms/1s/2s/3s），直到输入框真正聚焦
+        if (attempts < 5) tryFocus(250 * attempts + 250);
+      }, delay);
+    };
+    tryFocus(250);
   }
 
   /** 退出共享屏幕模式 */
@@ -60,7 +83,7 @@ export class ScreenShareManager {
     this.hideIndicators();
     this.hideTaskbarButton();
     this.removeEnterInterceptor();
-    this.syncShareMenuToPage(null);
+    this.syncShareMenuToPage(false);
     logf('ScreenShare', '退出共享屏幕模式');
   }
 
@@ -73,15 +96,14 @@ export class ScreenShareManager {
   /**
    * 同步共享屏幕状态到聊天页面：让「+」菜单里的「共享屏幕」项显示蓝色高亮，
    * 悬浮时显示「取消共享」，再次点击即可退出（与共享文档一致）。
-   * @param state 'shareScreen' 进入 / null 退出（仅当页面上一次标记是共享屏幕时才清除，避免误伤共享文档状态）。
+   * 共享文档与共享屏幕可同时开启（各自独立标志），因此不再用单值 __dsShareActiveMode 互斥覆盖。
+   * @param on 进入（true）高亮共享屏幕 / 退出（false）取消其高亮（不影响共享文档状态）。
    */
-  private syncShareMenuToPage(state: 'shareScreen' | null): void {
+  private syncShareMenuToPage(on: boolean): void {
     const wc = this.windows?.getActiveWebContents();
     if (!wc || wc.isDestroyed()) return;
     wc.executeJavaScript(
-      state
-        ? `window.__dsShareActiveMode = 'shareScreen'; if (window.__dsSyncShareMenu) window.__dsSyncShareMenu();`
-        : `if (window.__dsShareActiveMode === 'shareScreen') { window.__dsShareActiveMode = null; if (window.__dsSyncShareMenu) window.__dsSyncShareMenu(); }`
+      `window.__dsScreenShareActive = ${on ? 'true' : 'false'}; if (window.__dsSyncShareMenu) window.__dsSyncShareMenu();`
     ).catch(() => {});
   }
 
@@ -139,9 +161,9 @@ export class ScreenShareManager {
     // 设置鼠标穿透，让点击能穿透到下面的窗口
     this.indicatorWin.setIgnoreMouseEvents(true, { forward: true });
 
-    // 加载指示器 HTML
+    // 加载指示器 HTML（query 传入模型模式：非识图模式时四角变黄，与任务栏按钮保持一致）
     const htmlPath = path.join(__dirname, '..', '..', 'renderer', 'screenShare', 'indicators.html');
-    this.indicatorWin.loadFile(htmlPath);
+    this.indicatorWin.loadFile(htmlPath, { query: { mode: this.mode } });
 
     this.indicatorWin.once('ready-to-show', () => {
       if (this.indicatorWin && !this.indicatorWin.isDestroyed()) {
@@ -157,7 +179,12 @@ export class ScreenShareManager {
 
   /** 显示任务栏按钮（屏幕下方提示）。非识图模式（快速模式）时按钮置黄并提示「当前非识图模式」。 */
   private showTaskbarButton(): void {
-    if (this.taskbarWin && !this.taskbarWin.isDestroyed()) return;
+    if (this.taskbarWin && !this.taskbarWin.isDestroyed()) {
+      console.log('[ScreenShare] showTaskbarButton: 已存在窗口，跳过（isDestroyed='
+        + this.taskbarWin.isDestroyed() + '）');
+      return;
+    }
+    console.log('[ScreenShare] showTaskbarButton: 新建窗口 mode=' + this.mode);
 
     const display = screen.getPrimaryDisplay();
     const { width } = display.bounds;
@@ -238,8 +265,9 @@ export class ScreenShareManager {
     if (this.taskbarWin && !this.taskbarWin.isDestroyed() && this.active) {
       this.taskbarWin.show();
     }
-    // 恢复本软件窗口
-    this.windows?.restoreChatWindowsAfterScreenshot();
+    // 安静恢复本软件窗口：只恢复可见性，不把主窗口 raise 到前台，
+    // 避免共享屏幕发送消息后主窗口被带回到最前打断当前窗口操作
+    this.windows?.restoreChatWindowsQuietly();
   }
 
   /** 注入 Enter 键拦截器到当前活跃的 webview */
@@ -253,7 +281,6 @@ export class ScreenShareManager {
       var ver = window.__dsScreenShareVersion;
       window.__dsScreenShareActive = true;
       // 同步「+」菜单共享屏幕项高亮（窗口切换/页面重载后恢复）
-      window.__dsShareActiveMode = 'shareScreen';
       if (window.__dsSyncShareMenu) window.__dsSyncShareMenu();
 
       // 查找输入框
@@ -281,6 +308,9 @@ export class ScreenShareManager {
         // 页面内查找栏（Ctrl+F）输入框里的 Enter（查找下一个）不拦截
         if (e.target && e.target.closest && e.target.closest('#ds-find-bar')) return;
         if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+        // 共享文档也激活时，让文档拦截器优先处理（它会把截图与文档合并成一条消息发送，
+        // 由主进程在 docShare:send 流程里同时携带全屏截图，避免本拦截器重复提交一份截图）。
+        if (window.__dsDocShareActive) return;
         // 处理锁：防止并发重复提交
         if (window.__dsScreenShareProcessing) return;
 
@@ -362,6 +392,43 @@ export class ScreenShareManager {
     setTimeout(() => {
       this.injectEnterInterceptor();
     }, 300);
+  }
+
+  /** 切换识图模式成功后调用：把任务栏按钮恢复为识图态（蓝色「正在共享屏幕 / 悬浮取消共享」），
+   *  并更新内部 mode，使再次进入共享时无需经过非识图分流。 */
+  public markVisionMode(): void {
+    if (!this.active) return;
+    this.mode = 'vision';
+    // 四角指示器变回蓝色（识图态）——复用窗口 reload 读取新 mode，避免 close/新建销毁时序问题
+    this.reloadIndicators();
+    // 复用/重建任务栏按钮。注意不能 close 后立刻新建：BrowserWindow.close() 是异步的，
+    // 旧窗口尚未销毁时 showTaskbarButton 会命中「已存在窗口，跳过」导致按钮消失。
+    // 因此优先复用现有窗口，仅 reload 以读取新的 mode 参数。
+    if (this.taskbarWin && !this.taskbarWin.isDestroyed()) {
+      const htmlPath = path.join(__dirname, '..', '..', 'renderer', 'screenShare', 'taskbarButton.html');
+      this.taskbarWin.loadFile(htmlPath, { query: { mode: this.mode } });
+      this.taskbarWin.once('ready-to-show', () => {
+        if (this.taskbarWin && !this.taskbarWin.isDestroyed()) {
+          this.taskbarWin.show();
+          this.taskbarWin.setAlwaysOnTop(true, 'screen-saver');
+        }
+      });
+    } else {
+      this.showTaskbarButton();
+    }
+  }
+
+  /** 复用现有四角指示器窗口 reload，以应用当前 this.mode 对应的配色（识图=蓝 / 非识图=黄）。 */
+  private reloadIndicators(): void {
+    if (!this.indicatorWin || this.indicatorWin.isDestroyed()) return;
+    const htmlPath = path.join(__dirname, '..', '..', 'renderer', 'screenShare', 'indicators.html');
+    this.indicatorWin.loadFile(htmlPath, { query: { mode: this.mode } });
+    this.indicatorWin.once('ready-to-show', () => {
+      if (this.indicatorWin && !this.indicatorWin.isDestroyed()) {
+        this.indicatorWin.show();
+        this.indicatorWin.setAlwaysOnTop(true, 'screen-saver');
+      }
+    });
   }
 
   /** 处理 Enter 键按下事件：截屏 + 上传 + 发送 */
@@ -467,6 +534,25 @@ export class ScreenShareManager {
     } catch (e) {
       console.error('[ScreenShare] 保存临时图片失败:', e);
       return null;
+    }
+  }
+
+  /**
+   * 供「共享文档」发送流程复用：截取全屏并保存为临时文件。
+   * 当共享文档与共享屏幕同时开启时，把截图并入同一条消息发送。
+   */
+  public async captureAndSaveScreenshot(): Promise<string | null> {
+    this.hideIndicatorsTemporarily();
+    await sleep(30);
+    try {
+      const img = await this.captureFullScreen();
+      if (!img) {
+        this.restoreIndicators();
+        return null;
+      }
+      return this.saveTempImage(img);
+    } finally {
+      this.restoreIndicators();
     }
   }
 }
