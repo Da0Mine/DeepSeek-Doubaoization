@@ -72,23 +72,13 @@ const shellApi = {
   // ---- 增量：设置 / 副窗口 / 置顶 ----
   openSettings: (): void => ipcRenderer.send(IPC.SETTINGS_OPEN),
   closeSettings: (): void => ipcRenderer.send(IPC.SETTINGS_CLOSE),
-  // ---- 增量：插件管理面板 ----
-  openExtensions: (): void => ipcRenderer.send(IPC.EXTENSIONS_OPEN),
-  closeExtensions: (): void => ipcRenderer.send(IPC.EXTENSIONS_CLOSE),
-  listExtensions: (): Promise<Array<Record<string, unknown>>> => ipcRenderer.invoke(IPC.EXTENSIONS_LIST),
-  loadExtension: (dir: string): Promise<Record<string, unknown>> => ipcRenderer.invoke(IPC.EXTENSIONS_LOAD, { dir }),
-  installExtensionFromPicker: (): Promise<Record<string, unknown> | null> => ipcRenderer.invoke(IPC.EXTENSIONS_PICK_DIR),
-  setExtensionEnabled: (id: string, enabled: boolean): Promise<{ ok: boolean }> =>
-    ipcRenderer.invoke(IPC.EXTENSIONS_SET_ENABLED, { id, enabled }),
-  removeExtension: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.EXTENSIONS_REMOVE, { id }),
-  setExtensionPinned: (id: string, pinned: boolean): Promise<{ ok: boolean }> =>
-    ipcRenderer.invoke(IPC.EXTENSIONS_SET_PINNED, { id, pinned }),
-  getPinnedExtensions: (): Promise<Array<{ id: string; name: string; iconPath: string | null }>> =>
-    ipcRenderer.invoke(IPC.EXTENSIONS_GET_PINNED),
-  openExtensionPage: (id: string): Promise<boolean> => ipcRenderer.invoke(IPC.EXTENSIONS_OPEN_PAGE, { id }),
-  onPinnedExtensions: (cb: (list: Array<{ id: string; name: string; iconPath: string | null }>) => void): void => {
-    ipcRenderer.on(IPC.EXTENSIONS_PINNED_CHANGED, (_e, list) => cb(list || []));
+  onBlacklistPickDone: (cb: () => void): void => {
+    ipcRenderer.on(IPC.BLACKLIST_PICK_DONE, () => cb());
   },
+  getBlacklistCandidates: (): Promise<Array<{ name: string; icon: string | null }>> =>
+    ipcRenderer.invoke(IPC.BLACKLIST_CANDIDATES),
+  browseAddBlacklist: (): Promise<{ ok: boolean; name?: string; canceled?: boolean }> =>
+    ipcRenderer.invoke(IPC.BLACKLIST_BROWSE_ADD),
   summonSub: (): void => ipcRenderer.send(IPC.SUB_SUMMON),
   swapMainSub: (): void => ipcRenderer.send(IPC.SUB_SWAP),
   alwaysOnTop: (): void => ipcRenderer.send(IPC.WIN_ALWAYS_ON_TOP),
@@ -230,6 +220,16 @@ const shellApi = {
   /** 主 -> 浏览器外壳：订阅标签列表快照更新。 */
   onBrowserTabsUpdated: (cb: (state: unknown) => void): void => {
     ipcRenderer.on(IPC.BROWSER_TABS_UPDATED, (_e, state: unknown) => cb(state));
+  },
+
+  // ---- 黑名单窗口选择 ----
+  /** 主 -> 黑名单选择遮罩：下发可选窗口列表（{x,y,width,height,processName}，遮罩局部 CSS 坐标）。 */
+  onBlacklistPickWindows: (
+    cb: (list: { x: number; y: number; width: number; height: number; processName: string }[]) => void
+  ): void => {
+    ipcRenderer.on(IPC.BLACKLIST_PICK_WINDOWS, (_e, list: { x: number; y: number; width: number; height: number; processName: string }[]) =>
+      cb(list || [])
+    );
   },
 };
 

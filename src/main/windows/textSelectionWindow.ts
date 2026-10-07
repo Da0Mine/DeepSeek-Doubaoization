@@ -122,9 +122,10 @@ function ensureToolbarWindow(): BrowserWindow | null {
   return toolbarWindow;
 }
 
-/** 定位工具栏：左边缘在鼠标位置左移 8px、上方 4px，并做屏幕边界校正（不越过屏幕边界）。
- *  坐标系：mouseX/mouseY 为 DIP；setBounds 也接受 DIP。缩放环境 display.bounds
- *  可能返回物理像素（L057），故用 size/bounds 比例把 workArea 统一换算成 DIP 再夹紧。 */
+/** 定位工具栏：mouseX/mouseY 为该工具栏「左上角」锚点（DIP）；仅做屏幕边缘校正（不越过屏幕边界），
+ *  上方/下方放不放得下由调用方（main.ts 按选区包围盒）计算。坐标系：mouseX/mouseY 为 DIP；
+ *  setBounds 也接受 DIP。缩放环境 display.bounds 可能返回物理像素（L057），故用 size/bounds
+ *  比例把 workArea 统一换算成 DIP 再夹紧。 */
 function positionToolbar(width: number, mouseX: number, mouseY: number): void {
   const win = toolbarWindow;
   if (!win || win.isDestroyed()) return;
@@ -142,8 +143,8 @@ function positionToolbar(width: number, mouseX: number, mouseY: number): void {
     height: (work.height / sizeH) * boundsH,
   };
   const toolbarHeight = 34;
-  let winX = Math.round(mouseX - 8);
-  let winY = Math.round(mouseY - toolbarHeight - 4);
+  let winX = Math.round(mouseX);
+  let winY = Math.round(mouseY);
   // 左右边界夹紧：不越过屏幕左右两边
   if (winX < wa.x) winX = wa.x + 4;
   if (winX + width > wa.x + wa.width) {

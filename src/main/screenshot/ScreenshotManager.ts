@@ -64,16 +64,26 @@ export class ScreenshotManager {
     // 遮罩关闭后 restoreChatWindowsAfterScreenshot 会把主窗口带回到前台（focus 事件改写 activeId），
     // 届时再读就不准了。
     this.captureOriginId = originId !== undefined ? originId : (this.windows?.getActiveWindowId() ?? null);
-    // 默认隐藏应用自身窗口，避免它们被截进图里；给 Windows 合成器一帧时间确保生效。
-    // 「截图时保留窗口」开启时不隐藏（窗口照常显示在截图中）。
+    // 默认隐藏应用自身窗口，避免它们被截进图里。「截图时保留窗口」开启时不隐藏。
+    // 这里必须 await：等窗口真正隐藏（hide 事件）后才采集，否则在部分机器上窗口淡出未结束，
+    // desktopCapturer 会把「正在消失中的半透明窗口」一起截进背景图（软件窗口残留在截图里）。
     if (!this.config.get('keepWindowsOnScreenshot')) {
-      this.windows?.hideChatWindowsForScreenshot();
+      await this.windows?.hideChatWindowsForScreenshot();
     } else {
       // 保留窗口模式：清空截图期间恢复列表，避免遮罩关闭后误触发恢复逻辑
       this.windows?.clearScreenshotHidden();
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await this.captureSources();
+    // 兜底再等一小段，给 Windows 合成器把已隐藏窗口从画面中移除的时间
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    try {
+      await this.captureSources();
+    } catch (e) {
+      // 采集失败：遮罩不会弹出 → 不会有 overlay:closed 回调，必须在这里立刻还原窗口，
+      // 否则窗口会一直保持「已隐藏 + 全透明」，用户从托盘打开主窗口也看不到内容。
+      console.error('[ScreenshotManager] 屏幕采集失败:', e);
+      this.windows?.restoreChatWindowsAfterScreenshot();
+      return;
+    }
     // 并行枚举窗口边界（供遮罩「悬浮吸附窗口」），不阻塞遮罩弹出；结果就绪后经 sendOverlayBackground 下发。
     this.windowSnapPromise = this.enumSnapWindows();
     // 仅弹出遮罩；背景图不在此时发送——overlay 渲染进程就绪后会发 overlay:ready，

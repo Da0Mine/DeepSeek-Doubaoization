@@ -48,30 +48,28 @@ afterAll(() => {
 });
 
 describe('Injector 增量 - submitToChat 接线（I-06）', () => {
-  test('submitToChat(无图) 先 fillText 再 clickSend，且返回 true', async () => {
+  test('submitToChat(无图) 在同一脚本内填文并点击发送，返回 true', async () => {
     const wc = makeWebContents(true);
     const ok = await injector.submitToChat(wc, '你好');
     expect(ok).toBe(true);
     const scripts = scriptsOf(wc);
-    expect(scripts.some((s) => s.includes('你好'))).toBe(true); // 填文
-    expect(scripts.some((s) => s.includes('.click()'))).toBe(true); // 点发送
-    const fillIdx = scripts.findIndex((s) => s.includes('你好'));
-    const clickIdx = scripts.findIndex((s) => s.includes('.click()'));
-    expect(fillIdx).toBeGreaterThanOrEqual(0);
-    expect(clickIdx).toBeGreaterThan(fillIdx); // 填文早于点击
+    // 当前实现：fillText + clickSend 合并为单个 fillTextAndSend 脚本，消除 IPC 开销
+    const sendScript = scripts.find((s) => s.includes('.click()'));
+    expect(sendScript).toBeDefined();
+    expect(sendScript).toContain('你好'); // 填文
   });
 
-  test('submitToChat(带图) 先 uploadImage 再 fillText 再 clickSend', async () => {
+  test('submitToChat(带图) 先 uploadImage 再 fillTextAndSend（填文+点发送同脚本）', async () => {
     const wc = makeWebContents(true);
     const ok = await injector.submitToChat(wc, '看图', '/tmp/a.png');
     expect(ok).toBe(true);
     const scripts = scriptsOf(wc);
     const upIdx = scripts.findIndex((s) => s.includes('uploadFile'));
-    const fillIdx = scripts.findIndex((s) => s.includes('看图'));
-    const clickIdx = scripts.findIndex((s) => s.includes('.click()'));
+    // 填文+发送在合并脚本中：同脚本同时含原文与 .click()
+    const sendIdx = scripts.findIndex((s) => s.includes('看图'));
     expect(upIdx).toBeGreaterThanOrEqual(0);
-    expect(fillIdx).toBeGreaterThan(upIdx);
-    expect(clickIdx).toBeGreaterThan(fillIdx);
+    expect(sendIdx).toBeGreaterThan(upIdx); // 上传早于填文+发送
+    expect(scripts[sendIdx]).toContain('.click()');
   });
 
   test('clickSend 公开方法：发送按钮可用时返回 true', async () => {

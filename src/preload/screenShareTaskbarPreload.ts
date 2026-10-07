@@ -20,6 +20,14 @@ contextBridge.exposeInMainWorld('__dsScreenShare', {
       /* 忽略 */
     }
   },
+  /** 任务栏按钮悬浮态：让四角共享框同步变为淡红（取消提醒）。 */
+  sendHover(on: boolean): void {
+    try {
+      ipcRenderer.send(IPC.SCREEN_SHARE_HOVER, { on: !!on });
+    } catch {
+      /* 忽略 */
+    }
+  },
 });
 
 declare global {
@@ -27,6 +35,7 @@ declare global {
     __dsScreenShare: {
       sendStop(): void;
       sendSwitchVision(): void;
+      sendHover(on: boolean): void;
     };
   }
 }

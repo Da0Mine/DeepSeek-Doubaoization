@@ -9,6 +9,7 @@
 import { BrowserWindow, Notification, WebContents } from 'electron';
 import type { ConfigStore } from '../config/ConfigStore';
 import type { WindowManager } from '../windows/WindowManager';
+import { isBlacklistPaused } from '../blacklist/blacklistState';
 
 /** 从 URL 提取会话 id（DeepSeek SPA：/a/chat/<id>、/a/chat/s/<id> 或 /c/<id>；无会话 id 返回 null）。
  * 注意 /a/chat/s/<uuid> 必须优先于 /a/chat/ 匹配，否则会把 "s" 误当会话 id。 */
@@ -72,6 +73,8 @@ export class AnswerReminder {
   }
 
   private maybeNotify(wc: WebContents, st: AnswerState): void {
+    // 黑名单暂停态：黑名单中有进程在运行（如游戏）时不弹「回答完成」系统通知
+    if (isBlacklistPaused()) return;
     // 开关检查（总开关 + 回答完成提醒开关）
     if (!this.config.get('notificationEnabled') || !this.config.get('notificationReplyDone')) {
       return;

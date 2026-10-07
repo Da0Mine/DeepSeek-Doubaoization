@@ -1,226 +1,184 @@
 /**
- * 全局输入钩子：基于 uiohook-napi 检测鼠标拖拽选择文本，
- * 自动模拟 Ctrl+C 获取选中文本并触发划词工具栏。
+ * 全局输入钩子：划词取词。对标 Cherry Studio 的实现。
  *
- * 工作原理（参考豆包/ima 等同类软件）：
- *  1. 检测鼠标按下位置（mousedown）
- *  2. 检测鼠标释放位置（mouseup），若距离 > 5px 视为拖拽选择
- *  3. 自动模拟 Ctrl+C 将选中文本复制到剪贴板
- *  4. 读取剪贴板文本后【立即还原原剪贴板内容】——内部取词不污染用户剪贴板；
- *     只有点击工具栏「复制」按钮时才真正写入剪贴板。
- *  5. 弹出划词工具栏
- *  整个过程无需用户手动按任何快捷键。
+ * 驱动方式：直接用 selection-hook 的原生「text-selection」事件触发（自动识别拖拽/双击选词），
+ * 并保持窗口图标/应用正常。取词三级路径完全交给 selection-hook：
+ *   UIA → IAccessible → 剪贴板回退（保存→复制→读→还原，默认开启）。
+ * 这样浏览器/Office/记事本走 UIA/IAccessible（零剪贴板），微信/WPS/PDF 这类不暴露
+ * 无障碍选区的程序自动落剪贴板回退，从而能稳定划词（这也是 Cherry 能在微信/WPS 用的原因）。
+ *
+ * 对齐 Cherry 的要点：
+ *  - 单实例、常驻：SelectionHook 实例在首次 start() 时创建一次，之后 start/stop 只启停原生
+ *    钩子、不复建，避免事件重复挂载导致的重复弹框。
+ *  - 应用过滤：开全局黑名单（explorer/Office/截图/建模等默认不弹框）、对 wps/PDF 等做 fine-tune。
+ *  - 去重：除主进程「工具栏已可见则忽略」外，本层再叠一个短冷却，双保险。
  */
-import { uIOhook, UiohookMouseEvent, UiohookKey, UiohookKeyboardEvent } from 'uiohook-napi';
-import { clipboard, type NativeImage } from 'electron';
+import SelectionHook, { type TextSelectionData, type MouseEventData, type KeyboardEventData } from 'selection-hook';
 import { logf } from '../logger';
+
+/** selection-hook 实例的运行时形态（默认导出为类）。 */
+type SelectionHookInstance = InstanceType<typeof SelectionHook>;
+
+/** 预定义黑名单（沿用 Cherry Studio）：全局过滤，这些程序划词默认不弹框，避免误触。 */
+const PREDEFINED_BLACKLIST = [
+  'explorer.exe',
+  'snipaste.exe', 'pixpin.exe', 'sharex.exe',        // 截图
+  'excel.exe', 'powerpnt.exe',                       // Office
+  'photoshop.exe', 'illustrator.exe',                // 图像
+  'adobe premiere pro.exe', 'afterfx.exe', 'adobe audition.exe', // 影音
+  'blender.exe', '3dsmax.exe', 'maya.exe',           // 3D
+  'acad.exe', 'sldworks.exe',                        // CAD
+  'mstsc.exe',                                        // 远程桌面
+];
+
+/** 需 fine-tune 的应用（跳过光标形状检测 + 延迟读剪贴板）：PDF 阅读器类更稳定取词。 */
+const FINETUNED_APPS = ['acrobat.exe', 'cajviewer.exe', 'foxitphantom.exe'];
+
+/** 完全禁用剪贴板回退的程序：WPS 不暴露 UIA/IAccessible 选区，selection-hook 只能靠剪贴板回退
+ *  （保存→复制→读→恢复原内容），导致每次划词产生 a,b,a 三段历史且可能覆盖用户手动复制。
+ *  因此对 WPS 禁用其内置回退，改由 WpsWordHook 自研「只复制读取、不恢复」通道。 */
+const EXCLUDE_CLIPBOARD_APPS = ['wps.exe'];
+
+/** 选中文本的包围盒（物理像素，来自 SEL_FULL/SEL_DETAILED 级坐标），用于工具栏贴合选区定位。 */
+export interface SelPosData {
+  startTop: { x: number; y: number };
+  endBottom: { x: number; y: number };
+  posLevel: number;
+}
 
 export type InputSelectionCallback = (
   text: string,
   mouseDownPos?: { x: number; y: number },
-  mouseUpPos?: { x: number; y: number }
+  mouseUpPos?: { x: number; y: number },
+  selPos?: SelPosData
 ) => void;
 
-/** 剪贴板内容快照（文本 / 富文本 / 图片 / 文件），用于取词后还原。 */
-interface ClipboardSnapshot {
-  text: string;
-  html: string;
-  rtf: string;
-  image: NativeImage | null;
-  /** 剪贴板是否含文件列表（Windows CF_HDROP 无法通过 Electron writeBuffer 可靠还原，
-   *  还原会损坏文件条目 → 检测到文件时自动取词应整体跳过）。 */
-  hasFiles: boolean;
-}
-
-/** 读取剪贴板文件列表（FileNameW 格式：UTF-16LE，路径以 \0 分隔，双 \0 结尾）。 */
-function readFileList(): string[] {
-  try {
-    const buf = clipboard.readBuffer('FileNameW');
-    if (!buf || buf.length === 0) return [];
-    const str = buf.toString('utf16le');
-    return str.split('\0').filter((s) => s.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-/** 快照当前剪贴板（自动取词前调用）。 */
-function snapshotClipboard(): ClipboardSnapshot {
-  try {
-    return {
-      text: clipboard.readText(),
-      html: clipboard.readHTML(),
-      rtf: clipboard.readRTF(),
-      image: clipboard.readImage(),
-      hasFiles: readFileList().length > 0,
-    };
-  } catch {
-    return { text: '', html: '', rtf: '', image: null, hasFiles: false };
-  }
-}
-
-/** 还原剪贴板快照（取词后调用，避免污染用户剪贴板）。
- *  单次 clipboard.write 一次性写回所有格式（文本/富文本/图片），
- *  避免逐格式多次 write* 在 Windows 剪贴板历史（Win+V）里新增多条重复记录。
- *  原剪贴板为空时清空，避免残留模拟 Ctrl+C 的内容。 */
-function restoreClipboard(s: ClipboardSnapshot): void {
-  try {
-    const hasImage = !!s.image && !s.image.isEmpty();
-    if (!s.text && !s.html && !s.rtf && !hasImage) {
-      clipboard.clear();
-      logf('INPUT_HOOK', '[restore] clear（原剪贴板为空）');
-      return;
-    }
-    const data: {
-      text?: string;
-      html?: string;
-      rtf?: string;
-      image?: NativeImage;
-    } = {
-      text: s.text || undefined,
-      html: s.html || undefined,
-      rtf: s.rtf || undefined,
-      image: hasImage ? s.image! : undefined,
-    };
-    // 一次写入全部格式 → 剪贴板历史只新增一条，而非多条
-    clipboard.write(data);
-    logf('INPUT_HOOK', `[restore] write 单次 textLen=${s.text.length} htmlLen=${s.html.length} rtfLen=${s.rtf.length} hasImage=${hasImage}`);
-  } catch {
-    /* 还原失败忽略 */
-  }
+/** 把 selection-hook 的坐标点（物理像素）转 {x,y}；非法坐标(-99999)返回 undefined。 */
+function toPos(p: { x: number; y: number } | null | undefined): { x: number; y: number } | undefined {
+  if (!p) return undefined;
+  if (p.x === SelectionHook.INVALID_COORDINATE || p.y === SelectionHook.INVALID_COORDINATE) return undefined;
+  return { x: p.x, y: p.y };
 }
 
 export class GlobalInputHook {
   private running = false;
-  private mouseDownPos = { x: 0, y: 0 };
-  private lastText = '';
-  private pendingCheck: ReturnType<typeof setTimeout> | null = null;
+  /** selection-hook 单实例（首次 start 创建，之后复用）。 */
+  private selHook: SelectionHookInstance | null = null;
+  /** 上次触发弹框的时间戳，配合主进程「工具栏已可见则忽略」做双重去重。 */
+  private lastFireAt = 0;
+  private static readonly FIRE_COOLDOWN = 250;
   public onTextSelected: InputSelectionCallback | null = null;
-  /** 任意鼠标按下时回调（用于检测外部点击关闭工具栏）。 */
-  public onAnyMouseDown: ((e: UiohookMouseEvent) => void) | null = null;
-  /** 任意键盘按键按下时回调（携带按键事件，用于识别 Win+V 等组合键）。 */
-  public onAnyKeyDown: ((e: UiohookKeyboardEvent) => void) | null = null;
-  /** 滚轮滚动时回调（用于跟随滚动重定位工具栏）。 */
-  public onWheel: ((deltaY: number) => void) | null = null;
+  /** 任意鼠标按下时回调（携带坐标，用于检测外部点击关闭工具栏）。 */
+  public onAnyMouseDown: ((e: { x: number; y: number }) => void) | null = null;
+  /** 任意键盘按键按下时回调（携带按键数据，用于识别组合键）。 */
+  public onAnyKeyDown: ((e: KeyboardEventData) => void) | null = null;
+  /** 滚轮滚动时回调（跟随滚动重定位工具栏）。 */
+  public onWheel: (() => void) | null = null;
+  /** 拖选结束回调（mouse-up 且相对按下发生位移时触发），供 WpsWordHook 自研 WPS 取词。 */
+  public onDragEnd: ((down: { x: number; y: number }, up: { x: number; y: number }) => void) | null = null;
+  /** 最近一次鼠标按下的坐标（物理像素），用于判定拖选。 */
+  private lastPress: { x: number; y: number; t: number } | null = null;
+
+  /** 首次创建并配置单实例（仅一次）；事件只在此挂载，避免 start/stop 反复造成重复监听。 */
+  private ensureInstance(): boolean {
+    if (this.selHook) return true;
+    try {
+      const hook = new SelectionHook();
+      // 对齐 Cherry：对 PDF 阅读器类跳过光标形状检测
+      hook.setFineTunedList(SelectionHook.FineTunedListType.EXCLUDE_CLIPBOARD_CURSOR_DETECT, FINETUNED_APPS);
+      // 对齐 Cherry：对 PDF 阅读器类延迟读剪贴板（避免读到中间态）
+      hook.setFineTunedList(SelectionHook.FineTunedListType.INCLUDE_CLIPBOARD_DELAY_READ, FINETUNED_APPS);
+      // WPS：禁用 selection-hook 内置剪贴板回退（避免其保存+恢复逻辑污染剪贴板），改由自研通道
+      hook.setClipboardMode(SelectionHook.FilterMode.EXCLUDE_LIST, EXCLUDE_CLIPBOARD_APPS);
+      // 全局黑名单：这些程序划词不弹框
+      hook.setGlobalFilterMode(SelectionHook.FilterMode.EXCLUDE_LIST, PREDEFINED_BLACKLIST);
+
+      hook.on('text-selection', (data: TextSelectionData) => this.handleTextSelection(data));
+      hook.on('mouse-down', (e: MouseEventData) => {
+        if (!this.running) return;
+        this.lastPress = { x: e.x, y: e.y, t: Date.now() };
+        this.onAnyMouseDown?.({ x: e.x, y: e.y });
+      });
+      hook.on('mouse-up', (e: MouseEventData) => {
+        if (!this.running) return;
+        const down = this.lastPress;
+        this.lastPress = null;
+        // 无按下起点则忽略；转换非法坐标并平移
+        if (!down || down.x === SelectionHook.INVALID_COORDINATE || down.y === SelectionHook.INVALID_COORDINATE) return;
+        if (e.x === SelectionHook.INVALID_COORDINATE || e.y === SelectionHook.INVALID_COORDINATE) return;
+        this.onDragEnd?.({ x: down.x, y: down.y }, { x: e.x, y: e.y });
+      });
+      hook.on('key-down', (e: KeyboardEventData) => {
+        if (this.running) this.onAnyKeyDown?.(e);
+      });
+      hook.on('mouse-wheel', () => {
+        if (this.running) this.onWheel?.();
+      });
+
+      this.selHook = hook;
+      return true;
+    } catch (err) {
+      this.selHook = null;
+      logf('INPUT_HOOK', 'selection-hook 初始化失败: ' + (err instanceof Error ? err.message : String(err)));
+      return false;
+    }
+  }
 
   /** 启动输入钩子。 */
   public start(): void {
+    try { logf('INPUT_HOOK', '划词 start() 进入 running=' + this.running); } catch {}
     if (this.running) return;
-    this.running = true;
-    this.lastText = clipboard.readText();
-
-    // 记录鼠标按下位置，用于判断是否拖拽选择
-    uIOhook.on('mousedown', (e: UiohookMouseEvent) => {
-      this.mouseDownPos = { x: e.x, y: e.y };
-      // 取消上一个待处理的检查
-      if (this.pendingCheck) {
-        clearTimeout(this.pendingCheck);
-        this.pendingCheck = null;
-      }
-      // 通知外部（用于关闭工具栏）
-      this.onAnyMouseDown?.(e);
-    });
-
-    // 鼠标释放：如果位置有明显移动（拖拽选择），模拟 Ctrl+C 获取选中文本
-    uIOhook.on('mouseup', (e: UiohookMouseEvent) => {
-      if (!this.running) return;
-      const dx = Math.abs(e.x - this.mouseDownPos.x);
-      const dy = Math.abs(e.y - this.mouseDownPos.y);
-      // 距离 > 5px 视为拖拽选择
-      if (dx <= 5 && dy <= 5) return;
-
-      // 保存当前剪贴板文本，用于后续比较
-      const prevClip = this.lastText;
-      // 快照原剪贴板：取词后立即还原，避免自动复制污染用户剪贴板
-      const snapshot = snapshotClipboard();
-      logf('INPUT_HOOK', `[snapshot] hasFiles=${snapshot.hasFiles} textLen=${snapshot.text.length} htmlLen=${snapshot.html.length} rtfLen=${snapshot.rtf.length} imgEmpty=${!snapshot.image || snapshot.image.isEmpty()}`);
-
-      // 剪贴板含文件列表（如复制的图片/文档文件）时无法可靠还原——
-      // Electron 的 writeBuffer 还原 CF_HDROP 会损坏文件条目（无法预览/粘贴）。
-      // 此时跳过自动取词，保护用户剪贴板不被破坏。
-      if (snapshot.hasFiles) {
-        logf('INPUT_HOOK', '剪贴板含文件列表，跳过自动取词以保护剪贴板');
-        return;
-      }
-
-      // 剪贴板含图片时，取词后【不再还原图片】：让图片留在系统剪贴板历史（Win+V）的最初一条，
-      // 避免每次取词的写回在历史里反复新增相同图片记录。取词结果（选中文本）会留在剪贴板当前位。
-      const hasImage = !!snapshot.image && !snapshot.image.isEmpty();
-      if (hasImage) {
-        snapshot.image = null;
-        logf('INPUT_HOOK', '剪贴板含图片：取词后不还原图片（图片保留在剪贴板历史，避免重复记录）');
-      }
-
-      // 模拟 Ctrl+C：将选中文本复制到系统剪贴板
-      try {
-        uIOhook.keyTap(UiohookKey.C, [UiohookKey.Ctrl]);
-      } catch (err) {
-        logf('INPUT_HOOK', '模拟 Ctrl+C 失败:', err);
-        return;
-      }
-
-      // 延迟 40ms 等剪贴板更新（Windows 剪贴板写入约 10-20ms，40ms 足够且明显更快）
-      this.pendingCheck = setTimeout(() => {
-        this.pendingCheck = null;
-        try {
-          const text = clipboard.readText();
-          if (text && text !== prevClip && text.length > 0) {
-            logf('INPUT_HOOK', `检测到选中文本: "${text.slice(0, 40)}..."`);
-            this.lastText = text;
-            // 关键：取词后立即还原用户原剪贴板内容——
-            // 内部取词不污染剪贴板，只有点击工具栏「复制」按钮时才真正写入。
-            restoreClipboard(snapshot);
-            this.onTextSelected?.(text, { ...this.mouseDownPos }, { x: e.x, y: e.y });
-          }
-        } catch {
-          // 剪贴板不可用时静默忽略
-        }
-      }, 40);
-    });
-
-    // 滚轮事件：用于工具栏跟随滚动
-    uIOhook.on('wheel', (e: any) => {
-      if (!this.running) return;
-      this.onWheel?.(e.rotation);
-    });
-
-    // 键盘按键按下：通知外部关闭工具栏（用户按下任意按键后悬浮框即消失）
-    uIOhook.on('keydown', (e: UiohookKeyboardEvent) => {
-      if (!this.running) return;
-      this.onAnyKeyDown?.(e);
-    });
-
-    uIOhook.start();
-    logf('INPUT_HOOK', '全局输入钩子已启动，自动检测文本选择');
+    if (!this.ensureInstance()) return;
+    try {
+      // 剪贴板回退默认开启（对齐 Cherry），让微信/WPS/PDF 也能取词
+      this.selHook!.start({ debug: false });
+      this.running = true;
+      logf('INPUT_HOOK', 'selection-hook 启动完成（text-selection 事件驱动，剪贴板回退开启）');
+    } catch (err) {
+      logf('INPUT_HOOK', 'selection-hook.start 失败: ' + (err instanceof Error ? err.message : String(err)));
+    }
   }
 
-  /** 停止输入钩子。 */
+  private handleTextSelection(data: TextSelectionData): void {
+    if (!this.running) return;
+    const text = (data && data.text) || '';
+    if (text.trim().length === 0) return;
+    // 去重：同一选取或其引发的窗口/焦点事件在冷却窗口内重复上报 → 忽略，避免弹框闪动/连弹
+    const now = Date.now();
+    if (now - this.lastFireAt < GlobalInputHook.FIRE_COOLDOWN) {
+      logf('INPUT_HOOK', `忽略去重内重复 text-selection: "${text.slice(0, 30)}..."`);
+      return;
+    }
+    this.lastFireAt = now;
+    logf('INPUT_HOOK', `text-selection(method=${data.method}): "${text.slice(0, 40)}..."`);
+    // 优先用选区包围盒（SEL_FULL/SEL_DETAILED 级）定位，鼠标坐标仅作兜底。
+    const full =
+      data.posLevel >= 3 && data.startTop && data.endBottom &&
+      data.startTop.x !== SelectionHook.INVALID_COORDINATE &&
+      data.startTop.y !== SelectionHook.INVALID_COORDINATE &&
+      data.endBottom.x !== SelectionHook.INVALID_COORDINATE &&
+      data.endBottom.y !== SelectionHook.INVALID_COORDINATE;
+    const selPos: SelPosData | undefined = full
+      ? {
+          startTop: { x: data.startTop.x, y: data.startTop.y },
+          endBottom: { x: data.endBottom.x, y: data.endBottom.y },
+          posLevel: data.posLevel,
+        }
+      : undefined;
+    this.onTextSelected?.(text, toPos(data.mousePosStart), toPos(data.mousePosEnd), selPos);
+  }
+
+  /** 停止输入钩子（复用实例，仅停原生钩子；下次 start 直接重启）。 */
   public stop(): void {
     if (!this.running) return;
     this.running = false;
-    if (this.pendingCheck) {
-      clearTimeout(this.pendingCheck);
-      this.pendingCheck = null;
-    }
-    try {
-      uIOhook.stop();
-    } catch {
-      // 忽略
-    }
-    uIOhook.removeAllListeners('mousedown');
-    uIOhook.removeAllListeners('mouseup');
-    uIOhook.removeAllListeners('wheel');
-    uIOhook.removeAllListeners('keydown');
-    logf('INPUT_HOOK', '全局输入钩子已停止');
+    try { this.selHook?.stop(); } catch { /* 忽略 */ }
+    logf('INPUT_HOOK', '划词钩子已停止（实例保留复用）');
   }
 
-  /** 暂停一次检测（工具栏操作后同步 lastText，避免误触发）。 */
+  /** 暂停一次检测（保留接口兼容；去重由工具栏可见 + 冷却双保险保证）。 */
   public pauseOne(): void {
-    try {
-      this.lastText = clipboard.readText();
-    } catch {
-      // ignore
-    }
+    // no-op
   }
 
   /** 是否正在运行。 */

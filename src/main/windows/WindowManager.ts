@@ -6,7 +6,7 @@ import { BrowserWindow, WebContents, WebContentsView, screen, app } from 'electr
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ConfigStore } from '../config/ConfigStore';
-import type { DefaultModelMode, ScreenshotRect, SubWindowRole, WindowType } from '../../shared/types';
+import type { ScreenshotRect, SubWindowRole, WindowType } from '../../shared/types';
 import { createMainWindow, layoutView, createChatView } from './mainWindow';
 import { createSubWindow } from './subWindow';
 import { createBWindow as createBWindowFactory } from './bWindow';
@@ -41,6 +41,8 @@ interface WindowEntry {
   transient?: boolean;
   /** 标记该窗口不应自动应用默认模型（如「截图发送到新对话」窗口，用户要求只附图不切模型）。 */
   skipDefaultModel?: boolean;
+  /** B 类窗口是否接管主窗口显隐：true=指令型（截图/问问AI，单例替换）；false=划词多开型（可多个共存）。 */
+  bManageMain?: boolean;
 }
 
 /** 从 URL 提取会话 id（DeepSeek SPA：/a/chat/s/<id>、/a/chat/<id>、/c/<id>；无会话 id 返回 null）。
@@ -56,8 +58,8 @@ export class WindowManager {
   private counter = 0;
   private currentSubId: string | null = null;
   private currentBId: string | null = null;
-  /** 截图期间被隐藏的窗口及其原可见性，用于恢复。 */
-  private screenshotHidden: { id: string; visible: boolean }[] = [];
+  /** 截图期间被隐藏的窗口及其原可见性 / 不透明度，用于恢复。 */
+  private screenshotHidden: { id: string; visible: boolean; opacity: number }[] = [];
   /** B 窗口创建前主窗口是否可见：B 窗口关闭后按此恢复主窗口（截图呼出 B 窗口会最小化/隐藏主窗口）。 */
   private mainVisibleBeforeB = false;
   /** 关闭时禁止恢复主窗口的 B 窗口集合（被「用完即关」替换的旧 B 窗口，避免误弹出主窗口）。 */
@@ -76,8 +78,6 @@ export class WindowManager {
   private lastToggleSyncAt = new Map<number, number>();
   private onWebViewReady: ((wc: WebContents, type: WindowType) => void) | null = null;
   private injector: Injector | null = null;
-  /** 复位「插件模式为普通」钩子（由 main.ts 注入；WindowManager 无权访问 extensionManager/extensionHost）。 */
-  public resetChatModeHook: ((wc: WebContents) => void) | null = null;
   private screenShare: ScreenShareManager | null = null;
   /** 已应用默认模式的会话 id（wcId -> 会话 id 或 ''=新建页）：判断「同会话重复触发」用。 */
   private lastAppliedDefaultSession = new Map<number, string>();
@@ -512,6 +512,12 @@ export class WindowManager {
           if (applyDefaultModel) applyDefaultMode().catch(() => {});
         }
         this.lastUrlByWc.set(wcId, url);
+        // 同步更新 lastAppliedDefaultSession（applyDefaultModelMode / shouldResetNewConversationFor 的
+        // session guard 依赖它）。保证每次 detectConversationChange（含"无 id → 有 id"这种不触发
+        // applyDefaultMode 的变化）都让 lastAppliedDefaultSession 与 URL 保持同步，避免 guard
+        // 误判（prevSession 卡在初始值，以为没切换过会话）。
+        // 注意：B 类窗口（applyDefaultModel=false）不参与「新建对话复位」逻辑，不需要追踪 session。
+        if (applyDefaultModel) this.lastAppliedDefaultSession.set(wcId, curId || '');
       } catch {
         /* 读取 URL 失败则忽略，下一事件再试 */
       }
@@ -607,6 +613,40 @@ export class WindowManager {
    *   也易并发触发；多个 switchModelMode 同时点击 radio 会互相打断、把模型选择器搞乱（留下半开下拉 /
    *   找不到按钮）。现保证同一 webContents 在 1.2s 内只切换一次，且切换进行中不再接受新的并发切换。
    */
+  /**
+   * 检查当前 webContents 是否真正需要应用「新建对话」级别的默认设置复位。
+   * 核心判定：从「有会话 id 的历史会话」→「无会话 id 的新对话页」才是真新建对话；
+   * 同一 URL 被 reload（如用户在新对话页切增强/任务触发的 wc.reload()）时，
+   * 前后 curSession 都是空 → 守卫命中返回 false，阻止误触发时把用户手动设置的模式改回去。
+   *
+   * 返回 false 的场景：
+   *   - URL 完全没变（reload / 同会话内 SPA 跳转）
+   *   - 截图 sendNew 窗口被抑制
+   *   - B 类 / 翻译 / 临时等 skipDefaultModel 窗口
+   *   - 会话变化但没有「进入新对话页」（历史会话互相切换：id 变了但 prevHasId 和 curHasId 都是 true）
+   */
+  public shouldResetNewConversationFor(wc: WebContents): boolean {
+    if (!wc || wc.isDestroyed()) return false;
+    if (!this.injector) return false;
+    if (this.suppressDefaultModelWc.has(wc.id)) return false;
+    const curSession = (wc.getURL().split('#')[0].match(/\/a\/chat\/([^/?#]+)/) || [])[1] || '';
+    const prevSession = this.lastAppliedDefaultSession.get(wc.id) ?? null;
+    // 完全相同：同一会话 / reload / SPA 无意义跳转 → 不需要复位
+    if (prevSession !== null && prevSession === curSession) {
+      logf('shouldResetNC', `同会话（${prevSession}），返回 false`);
+      return false;
+    }
+    // 会话 id 提取后的判断：只要「之前有 id 现在没 id」才算真正进入新对话页
+    const SESSION_RE = /\/a\/chat\/([^/?#]+)/;
+    const prevHad = prevSession !== null && prevSession !== '';
+    const curHad = curSession !== '';
+    const realNewConv = prevHad && !curHad; // 有 id → 无 id
+    const firstLoad = prevSession === null; // 首次进入 wc（还没记录过任何 session）也视作新建
+    const ok = realNewConv || firstLoad;
+    logf('shouldResetNC', `prev=${prevSession ?? '(null)'} cur=${curSession} prevHad=${prevHad} curHad=${curHad} → ${ok ? 'TRUE 需要复位' : 'FALSE 跳过'}`);
+    return ok;
+  }
+
   public async applyDefaultModelMode(wc: WebContents): Promise<void> {
     if (!this.injector || !wc || wc.isDestroyed()) return;
     // 截图「发送到新对话」期间抑制：该流程按 screenshotSendNewMode 显式切换模型，
@@ -626,12 +666,6 @@ export class WindowManager {
       return;
     }
     logf('applyDefault', `会话变化（${prevSession} → ${curSession}），应用默认设置`);
-    // 新建对话（进入无会话 id 的新页面）→ 复位插件「模式」为普通（关联网/Shell Local），
-    // 由 main.ts 注入的钩子执行（WindowManager 无权访问 extensionManager/extensionHost）。
-    if (curSession === '' && this.resetChatModeHook) {
-      logf('applyDefault', `新建对话页：复位插件模式为普通模式`);
-      try { this.resetChatModeHook(wc); } catch (e) { console.error('[WindowManager] resetChatModeHook 异常', e); }
-    }
     const id = this.findIdByWebContents(wc);
     const entryType = id ? this.entries.get(id)?.type : undefined;
     if (id) {
@@ -648,46 +682,10 @@ export class WindowManager {
         return;
       }
     }
-    const mode = this.config.get('defaultModelMode') as DefaultModelMode;
-    if (mode === 'simple') {
-      // 简单模式是页面默认，无需切换模型；但「深度思考 / 智能搜索」仍按设置同步
-      logf('applyDefault', `跳过模型切换（simple），同步深度思考/智能搜索 id=${id} type=${entryType}`);
-      this.syncChatToggles(wc).catch(() => {});
-      return;
-    }
-
-    const wcId = wc.id;
-    const now = Date.now();
-    const last = this.lastDefaultModelAt.get(wcId) ?? 0;
-    if (now - last < 800) {
-      logf('applyDefault', `去抖跳过：距上次 ${now - last}ms < 800ms, wcId=${wcId} mode=${mode}`);
-      return; // 去抖：同一会话 0.8s 内只切换一次
-    }
-    if (this.switchingWc.has(wcId)) {
-      logf('applyDefault', `串行跳过：正在切换中 wcId=${wcId} mode=${mode}`);
-      return; // 串行：正在切换则跳过，避免并发点击 radio
-    }
-
-    logf('applyDefault', `开始切换：wcId=${wcId} id=${id} type=${entryType} targetMode=${mode} deepThink=${this.config.get('deepThinkEnabled') === true}`);
-    this.switchingWc.add(wcId);
-    try {
-      const ok = await this.injector.switchModelMode(wc, mode).catch(() => false);
-      logf('applyDefault', `switchModelMode(${mode}) 结果=${ok}`);
-      // Bug3 修复：setDeepThink 已实现但此前从未被调用。切换默认模型后，按设置同步「深度思考」开关，
-      // 使「默认深度思考」设置真正生效（新建对话 / 从托盘唤出主窗口后均会走到这里）。
-      if (this.injector) {
-        const dtOk = await this.injector.setDeepThink(wc, this.config.get('deepThinkEnabled') === true).catch(() => false);
-        logf('applyDefault', `setDeepThink(${this.config.get('deepThinkEnabled') === true}) 结果=${dtOk}`);
-      }
-      // 智能搜索：会话变化（新建/切换）时按设置硬覆盖为默认值，让用户设置真正生效。
-      if (this.injector) {
-        await this.injector.setSmartSearch(wc, this.config.get('smartSearchEnabled') === true).catch(() => {});
-      }
-    } finally {
-      this.switchingWc.delete(wcId);
-      // 切换「完成」后才记录时间戳：避免把「紧邻的两次真实新建对话」误去抖掉
-      this.lastDefaultModelAt.set(wcId, Date.now());
-    }
+    // DeepSeek 已合并模型模式（不分快速/专家/识图），无需切换模型；
+    // 仅按设置同步「深度思考 / 智能搜索」开关。
+    logf('applyDefault', `模型模式已统一，仅同步开关 id=${id} type=${entryType}`);
+    this.syncChatToggles(wc).catch(() => {});
   }
 
   /**
@@ -711,13 +709,7 @@ export class WindowManager {
     }
     this.lastToggleSyncAt.set(wcId, now);
     const deepThink = this.config.get('deepThinkEnabled') === true;
-    let smartSearch = this.config.get('smartSearchEnabled') === true;
-    // 任务/增强检索模式下原生「智能搜索」必须保持关闭（该模式走插件自己的联网 + 遮罩），
-    // 不能随会话切换被默认值重新打开。读取页面当前模式，若为 online/task 则强制关。
-    try {
-      const mode = (await wc.executeJavaScript(`window.__dsChatMode || 'normal'`));
-      if (mode === 'online' || mode === 'task') smartSearch = false;
-    } catch { /* 读取失败则按默认值处理 */ }
+    const smartSearch = this.config.get('smartSearchEnabled') === true;
     await this.injector.setDeepThink(wc, deepThink).catch(() => {});
     await this.injector.setSmartSearch(wc, smartSearch).catch(() => {});
     logf('syncToggle', `同步开关 wcId=${wcId} deepThink=${deepThink} smartSearch=${smartSearch}`);
@@ -989,21 +981,22 @@ export class WindowManager {
    */
   public createBWindow(sourceRect: ScreenshotRect, opts?: { manageMainWindow?: boolean }): string | null {
     const manageMain = opts?.manageMainWindow !== false;
-    // 用完即关：先关闭已有 B 窗口。旧 B 窗口被替换接管，禁止其关闭时恢复主窗口
-    //（否则会出现「新 B 窗口出现时旧窗口的 closed 把主窗口弹出来」的竞态）。
-    if (this.currentBId) {
-      const prev = this.entries.get(this.currentBId);
-      if (prev && !prev.win.isDestroyed()) {
-        this.suppressRestoreOnClose.add(prev.win);
-        prev.win.close();
+    // 用完即关（按场景区分，兼顾用户「划词 B 窗口可多开」的需求）：
+    //  - 指令型 B 窗口（manageMain=true，截图 / 问问AI）：单例替换。再次截图/问问时先关闭旧的指令型 B 窗口，
+    //    避免反复截图/问问叠出多个窗口；被替换的旧窗口禁止在 closed 里恢复主窗口（防竞态弹窗）。
+    //  - 划词多开型 B 窗口（manageMain=false）：多开共存。每次划词召唤都独立新建一个，不关闭已有 B 窗口，
+    //    保证多个划词窗口同时存在、彼此独立（不再像旧逻辑那样把上一个划词窗口关掉）。
+    if (manageMain) {
+      for (const [bid, e] of Array.from(this.entries.entries())) {
+        if (e.type !== 'sub' || e.bManageMain !== true || e.win.isDestroyed()) continue;
+        this.suppressRestoreOnClose.add(e.win);
+        e.win.close();
       }
-      this.entries.delete(this.currentBId);
-      this.currentBId = null;
     }
 
     const { win, view } = createBWindowFactory(sourceRect, this.config);
     const id = `b-${++this.counter}`;
-    this.entries.set(id, { id, type: 'sub', win, view, role: 'sub', transient: true });
+    this.entries.set(id, { id, type: 'sub', win, view, role: 'sub', transient: true, bManageMain: manageMain });
     this.trackActive(win, id);
     this.trackClosed(win, id);
     // 可选：关闭 B 窗口时自动删除对话记录
@@ -1302,8 +1295,17 @@ export class WindowManager {
    * 某些平台 minimize() 不生效时 fallback 到 hide()，确保主窗口消失。
    */
   public minimizeMainWindow(): void {
-    // 从截图恢复列表中移除主窗口，防止 overlay 关闭后 restoreChatWindowsAfterScreenshot 恢复它
-    this.screenshotHidden = this.screenshotHidden.filter((rec) => rec.id !== 'main');
+    // 从截图恢复列表中移除主窗口，防止 overlay 关闭后 restoreChatWindowsAfterScreenshot 恢复它；
+    // 移除前先还原它被临时置为全透明的不透明度，否则主窗口会一直是隐形的。
+    const kept: { id: string; visible: boolean; opacity: number }[] = [];
+    for (const rec of this.screenshotHidden) {
+      if (rec.id === 'main') {
+        this.restoreScreenshotOpacity(rec);
+        continue;
+      }
+      kept.push(rec);
+    }
+    this.screenshotHidden = kept;
 
     const main = this.entries.get('main');
     if (main && !main.win.isDestroyed()) {
@@ -1642,15 +1644,59 @@ export class WindowManager {
 
   /**
    * 截图期间隐藏所有应用聊天窗口（主/副/翻译，B 窗口在选区完成后才创建故此时不存在），
-   * 记录原可见性，避免它们被截进截图里。截图结束（遮罩关闭）后由 restore 恢复。
+   * 记录原可见性与不透明度，避免它们被截进截图里。截图结束（遮罩关闭）后由 restore 恢复。
+   *
+   * 返回 Promise：调用方必须 await 后再采集屏幕。此前是同步 hide() + 调用方写死等 100ms，
+   * 在部分机器上窗口尚未真正从合成器消失，desktopCapturer 会把「正在消失中的半透明窗口」
+   * 截进背景图（表现为软件窗口以半透明形式残留在截图里）。这里改为：
+   *   1) 可见窗口先置全透明（跳过 Windows 的窗口淡出动画，立即不参与合成）；
+   *   2) hide() 后等待 'hide' 事件（配 500ms 兜底），确保窗口确实已隐藏。
    */
-  public hideChatWindowsForScreenshot(): void {
+  public async hideChatWindowsForScreenshot(): Promise<void> {
     this.screenshotHidden = [];
+    const waits: Array<Promise<void>> = [];
     for (const [id, entry] of this.entries) {
       if (!entry.win || entry.win.isDestroyed()) continue;
-      const visible = entry.win.isVisible();
-      this.screenshotHidden.push({ id, visible });
-      if (visible) entry.win.hide();
+      const win = entry.win;
+      const visible = win.isVisible();
+      let opacity = 1;
+      try {
+        opacity = win.getOpacity();
+      } catch {
+        /* 平台不支持则不记录（恢复时用默认 1） */
+      }
+      this.screenshotHidden.push({ id, visible, opacity });
+      if (!visible) continue;
+      try {
+        win.setOpacity(0);
+      } catch {
+        /* 平台不支持：退回仅 hide() */
+      }
+      waits.push(
+        new Promise<void>((resolve) => {
+          let settled = false;
+          const finish = (): void => {
+            if (settled) return;
+            settled = true;
+            resolve();
+          };
+          win.once('hide', finish);
+          win.hide();
+          setTimeout(finish, 500);
+        })
+      );
+    }
+    await Promise.all(waits);
+  }
+
+  /** 还原某条截图隐藏记录对应窗口的不透明度（不改变可见性）。 */
+  private restoreScreenshotOpacity(rec: { id: string; opacity: number }): void {
+    const entry = this.entries.get(rec.id);
+    if (!entry || entry.win.isDestroyed()) return;
+    try {
+      entry.win.setOpacity(rec.opacity);
+    } catch {
+      /* 平台不支持则忽略 */
     }
   }
 
@@ -1666,7 +1712,17 @@ export class WindowManager {
    *  使遮罩关闭后的 restoreChatWindowsAfterScreenshot 不再恢复/唤起主窗口，
    *  主窗口保持截图前的隐藏状态，待用户主动打开。其他窗口照常恢复。 */
   public forgetScreenshotMain(): void {
-    this.screenshotHidden = this.screenshotHidden.filter((rec) => rec.id !== 'main');
+    const kept: { id: string; visible: boolean; opacity: number }[] = [];
+    for (const rec of this.screenshotHidden) {
+      if (rec.id === 'main') {
+        // 主窗口不再恢复显示，但必须把它被临时置为全透明的不透明度还原，
+        // 否则用户之后主动打开主窗口时会是一片空白（看不到内容）。
+        this.restoreScreenshotOpacity(rec);
+        continue;
+      }
+      kept.push(rec);
+    }
+    this.screenshotHidden = kept;
   }
 
   /** 截图结束后恢复被隐藏窗口到截图前的可见性（保持主副切换状态）。 */
@@ -1674,7 +1730,10 @@ export class WindowManager {
     let mainWasVisible = false;
     for (const rec of this.screenshotHidden) {
       const entry = this.entries.get(rec.id);
-      if (entry && !entry.win.isDestroyed() && rec.visible) {
+      if (!entry || entry.win.isDestroyed()) continue;
+      // 先还原不透明度，再 show()，避免还原时闪一下全透明窗口
+      this.restoreScreenshotOpacity(rec);
+      if (rec.visible) {
         entry.win.show();
         if (rec.id === 'main') mainWasVisible = true;
       }
@@ -1693,7 +1752,9 @@ export class WindowManager {
   public restoreChatWindowsQuietly(): void {
     for (const rec of this.screenshotHidden) {
       const entry = this.entries.get(rec.id);
-      if (entry && !entry.win.isDestroyed() && rec.visible) {
+      if (!entry || entry.win.isDestroyed()) continue;
+      this.restoreScreenshotOpacity(rec);
+      if (rec.visible) {
         entry.win.show();
       }
     }

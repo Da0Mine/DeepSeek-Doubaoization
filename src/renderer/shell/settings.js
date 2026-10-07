@@ -34,7 +34,7 @@
     '通知': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
     '共享': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>',
     '共享文档': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
-    '插件': '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg>',
+    '黑名单': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>',
   };
 
   // ---- 三级菜单结构 ----
@@ -85,22 +85,12 @@
       children: [
         {
           label: '对话', icon: SUB_ICONS['对话'],
-          keys: ['deepThinkEnabled', 'smartSearchEnabled', 'collapseThinking', 'defaultModelMode', 'defaultChatMode', 'answerScrollMode', 'floatingTokenWidget'],
+          keys: ['deepThinkEnabled', 'smartSearchEnabled', 'collapseThinking', 'answerScrollMode'],
           items: [
             { key: 'deepThinkEnabled', label: '深度思考', type: 'checkbox', hint: '新建对话时自动打开网页的深度思考。' },
             { key: 'smartSearchEnabled', label: '智能搜索', type: 'checkbox', hint: '新建对话时自动打开网页的智能搜索。' },
             { key: 'collapseThinking', label: '折叠思考过程', type: 'checkbox', hint: '深度思考过程默认折叠，只显示最终答案。' },
-            { key: 'defaultModelMode', label: '默认模型模式', type: 'select', options: [{ label: '快速模式', value: 'simple' }, { label: '专家模式', value: 'expert' }, { label: '识图模式', value: 'vision' }], hint: '新建对话默认的模型模式：快速响应最快，专家适合复杂任务，识图支持图片。' },
-            { key: 'defaultChatMode', label: '默认模式', type: 'select', options: [{ label: '普通模式', value: 'normal' }, { label: '增强搜索', value: 'online' }, { label: '任务模式', value: 'task' }], hint: '新建对话 / 启动时自动应用的模式：普通=关闭联网与本地工具；增强搜索=开启联网；任务=开启联网与本地 Shell 工具。' },
             { key: 'answerScrollMode', label: '回答滚动方式', type: 'select', options: [{ label: '停留开头', value: 'stay' }, { label: '跟随回答', value: 'follow' }], hint: 'AI 流式输出回答时：停留开头 = 保持当前位置，自己下滑阅读；跟随回答 = 自动滚动跟随最新输出。' },
-            { key: 'floatingTokenWidget', label: 'token小窗显示', type: 'checkbox', hint: '在聊天页输入框右上方悬浮一个毛玻璃小窗口，实时显示今日 token 消耗；悬浮显示今日/累计。' },
-          ]
-        },
-        {
-          label: '插件', icon: SUB_ICONS['插件'],
-          keys: [],
-          items: [
-            { key: '_extensions', label: '插件管理', type: 'extensions', hint: '查看与管理已安装的插件：启用/停用、固定到窗口栏、加载本地扩展目录或移除。' },
           ]
         },
         {
@@ -113,33 +103,41 @@
         },
         {
           label: '共享文档', icon: SUB_ICONS['共享文档'],
-          keys: ['shareIdleTimeout', 'screenShareSwitchVision', 'docSharePdfSaveInterval', 'docShareWpsWordLargeRounds', 'docShareWpsExcelLargeRounds', 'docSharePdfLargeRounds', 'docShareWpsWordLargeThreshold', 'docShareWpsExcelLargeThreshold', 'docSharePdfLargeThreshold'],
+          keys: ['shareIdleTimeout', 'docSharePdfSaveInterval', 'docShareWpsWordLargeRounds', 'docShareWpsExcelLargeRounds', 'docSharePdfLargeRounds', 'docShareWpsWordLargeThreshold', 'docShareWpsExcelLargeThreshold', 'docSharePdfLargeThreshold'],
           items: [
             { key: 'shareIdleTimeout', label: '共享空闲自动退出（分钟）', type: 'number', hint: '共享屏幕/文档超时未发送消息自动退出。默认 10 分钟，0 = 不自动退出。' },
-            { key: 'screenShareSwitchVision', label: '共享屏幕自动切换识图模式', type: 'checkbox', hint: '启动共享屏幕时自动切换到识图模式，便于发送截图。' },
             { key: 'docSharePdfSaveInterval', label: 'PDF 改动检测保存间隔（秒）', type: 'number', hint: '0 = 仅发送时保存（默认）；设为秒数后按间隔自动保存并检测改动。' },
             { key: '_docShareRounds', label: '共享文件自动重提轮数', type: 'docshare-rounds', hint: '内容超过阈值时按设定轮数自动重新提交，检测到改动立即提交。Word 70 万字、Excel 10 万字、PDF 20 万。' },
           ]
         },
         {
           label: '快捷键', icon: SUB_ICONS['快捷键'],
-          keys: ['screenshotShortcut', 'subWindowShortcut', 'screenShareShortcut', 'docShareShortcut'],
+          keys: ['screenshotShortcut', 'subWindowShortcut', 'screenShareShortcut', 'docShareShortcut', 'textSelectionShortcut'],
           items: [
             { key: 'screenshotShortcut', label: '一键截图', type: 'shortcut', hint: '一键唤起截图功能，默认 左 Alt + C。' },
             { key: 'subWindowShortcut', label: '呼出副窗口', type: 'shortcut', hint: '一键呼出/隐藏副窗口，默认 左 Alt + 空格。' },
-            { key: 'screenShareShortcut', label: '屏幕共享', type: 'shortcut', hint: '一键开启/关闭屏幕共享（默认空）。开启时自动打开副窗口并按需切换识图模式，再次按下关闭共享。' },
+            { key: 'screenShareShortcut', label: '屏幕共享', type: 'shortcut', hint: '一键开启/关闭屏幕共享（默认空）。开启时自动打开副窗口并进入共享，再次按下关闭共享。' },
             { key: 'docShareShortcut', label: '共享文档', type: 'shortcut', hint: '一键呼出「共享WPS文档」选择器（默认空）。' },
+            { key: 'textSelectionShortcut', label: '划词功能', type: 'shortcut', hint: '一键开启/关闭划词功能（默认 Alt+V），用于快速避免划词误触发。' },
             { key: '_lockedFind', label: '页面查找', type: 'locked-shortcut', value: 'Ctrl + F', hint: '在对话页面中查找关键字（固定快捷键，不可更改，仅作介绍）。' },
             { key: '_lockedReload', label: '刷新页面', type: 'locked-shortcut', value: 'Ctrl + R', hint: '刷新当前对话页面，用于恢复卡死或注入异常（固定快捷键，不可更改，仅作介绍）。' },
           ]
         },
         {
+          label: '黑名单', icon: SUB_ICONS['黑名单'],
+          keys: ['blacklistProcesses'],
+          items: [
+            { key: '_blacklistPick', label: '点击或拖动到目标窗口进行选择', type: 'blacklist-pick', hint: '进入窗口选择模式：移动鼠标扫描窗口，窗口框左上角会显示其所属进程名称；点击窗口即可把该进程加入黑名单。加入后，该进程运行时本软件的快捷键、划词功能与所有系统通知自动停用，进程退出后自动恢复。' },
+            { key: '_blacklistAdd', label: '手动添加进程', type: 'blacklist-add', hint: '输入进程名（不含 .exe，如 game）手动加入黑名单。' },
+            { key: '_blacklistList', label: '已加入进程列表', type: 'blacklist-list', hint: '当前黑名单中的进程：其中任一正在运行时，本软件临时停用快捷键、划词功能与所有系统通知。' },
+          ]
+        },
+        {
           label: '截图', icon: SUB_ICONS['截图'],
-          keys: ['annotationColors', 'keepWindowsOnScreenshot', 'screenshotSendNewMode', 'cleanBWindowHistoryOnScreenshot', 'screenshotButtons'],
+          keys: ['annotationColors', 'keepWindowsOnScreenshot', 'cleanBWindowHistoryOnScreenshot', 'screenshotButtons'],
           items: [
             { key: 'annotationColors', label: '标注画笔颜色', type: 'colorlist', hint: '设置截图标注画笔的默认颜色，可添加多个常用颜色。' },
             { key: 'keepWindowsOnScreenshot', label: '截图时保留窗口', type: 'checkbox', hint: '开启：截图时保留应用窗口（会截进图中）；关闭：截图前自动隐藏窗口。' },
-            { key: 'screenshotSendNewMode', label: '截图发送新对话模式', type: 'select', options: [{ label: '识图模式', value: 'vision' }, { label: '快速模式', value: 'simple' }], hint: '截图后「发送到新对话」时，新窗口使用的模型模式：识图模式可解析图片内容，快速模式响应最快。' },
             { key: 'cleanBWindowHistoryOnScreenshot', label: '临时窗口记录自动清理', type: 'checkbox', hint: '关闭临时窗口（截图提取文字、翻译、解释）后自动清除本次对话记录。' },
             {
               key: 'promptGroup', label: '提示词管理', type: 'prompt-group', hint: '管理截图功能按钮（提取文字/翻译/解释）的提示词模板，以及翻译默认目标语言。',
@@ -163,7 +161,7 @@
                   { label: 'ภาษาไทย', value: 'ภาษาไทย' },
                   { label: 'हिन्दी', value: 'हिन्दी' },
                 ] },
-                { key: 'screenshotButtons', label: '截图工具按钮', type: 'screenshot-buttons', hint: '管理截图功能按钮：提取文字、翻译、解释。每个按钮可单独控制其弹出窗口的深度思考、智能搜索与对话模式，并编辑各自提示词模板。' },
+                { key: 'screenshotButtons', label: '截图工具按钮', type: 'screenshot-buttons', hint: '管理截图功能按钮：提取文字、翻译、解释。每个按钮可单独控制其弹出窗口的深度思考、智能搜索，并编辑各自提示词模板。' },
               ]
             },
           ]
@@ -173,7 +171,7 @@
           keys: ['textSelectionEnabled', 'textSelectionButtons', 'cleanBWindowHistoryOnTextSelection'],
           items: [
             { key: 'textSelectionEnabled', label: '启用划词功能', type: 'checkbox', hint: '选中文本并复制时自动弹出划词工具栏。' },
-            { key: 'textSelectionButtons', label: '划词工具按钮', type: 'textselection-buttons', hint: '自定义划词工具栏按钮：可增删、拖拽排序、设置提示词。每个按钮可单独控制其弹出窗口的深度思考、智能搜索与对话模式。' },
+            { key: 'textSelectionButtons', label: '划词工具按钮', type: 'textselection-buttons', hint: '自定义划词工具栏按钮：可增删、拖拽排序、设置提示词。每个按钮可单独控制其弹出窗口的深度思考、智能搜索。' },
             { key: 'cleanBWindowHistoryOnTextSelection', label: '临时窗口记录自动清理', type: 'checkbox', hint: '关闭临时窗口（划词翻译、解释）后自动清除本次对话记录。' },
           ]
         },
@@ -198,17 +196,11 @@
             { key: '_factoryReset', label: '恢复出厂设置', type: 'action', action: 'config:factoryReset', confirm: '确定要恢复出厂设置吗？将清除全部配置与登录状态，不可撤销。', hint: '清除全部配置与登录状态，回到首次安装状态。' },
           ]
         },
-      ]
-    },
-    {
-      label: '帮助', icon: TOP_ICONS['帮助'],
-      children: [
         {
           label: '使用说明', icon: SUB_ICONS['使用说明'],
           keys: [],
-          items: [
-            { key: '_gotoManual', label: '详细使用说明', type: 'manual-goto', hint: '在本面板内查看软件所有功能的分组说明，可随时返回上一级。' },
-          ]
+          manualDirect: true,
+          items: [],
         },
       ]
     },
@@ -274,6 +266,55 @@
       for (var i = 0; i < cols.length; i++) arr.push(cols[i].value);
       return arr;
     }
+
+    // 黑名单历史列表刷新：从主进程拉取当前黑名单进程并渲染为可删除的列表。
+    var BLACKLIST_SCOPE_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+    function refreshBlacklistList() {
+      if (!shell.invoke) return;
+      var container = inputs['_blacklistList'];
+      if (!container) return;
+      shell.invoke('blacklist:get').then(function (list) {
+        var arr = Array.isArray(list) ? list : [];
+        container.innerHTML = '';
+        if (arr.length === 0) {
+          var empty = document.createElement('div');
+          empty.className = 'blacklist-empty';
+          empty.textContent = '暂无黑名单进程';
+          container.appendChild(empty);
+          return;
+        }
+        arr.forEach(function (name) {
+          var row = document.createElement('div');
+          row.className = 'blacklist-item';
+          var icon = document.createElement('span');
+          icon.className = 'blacklist-item-icon';
+          icon.innerHTML = BLACKLIST_SCOPE_ICON;
+          var nameEl = document.createElement('span');
+          nameEl.className = 'blacklist-item-name';
+          nameEl.textContent = name;
+          var del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'blacklist-item-del';
+          del.title = '移除：' + name;
+          del.textContent = '×';
+          del.addEventListener('click', function () {
+            shell.invoke('blacklist:remove', { name: name }).then(function (res) {
+              if (res && res.ok) showStatus('已移除：' + name);
+              refreshBlacklistList();
+            }).catch(function () { refreshBlacklistList(); });
+          });
+          row.appendChild(icon);
+          row.appendChild(nameEl);
+          row.appendChild(del);
+          container.appendChild(row);
+        });
+      }).catch(function () {});
+    }
+
+    // 设置窗口重新获得焦点（如从「窗口选择模式」返回后）时刷新黑名单列表
+    window.addEventListener('focus', function () {
+      if (inputs['_blacklistList']) refreshBlacklistList();
+    });
 
     // 内嵌于主窗口的设置面板：左上角返回按钮关闭设置面板回到主界面（主窗口保留）；
     // 右上角 ✕ 关闭整个主窗口（标准窗口关闭行为，closeToTray 开启时最小化到托盘）；
@@ -663,10 +704,10 @@
         if (!Array.isArray(buttons) || buttons.length === 0) {
           buttons = [{ label: '复制', prompt: '' }];
         }
-        // 顶部标题行：与下方按钮行使用相同网格，标题置于 深度思考/智能搜索/对话模式 对应列上方并居中
+        // 顶部标题行：与下方按钮行使用相同网格，标题置于 深度思考/智能搜索 对应列上方并居中（模型模式已统一）
         var header = document.createElement('div');
         header.className = 'ts-btn-header';
-        ['深度思考', '智能搜索', '对话模式'].forEach(function (t, i) {
+        ['深度思考', '智能搜索'].forEach(function (t, i) {
           var cell = document.createElement('span');
           cell.className = 'ts-btn-header-cell';
           cell.textContent = t;
@@ -712,7 +753,7 @@
           } else if (btn.label === '复制') {
             var copyHint = document.createElement('span');
             copyHint.className = 'ts-btn-copy-hint';
-            copyHint.style.gridColumn = isSimple ? '3 / span 4' : '3';
+            copyHint.style.gridColumn = isSimple ? '3 / span 3' : '3';
             copyHint.textContent = '（仅复制，无需提示词）';
             row.appendChild(copyHint);
           } else {
@@ -749,25 +790,12 @@
             smartCb.title = '智能搜索';
             smartCb.addEventListener('change', function () { container.saveButtons(); });
             row.appendChild(smartCb);
-
-            // 第6列：对话模式（副窗口同款自定义下拉，选项带「模式」后缀）
-            var modeSel = makeCustomSelect({
-              options: [
-                { label: '快速模式', value: 'simple' },
-                { label: '专家模式', value: 'expert' },
-              ]
-            });
-            modeSel.style.gridColumn = '6';
-            modeSel.dataset.field = 'mode';
-            modeSel.value = btn.mode || 'simple';
-            modeSel.addEventListener('change', function () { container.saveButtons(); });
-            row.appendChild(modeSel);
           }
 
-          // 第7列：删除
+          // 第6列：删除（模型模式已统一，不再有「对话模式」列）
           var delBtn = document.createElement('button');
           delBtn.className = 'ts-btn-del';
-          delBtn.style.gridColumn = '7';
+          delBtn.style.gridColumn = '6';
           delBtn.textContent = '×';
           delBtn.title = '删除此按钮';
           delBtn.onclick = function () {
@@ -910,11 +938,11 @@
       wrapper.className = 'ts-buttons-list';
       container.appendChild(wrapper);
 
-      // 截图功能按钮固定三项，不可增删、不可改名、不可拖拽：仅编辑提示词与 深度思考/智能搜索/对话模式 细分项
+      // 截图功能按钮固定三项，不可增删、不可改名、不可拖拽：仅编辑提示词与 深度思考/智能搜索 细分项（模型模式已统一）
       var FIXED = [
-        { label: '提取文字', deepThink: false, smartSearch: false, mode: 'simple' },
-        { label: '翻译', deepThink: false, smartSearch: false, mode: 'simple' },
-        { label: '解释', deepThink: false, smartSearch: false, mode: 'simple' },
+        { label: '提取文字', deepThink: false, smartSearch: false },
+        { label: '翻译', deepThink: false, smartSearch: false },
+        { label: '解释', deepThink: false, smartSearch: false },
       ];
 
       function makeRow(btn) {
@@ -960,28 +988,15 @@
         smartCb.addEventListener('change', function () { container.saveButtons(); });
         row.appendChild(smartCb);
 
-        // 第5列：对话模式（截图是识图场景，选项为 快速模式/识图模式）
-        var modeSel = makeCustomSelect({
-          options: [
-            { label: '快速模式', value: 'simple' },
-            { label: '识图模式', value: 'vision' },
-          ]
-        });
-        modeSel.style.gridColumn = '5';
-        modeSel.dataset.field = 'mode';
-        modeSel.value = btn.mode || 'simple';
-        modeSel.addEventListener('change', function () { container.saveButtons(); });
-        row.appendChild(modeSel);
-
         return row;
       }
 
       container.renderButtons = function (buttons) {
         wrapper.innerHTML = '';
-        // 顶部标题行：与下方按钮行相同网格，标题置于 深度思考/智能搜索/对话模式 对应列上方
+        // 顶部标题行：与下方按钮行相同网格，标题置于 深度思考/智能搜索 对应列上方（模型模式已统一）
         var header = document.createElement('div');
         header.className = 'sb-btn-header';
-        ['深度思考', '智能搜索', '对话模式'].forEach(function (t, i) {
+        ['深度思考', '智能搜索'].forEach(function (t, i) {
           var cell = document.createElement('span');
           cell.className = 'ts-btn-header-cell';
           cell.textContent = t;
@@ -1505,11 +1520,11 @@
           ['呼出副窗口', '一键呼出或隐藏副窗口（默认 左 Alt + 空格）。', '设置 → 板块 → 快捷键'],
           ['屏幕共享', '一键开启或关闭屏幕共享（默认空，可自行设置）。', '设置 → 板块 → 快捷键'],
           ['共享文档', '一键呼出「共享WPS文档」选择器（默认空，可自行设置）。', '设置 → 板块 → 快捷键'],
+          ['划词功能', '一键开启或关闭划词功能（默认 Alt+V），用于避免划词误触发。', '设置 → 板块 → 快捷键'],
         ]],
         ['截图与识图', [
           ['一键截图提问', '按快捷键或点击聊天框旁的剪刀按钮，截取屏幕选区，直接向 AI 提问。', '左 Alt + C 或剪刀按钮'],
           ['标注画笔', '截图时可用画笔、矩形、椭圆标注重点，画笔颜色可自定义。', '设置 → 板块 → 截图'],
-          ['识图模式', '新建对话默认使用识图模式后，AI 直接理解图片内容。', '设置 → 板块 → 对话'],
           ['临时窗口记录自动清理', '关闭截图临时窗口（提取文字、翻译、解释）后自动清除本次对话记录，默认开启。', '设置 → 板块 → 截图'],
           ['截图窗口深度思考', '截图临时窗口是否默认打开深度思考，回答前展示推理过程，默认关闭。', '设置 → 板块 → 截图'],
           ['截图窗口智能搜索', '截图临时窗口是否默认打开智能搜索，自动联网搜索最新信息，默认关闭。', '设置 → 板块 → 截图'],
@@ -1518,37 +1533,33 @@
           ['划词即用', '选中任意文字，无需任何快捷键，划词工具栏自动弹出。', '设置 → 板块 → 划词'],
           ['引用 DeepSeek 内容', '在本软件某个 DeepSeek 对话窗口内划词时，工具栏第一个按钮自动变为「引用」；点击后在输入框上方出现引用条，发送时自动整理成 markdown 引用块（> 开头）格式；引用条可点 × 关闭，输入框为空时按退格/删除键也能移除。', 'DeepSeek 对话窗口内划词 → 引用'],
           ['自定义按钮', '默认提供复制、翻译、解释、问问 DeepSeek，可增删、拖拽排序、自定义提示词。', '设置 → 板块 → 划词'],
-          ['按按钮细分设置', '每个划词按钮可单独设置打开窗口的深度思考、智能搜索与对话模式（快速/专家），默认深度思考与智能搜索关闭、对话模式为快速。', '设置 → 板块 → 划词'],
+          ['按按钮细分设置', '每个划词按钮可单独设置打开窗口的深度思考与智能搜索，默认均关闭。', '设置 → 板块 → 划词'],
           ['临时窗口记录自动清理', '关闭划词临时窗口（翻译、解释）后自动清除本次对话记录，默认开启。', '设置 → 板块 → 划词'],
         ]],
         ['对话', [
           ['深度思考', '回答前展示详细推理过程，适合复杂问题。', '设置 → 板块 → 对话'],
           ['智能搜索', '自动联网搜索最新信息，辅助回答。', '设置 → 板块 → 对话'],
           ['折叠思考过程', '深度思考过程默认折叠收起，界面更简洁。', '设置 → 板块 → 对话'],
-          ['默认模型模式', '快速 / 专家 / 识图三档，新建对话时自动应用。', '设置 → 板块 → 对话'],
-          ['默认模式', '普通 / 增强搜索 / 任务三档，新建对话或启动时自动应用。', '设置 → 板块 → 对话'],
           ['开关自动同步', '新建对话或切换会话时，深度思考与智能搜索自动按设置恢复。', '自动生效'],
-          ['token小窗显示', '输入框右上方显示「今日 token」计数悬浮小窗，悬浮可见今日与累计用量，默认开启。', '设置 → 板块 → 对话'],
           ['回答滚动方式', 'AI 流式输出时的滚动策略可选「停留开头」（生成时保持当前位置，自己下滑阅读）或「跟随回答」（自动滚动跟随最新输出）。', '设置 → 板块 → 对话'],
-          ['技能自动激活', '开启后 AI 根据对话内容自动匹配并激活本地 Skill；关闭则仅显式输入 /技能名 时激活。可单独配置「新对话首条」「每条消息」的自动激活。', '设置 → 板块 → 对话'],
-          ['记忆功能', '对话中自动注入偏好 / 项目级记忆约束，可整体开关；无痕模式等受限状态下强制关闭。', '设置 → 板块 → 对话'],
         ]],
         ['共享屏幕', [
           ['共享屏幕', '发送消息时自动附带当前屏幕截图，屏幕四角显示共享指示框。', '聊天框 + 按钮 → 共享屏幕'],
-          ['自动切换识图模式', '启动共享屏幕时自动切换识图模式，可在设置中关闭。', '设置 → 板块 → 共享文档'],
           ['共享文档', '在 WPS 选择要共享的 Word 文档，发送时自动带上最新内容。', '聊天框 + 按钮 → 共享WPS Word'],
           ['共享WPS Excel', '在 WPS 选择要共享的工作簿，发送时自动带上最新内容。', '聊天框 + 按钮 → 共享WPS Excel'],
           ['文档自动重新提交', '内容超过阈值时按设定轮数自动重新提交最新版，检测到改动立即重新提交。', '设置 → 板块 → 共享文档'],
           ['共享空闲自动退出', '共享期间超时未发送消息自动退出，默认 10 分钟，0 = 不自动退出。', '设置 → 板块 → 共享文档'],
         ]],
-        ['插件', [
-          ['插件管理', '已安装的插件在设置 → 板块 → 插件中统一管理：启用 / 停用、固定到窗口栏、从本地目录加载扩展或移除。', '设置 → 板块 → 插件'],
-        ]],
-        ['无痕与任务', [
+        ['无痕', [
           ['无痕模式', '在聊天框加号菜单开启无痕模式（图标为虚线聊天框），当前会话被标记为无痕：关闭对话窗口、新建对话、切换对话或退出程序时自动删除该条对话记录。开启后输入框上方显示悬浮徽章，可点击退出。', '聊天框 + 按钮 → 无痕模式'],
-          ['无痕限制', '无痕模式下强制关闭记忆功能，且不能切换为任务模式；退出无痕后自动恢复原有状态。', '无痕模式开启时'],
-          ['任务模式', '在聊天框加号菜单开启任务模式（联网搜索 + 本地 Shell 工具），让 AI 能执行本地命令与 Python（python_exec 等）；默认关闭为普通模式，开启后再点一次可取消。', '聊天框 + 按钮 → 任务模式'],
-          ['增强搜索', '通过输入框旁的模式切换按钮切到「增强」模式，此时接管原生「智能搜索」，联网检索能力更强；切回普通模式时还原原生搜索开关。', '聊天框模式切换按钮'],
+        ]],
+        ['黑名单', [
+          ['黑名单窗口选择', '点击瞄镜按钮后主窗口短暂隐藏、进入全屏画框模式；移动鼠标扫描窗口，框选左上角实时显示所属进程名，点击窗口即把该进程加入黑名单。', '设置 → 板块 → 黑名单'],
+          ['手动添加进程', '可通过下拉框从「识别到的软件」中直接选择（每项带软件图标），或点右侧「从文件选择」在文件管理器里挑 .exe 添加。', '设置 → 板块 → 黑名单'],
+          ['运行时自动停用', '黑名单中任一进程正在运行时，本软件临时停用快捷键、划词功能与所有系统通知；该进程全部退出后自动恢复。', '设置 → 板块 → 黑名单'],
+        ]],
+        ['更新', [
+          ['查看历史更新', '在「检查更新」界面点击「历史更新」按钮，可查看以往每个版本分别更新了什么内容。', '设置 → 更新 → 历史更新'],
         ]],
         ['翻译', [
           ['翻译默认目标语言', '设置截图翻译、划词翻译等翻译功能默认输出的目标语言。', '设置 → 板块 → 提示词管理'],
@@ -1564,7 +1575,7 @@
           ['分类通知控制', '截图、操作、划词、快捷键等通知可分别开关。', '设置 → 软件 → 通知'],
         ]],
         ['使用说明', [
-          ['说明书问问 AI', '把整份说明书上传给临时窗口（B 窗口），看不懂的地方直接向 AI 提问。', '设置 → 帮助 → 使用说明 → 详细使用说明'],
+          ['说明书问问 AI', '把整份说明书上传给临时窗口（B 窗口），看不懂的地方直接向 AI 提问。', '设置 → 个人中心 → 使用说明'],
         ]],
         ['更新与数据', [
           ['软件内更新', '自动检查新版本，发现后一键下载并唤起安装；也可手动检查。', '设置 → 软件 → 更新'],
@@ -1622,15 +1633,9 @@
       var old = panelBody.children;
       function fill() {
         panelBody.innerHTML = '';
-        // 子页头部：返回按钮 + 标题
+        // 头部：标题 + 搜索 + 问问 AI（说明书为一级直接展示，无需返回按钮）
         var head = document.createElement('div');
         head.className = 'manual-head';
-        var backBtn = document.createElement('button');
-        backBtn.type = 'button';
-        backBtn.className = 'manual-back-btn';
-        backBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg> 返回使用说明';
-        backBtn.addEventListener('click', setSubSection);
-        head.appendChild(backBtn);
         var title = document.createElement('div');
         title.className = 'manual-head-title';
         title.textContent = '详细使用说明';
@@ -1817,209 +1822,9 @@
       return { el: el, minus: minus, plus: plus, display: display, set: set, get: get };
     }
 
-    // ---- 插件管理板块（内嵌于设置面板） ---- 
+    // ---- HTML 转义（更新历史等复用） ----
     function extEsc(s) {
       return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-    // 插件占位图标（拼图样式），有自定义图标时用 img 替换
-    function extIcon(p) {
-      var fb = '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg>';
-      if (p && p.iconPath) {
-        return '<img src="' + extEsc(p.iconPath) + '" alt="" onerror="this.onerror=null;this.style.display=\'none\';">' + fb;
-      }
-      return fb;
-    }
-    function buildExtensionsField(item) {
-      var root = document.createElement('div');
-      root.className = 'ext-panel';
-
-      // 顶部工具栏：说明 + 加载 + 刷新
-      var head = document.createElement('div');
-      head.className = 'ext-head';
-      var hint = document.createElement('div');
-      hint.className = 'ext-hint';
-      hint.textContent = item.hint || '管理已安装插件，启用 / 停用、固定到窗口栏，或从本地目录加载扩展。';
-      var actions = document.createElement('div');
-      actions.className = 'ext-actions';
-      function mkBtn(label, primary, iconHtml) {
-        var b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'ext-btn' + (primary ? ' ext-btn-primary' : '');
-        b.innerHTML = (iconHtml || '') + '<span>' + label + '</span>';
-        actions.appendChild(b);
-        return b;
-      }
-      var btnLoad = mkBtn('加载扩展', true, '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>');
-      var btnRefresh = mkBtn('刷新', false, '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>');
-      head.appendChild(hint);
-      head.appendChild(actions);
-      root.appendChild(head);
-
-      var list = document.createElement('div');
-      list.className = 'ext-list';
-      root.appendChild(list);
-
-      var pinnedIds = {};
-
-      function bindExtEvents() {
-        var cards = list.querySelectorAll('.ext-card');
-        for (var i = 0; i < cards.length; i++) {
-          (function (card) {
-            var id = card.getAttribute('data-id');
-            var pin = card.querySelector('[data-act=pin]');
-            if (pin) pin.onclick = function () {
-              var cur = !!pinnedIds[id];
-              showStatus(cur ? '正在取消固定…' : '正在固定到窗口栏…');
-              shell.setExtensionPinned(id, !cur)
-                .then(function () { showStatus(''); refreshExt(); })
-                .catch(function (e) { showStatus('操作失败：' + (e && e.message ? e.message : e)); });
-            };
-            var sw = card.querySelector('.ext-switch input');
-            if (sw) sw.addEventListener('change', function () {
-              var on = sw.checked;
-              showStatus(on ? '正在启用插件…' : '正在停用插件…');
-              shell.setExtensionEnabled(id, on)
-                .then(function () { showStatus(''); refreshExt(); })
-                .catch(function (e) { showStatus('操作失败：' + (e && e.message ? e.message : e)); });
-            });
-            var rm = card.querySelector('[data-act=remove]');
-            if (rm) rm.onclick = function () {
-              var name = (card.querySelector('.ext-name') && card.querySelector('.ext-name').textContent) || id;
-              showConfirmDialog('移除插件「' + name + '」？', function () {
-                showStatus('正在移除…');
-                shell.removeExtension(id)
-                  .then(function () { showStatus(''); refreshExt(); })
-                  .catch(function (e) { showStatus('移除失败：' + (e && e.message ? e.message : e)); });
-              });
-            };
-          })(cards[i]);
-        }
-      }
-
-      function renderExt(plugins) {
-        if (!plugins || plugins.length === 0) {
-          list.innerHTML = '<div class="ext-empty"><div class="ext-empty-ico"><svg width="34" height="34" viewBox="0 0 24 24" fill="currentColor" stroke="none" opacity="0.7"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg></div><p>还没有安装任何插件</p><span>点击右上角「加载扩展」安装已解压的扩展目录。</span></div>';
-          return;
-        }
-        var html = '';
-        for (var i = 0; i < plugins.length; i++) {
-          var p = plugins[i];
-          var enabled = !!p.enabled;
-          var builtin = !!p.builtin;
-          var pinned = !!pinnedIds[p.id];
-          html +=
-            '<div class="ext-card' + (enabled ? '' : ' is-off') + '" data-id="' + extEsc(p.id) + '">' +
-              '<div class="ext-ico">' + extIcon(p) + '</div>' +
-              '<div class="ext-meta">' +
-                '<div class="ext-name">' + extEsc(p.name || '未命名') + (builtin ? '<span class="ext-tag">内置</span>' : '') + '<span class="ext-ver">v' + extEsc(p.version || '?') + '</span></div>' +
-                '<div class="ext-path" title="' + extEsc(p.path || '') + '">' + extEsc(p.path || '') + '</div>' +
-                '<div class="ext-state ' + (enabled ? 'on' : 'off') + '">' + (enabled ? '已启用' : '已停用') + '</div>' +
-              '</div>' +
-              '<div class="ext-ops">' +
-                '<button class="ext-op ext-pin' + (pinned ? ' on' : '') + '" data-act="pin" title="' + (pinned ? '取消固定到窗口栏' : '固定到窗口栏') + '"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg></button>' +
-                '<label class="ext-switch' + (enabled ? ' on' : '') + '" title="' + (enabled ? '停用' : '启用') + '"><input type="checkbox" ' + (enabled ? 'checked' : '') + '><span class="ext-track"></span></label>' +
-                (builtin ? '' : '<button class="ext-op ext-remove" data-act="remove" title="移除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>') +
-              '</div>' +
-            '</div>';
-        }
-        list.innerHTML = html;
-        bindExtEvents();
-      }
-
-      function loadExtList() {
-        shell.listExtensions()
-          .then(renderExt)
-          .catch(function (e) { list.innerHTML = '<div class="ext-empty">读取插件列表失败：' + extEsc((e && e.message) ? e.message : e) + '</div>'; });
-      }
-      function refreshExt() {
-        pinnedIds = {};
-        var pinP = shell.getPinnedExtensions ? shell.getPinnedExtensions() : Promise.resolve([]);
-        pinP.then(function (plist) {
-          if (plist) plist.forEach(function (pp) { if (pp && pp.id) pinnedIds[pp.id] = true; });
-          loadExtList();
-        }).catch(function () { loadExtList(); });
-      }
-
-      btnLoad.onclick = function () {
-        showStatus('正在加载扩展…');
-        shell.installExtensionFromPicker()
-          .then(function (res) {
-            if (res) { showStatus('已加载：' + (res.name || '')); refreshExt(); }
-            else showStatus('');
-          })
-          .catch(function (e) { showStatus('加载失败：' + (e && e.message ? e.message : e)); });
-      };
-      btnRefresh.onclick = refreshExt;
-
-      refreshExt();
-      inputs[item.key] = { element: root };
-      return root;
-    }
-
-    // ---- 依赖内置 DeepSeek++ 插件的设置项（插件关闭时置灰不可用） ----
-    var DSPP_DEPENDENT_KEYS = ['defaultChatMode', 'floatingTokenWidget'];
-    var DSPP_BUILTIN_ID = 'builtin:deepseek-pp';
-    // 根据内置插件启用状态，把依赖它的设置项置灰（不可点），插件重开即恢复。
-    function refreshDsppDependents() {
-      if (!shell.listExtensions) return;
-      shell.listExtensions()
-        .then(function (list) {
-          var disabled = false;
-          if (list) {
-            var builtin = null;
-            for (var i = 0; i < list.length; i++) {
-              var p = list[i];
-              if (p && (p.id === DSPP_BUILTIN_ID || p.builtin)) { builtin = p; break; }
-            }
-            // 内置插件关闭（或记录缺失视为关闭）→ 断开
-            disabled = !builtin || !!builtin.enabled === false;
-          }
-          DSPP_DEPENDENT_KEYS.forEach(function (key) {
-            var inp = inputs[key];
-            // 普通项 inputs[key] 直接存 DOM 元素；复合项（如字号）存 { element }。统一取元素本体。
-            var el = inp ? (inp.element || inp) : null;
-            if (!el) return;
-            el.disabled = disabled;
-            // 置灰但可点：点击时提示「需先启用插件」
-            var field = el.closest ? el.closest('.field') : null;
-            applyDsppLock(field, disabled);
-          });
-        })
-        .catch(function () {});
-    }
-    // 给「依赖插件」的设置项加点击拦截层：插件关闭时点击弹出提示，而非毫无反应。
-    function applyDsppLock(field, disabled) {
-      if (!field) return;
-      var existing = field.querySelector ? field.querySelector('.dspp-lock') : null;
-      if (disabled) {
-        field.classList.add('dspp-disabled');
-        field.style.position = 'relative';
-        if (!existing) {
-          var lock = document.createElement('div');
-          lock.className = 'dspp-lock';
-          lock.title = '需先启用 DeepSeek++ 插件才能修改';
-          lock.addEventListener('click', function (ev) {
-            ev.stopPropagation();
-            dsppToast();
-          });
-          field.appendChild(lock);
-        }
-      } else {
-        field.classList.remove('dspp-disabled');
-        if (existing) existing.remove();
-      }
-    }
-    var dsppToastTimer = null;
-    // 底部状态条看不出原因时用的醒目提示（居中浮动气泡）。
-    function dsppToast() {
-      if (dsppToastTimer) clearTimeout(dsppToastTimer);
-      var old = document.getElementById('dspp-toast');
-      if (old) old.remove();
-      var t = document.createElement('div');
-      t.id = 'dspp-toast';
-      t.textContent = '需先启用 DeepSeek++ 插件（设置 → 板块 → 插件）后才能使用';
-      document.body.appendChild(t);
-      dsppToastTimer = setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 2600);
     }
 
     // ---- 历史更新（每个版本更新了什么） ----
@@ -2126,10 +1931,6 @@
       if (item.type === 'docshare-rounds') {
         return buildDocShareRoundsField(item);
       }
-      // 插件管理整板块渲染（占用全宽，不套用普通行字段）
-      if (item.type === 'extensions') {
-        return buildExtensionsField(item);
-      }
       var field = document.createElement('div');
       field.className = 'field';
       field.style.opacity = '0';
@@ -2191,6 +1992,144 @@
             ctrl.textContent = item.label;
           });
         });
+      } else if (item.type === 'blacklist-pick') {
+        // 黑名单：瞄镜按钮 → 进入「窗口选择模式」
+        var pickBtn = document.createElement('button');
+        pickBtn.type = 'button';
+        pickBtn.className = 'action-btn blacklist-pick-btn';
+        pickBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span>选择窗口</span>';
+        pickBtn.addEventListener('click', function () {
+          shell.send('blacklist:pick');
+          showStatus('已进入窗口选择模式，请点击目标窗口加入黑名单');
+        });
+        field.appendChild(pickBtn);
+        inputs[item.key] = pickBtn;
+      } else if (item.type === 'blacklist-add') {
+        // 黑名单：识别到的软件自定义下拉（每项带图标，选中即添加）+ 右侧「从文件选择 .exe」按钮。
+        var DEFAULT_ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aa3b2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M11 3v7H4"/></svg>');
+        var addRow = document.createElement('div');
+        addRow.className = 'blacklist-add-row';
+        // 下拉头（占位/当前选择 + 箭头）
+        var addSel = document.createElement('div');
+        addSel.className = 'blacklist-add-select';
+        var selHead = document.createElement('div');
+        selHead.className = 'blacklist-sel-head';
+        selHead.innerHTML = '<span class="blacklist-sel-ph">从下方识别到的软件中选择…</span>' +
+          '<svg class="blacklist-sel-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+        // 展开面板：每项 = 图标 + 进程名
+        var selPanel = document.createElement('div');
+        selPanel.className = 'blacklist-sel-panel';
+        var loading = document.createElement('div');
+        loading.className = 'blacklist-sel-empty';
+        loading.textContent = '加载中…';
+        selPanel.appendChild(loading);
+
+        function renderCandidate(item) {
+          var row = document.createElement('div');
+          row.className = 'blacklist-sel-item';
+          row.title = '点击加入黑名单：' + item.name;
+          var img = document.createElement('img');
+          img.className = 'blacklist-sel-ico';
+          img.src = item.icon || DEFAULT_ICON;
+          img.alt = '';
+          var txt = document.createElement('span');
+          txt.className = 'blacklist-sel-name';
+          txt.textContent = item.name;
+          row.appendChild(img);
+          row.appendChild(txt);
+          row.addEventListener('click', function () {
+            closeSelPanel();
+            addSel.disabled = true;
+            addSel.classList.add('is-busy');
+            shell.invoke('blacklist:add', { name: item.name }).then(function (res) {
+              addSel.disabled = false;
+              addSel.classList.remove('is-busy');
+              if (res && res.ok) {
+                selHead.querySelector('.blacklist-sel-ph').textContent = '已加入：' + item.name;
+                showStatus('已加入黑名单：' + item.name);
+                refreshBlacklistList();
+              } else {
+                showStatus('已存在或添加失败：' + item.name);
+              }
+            }).catch(function (e) {
+              addSel.disabled = false;
+              addSel.classList.remove('is-busy');
+              showStatus('添加失败：' + e);
+            });
+          });
+          return row;
+        }
+        if (shell.getBlacklistCandidates) {
+          shell.getBlacklistCandidates().then(function (list) {
+            selPanel.innerHTML = '';
+            var items = Array.isArray(list) ? list : [];
+            if (!items.length) {
+              var empty = document.createElement('div');
+              empty.className = 'blacklist-sel-empty';
+              empty.textContent = '暂未识别到运行中的软件';
+              selPanel.appendChild(empty);
+              return;
+            }
+            items.forEach(function (it) { selPanel.appendChild(renderCandidate(it)); });
+          }).catch(function () {
+            selPanel.innerHTML = '';
+            var bad = document.createElement('div');
+            bad.className = 'blacklist-sel-empty';
+            bad.textContent = '获取候选失败';
+            selPanel.appendChild(bad);
+          });
+        }
+        function openSelPanel() {
+          selPanel.classList.add('open');
+        }
+        function closeSelPanel() {
+          selPanel.classList.remove('open');
+        }
+        selHead.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          if (addSel.disabled) return;
+          selPanel.classList.toggle('open');
+        });
+        // 点击面板外部关闭
+        document.addEventListener('click', function (ev) {
+          if (!addRow.contains(ev.target)) closeSelPanel();
+        });
+
+        var browseBtn = document.createElement('button');
+        browseBtn.type = 'button';
+        browseBtn.className = 'action-btn blacklist-browse-btn';
+        browseBtn.title = '从文件管理器中选择 .exe 文件加入黑名单';
+        browseBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16V5a1 1 0 0 1 1-1h5l2 2h6a1 1 0 0 1 1 1v9"/><path d="M2 16a1 1 0 0 1 1-1h4a2 2 0 0 1 2 2 2 2 0 0 0 2 2h7a1 1 0 0 0 1-1v-2"/></svg> 从文件选择';
+        browseBtn.addEventListener('click', function () {
+          if (!shell.browseAddBlacklist) return;
+          browseBtn.disabled = true;
+          shell.browseAddBlacklist().then(function (res) {
+            browseBtn.disabled = false;
+            if (res && res.ok) {
+              showStatus('已加入黑名单：' + res.name);
+              refreshBlacklistList();
+              selHead.querySelector('.blacklist-sel-ph').textContent = '已加入：' + res.name;
+            } else if (!(res && res.canceled)) {
+              showStatus('未加入黑名单（可能已存在）');
+            }
+          }).catch(function (e) {
+            browseBtn.disabled = false;
+            showStatus('添加失败：' + e);
+          });
+        });
+        addRow.appendChild(addSel);
+        addSel.appendChild(selHead);
+        addSel.appendChild(selPanel);
+        addRow.appendChild(browseBtn);
+        field.appendChild(addRow);
+        inputs[item.key] = addSel;
+      } else if (item.type === 'blacklist-list') {
+        // 黑名单：已加入进程列表（动态渲染 + 删除按钮）
+        var listEl = document.createElement('div');
+        listEl.className = 'blacklist-list';
+        field.appendChild(listEl);
+        inputs[item.key] = listEl;
+        refreshBlacklistList();
       } else if (item.type === 'textselection-buttons') {
         // 纵向布局：标签独占一行，按钮列表全宽贴左铺开，避免左侧 170px 留白
         field.classList.add('field-ts-buttons');
@@ -2282,14 +2221,6 @@
           var initVal = item._value;
           if (initVal !== undefined) inputs[item.key].setGlobal(initVal);
         }
-      } else if (item.type === 'manual-goto') {
-        // 「详细使用说明」按钮：点击后在本面板内打开说明书子页（可返回上一级）
-        var mBtn = document.createElement('button');
-        mBtn.className = 'action-btn';
-        mBtn.textContent = item.label;
-        mBtn.addEventListener('click', renderManual);
-        field.appendChild(mBtn);
-        inputs[item.key] = mBtn;
       } else if (item.type === 'update') {
         var ctrl = makeUpdateControl();
         field.appendChild(ctrl);
@@ -2407,7 +2338,7 @@
       MENU.forEach(function (top) {
         top.children.forEach(function (sub) {
           sub.items.forEach(function (item) {
-            if (item.type === 'info' || item.type === 'action' || item.type === 'update' || item.type === 'manual-goto' || item.type === 'extensions') return;
+            if (item.type === 'info' || item.type === 'action' || item.type === 'update' || item.type === 'manual-goto') return;
             searchIndex.push({
               topLabel: top.label,
               subLabel: sub.label,
@@ -2482,11 +2413,22 @@
         existing.forEach(function (el) { el.remove(); });
         MENU.forEach(function (top, topIdx) {
           var isExpanded = !!expandedTops[topIdx];
+          var isDirect = !!top.directManual;
           var topBtn = document.createElement('button');
-          topBtn.className = 'nav-top' + (isExpanded ? ' expanded' : '');
+          topBtn.className = 'nav-top' + (isExpanded ? ' expanded' : '') +
+            (isDirect && activeTopIdx === topIdx ? ' active' : '');
           topBtn.innerHTML = top.icon + '<span>' + top.label + '</span>' +
-            '<svg class="nav-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+            (isDirect ? '' :
+              '<svg class="nav-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>');
           topBtn.onclick = function () {
+            if (isDirect) {
+              // 一级直接展示型（如个人中心 → 使用说明）：点击即渲染说明书，不展开子菜单
+              activeTopIdx = topIdx;
+              if (activeSubByTop[topIdx] === undefined) activeSubByTop[topIdx] = 0;
+              renderNormalNav();
+              setSubSection();
+              return;
+            }
             if (expandedTops[topIdx]) {
               // 已展开 → 只收起自身（不影响其他顶项的展开状态，面板内容保持不变）
               expandedTops[topIdx] = false;
@@ -2502,7 +2444,7 @@
           };
           sidebar.appendChild(topBtn);
 
-          if (isExpanded) {
+          if (isExpanded && !isDirect) {
             top.children.forEach(function (sub, subIdx) {
               var subBtn = document.createElement('button');
               subBtn.className = 'nav-sub' +
@@ -2517,6 +2459,32 @@
               sidebar.appendChild(subBtn);
             });
           }
+        });
+      }
+
+      // 「黑名单窗口选择」结束后回到黑名单板块并刷新列表（由主进程 BLACKLIST_PICK_DONE 通知）。
+      // 定义在可访问 renderNormalNav/setSubSection 的作用域内。
+      function openSectionByLabel(label) {
+        for (var t = 0; t < MENU.length; t++) {
+          var tt = MENU[t];
+          if (!tt.children) continue;
+          for (var s = 0; s < tt.children.length; s++) {
+            if (tt.children[s].label === label) {
+              expandedTops[t] = true;
+              activeTopIdx = t;
+              activeSubByTop[t] = s;
+              renderNormalNav();
+              setSubSection();
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+      if (shell && shell.onBlacklistPickDone) {
+        shell.onBlacklistPickDone(function () {
+          openSectionByLabel('黑名单');
+          if (typeof refreshBlacklistList === 'function') refreshBlacklistList();
         });
       }
 
@@ -2561,6 +2529,12 @@
       var headerText = panelHeader.querySelector('.panel-header-text');
       if (headerText) headerText.textContent = sec.label + ' · ' + top.label;
 
+      // 「使用说明」直接展示说明书正文，不经过面板内的按钮层级
+      if (sec.manualDirect) {
+        renderManual();
+        return;
+      }
+
       var fields = [];
       sec.items.forEach(function (item) {
         fields.push(buildField(item));
@@ -2576,9 +2550,6 @@
 
       animateSectionTransition(fields, function () {
         fields.forEach(function (f) { panelBody.appendChild(f); });
-
-        // 根据内置插件启用状态，把依赖它的设置项置灰（关闭插件时禁用，重开恢复）
-        refreshDsppDependents();
 
         // 添加分板块重置按钮（有配置键的才显示）
         if (sec.keys && sec.keys.length > 0) {
@@ -2651,7 +2622,7 @@
             });
             return;
           }
-          if (item.type === 'info' || item.type === 'action' || item.type === 'update' || item.type === 'manual-goto' || item.type === 'docshare-rounds' || item.type === 'locked-shortcut' || item.type === 'extensions') return; // 特殊类型无需加载配置值（锁定快捷键为固定展示）
+          if (item.type === 'info' || item.type === 'action' || item.type === 'update' || item.type === 'manual-goto' || item.type === 'docshare-rounds' || item.type === 'locked-shortcut' || item.type === 'blacklist-pick' || item.type === 'blacklist-add' || item.type === 'blacklist-list') return; // 特殊类型无需加载配置值（锁定快捷键为固定展示）
           shell.getConfig(item.key).then(function (val) {
             var el = inputs[item.key];
             if (!el) return;

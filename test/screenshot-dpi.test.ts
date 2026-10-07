@@ -64,6 +64,14 @@ jest.mock('electron', () => {
 
   class BrowserWindow {
     constructor() {}
+    // 当前 ScreenshotManager.enumSnapWindows 会遍历 BrowserWindow.getAllWindows()；
+    // 测试环境无真实窗口，返回空数组即可（窗口吸附优雅降级为空列表）。
+    public static getAllWindows(): unknown[] {
+      return [];
+    }
+    public static fromWebContents(): unknown {
+      return null;
+    }
     public loadFile(): void {}
     public on(): void {}
     public once(): void {}

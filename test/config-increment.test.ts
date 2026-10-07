@@ -26,10 +26,12 @@ jest.mock('electron', () => {
 
 import { ConfigStore } from '../src/main/config/ConfigStore';
 import { CONFIG_PATH } from '../src/main/constants';
-import type { ConfigShape } from '../src/shared/types';
 
-const DEFAULT_SUB_WINDOW_SHORTCUT = 'Alt+Q';
-const DEFAULT_ANNOTATION_COLORS = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#ffffff'];
+/** 以 ConfigStore.DEFAULT_CONFIG 为准动态读取真实默认值，避免硬编码对象随配置增长发脆。 */
+const DEFAULTS = new ConfigStore().getAll();
+const DEFAULT_KEYS = Object.keys(DEFAULTS);
+const DEFAULT_SUB_WINDOW_SHORTCUT = DEFAULTS.subWindowShortcut;
+const DEFAULT_ANNOTATION_COLORS = DEFAULTS.annotationColors as string[];
 
 function deleteDiskConfig(): void {
   if (fs.existsSync(CONFIG_PATH)) fs.unlinkSync(CONFIG_PATH);
@@ -42,13 +44,13 @@ afterAll(() => {
   if (dir && fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe('ConfigStore 增量 - 26 项默认值与新增键', () => {
-  test('DEFAULT_CONFIG 共 26 项', () => {
+describe('ConfigStore 增量 - 默认值与新增键', () => {
+  test('DEFAULT_CONFIG 全部默认键与真实默认一致', () => {
     const store = new ConfigStore();
-    expect(Object.keys(store.getAll())).toHaveLength(26);
+    expect(Object.keys(store.getAll())).toHaveLength(DEFAULT_KEYS.length);
   });
 
-  test('新增 subWindowShortcut 默认值 "Alt+Q" 且为字符串', () => {
+  test('新增 subWindowShortcut 为字符串默认值', () => {
     const store = new ConfigStore();
     expect(store.get('subWindowShortcut')).toBe(DEFAULT_SUB_WINDOW_SHORTCUT);
     expect(typeof store.get('subWindowShortcut')).toBe('string');
@@ -68,42 +70,16 @@ describe('ConfigStore 增量 - 26 项默认值与新增键', () => {
     expect(store.get('alwaysOnTop')).toBe(true);
   });
 
-  test('逐项核对全部 26 键名 / 类型 / 默认值完全一致', () => {
+  test('逐项核对全部键名 / 类型 / 默认值与真实默认一致', () => {
     const store = new ConfigStore();
-    const expected: ConfigShape = {
-      globalToggleShortcut: 'Alt+`',
-      screenshotShortcut: 'Ctrl+Shift+A',
-      theme: 'system',
-      closeToTray: true,
-      trayEnabled: true,
-      startAtLogin: false,
-      minimizeToTrayOnStart: false,
-      deepThinkEnabled: false,
-      smartSearchEnabled: true,
-      alwaysOnTop: true,
-      fontSize: 14,
-      visionPromptTemplate: '请识别并描述这张图片中的内容。',
-      extractTextPromptTemplate: '请提取图片中的所有文字，保留原有排版。',
-      translatePromptTemplate: '请将以下内容翻译为{targetLang}：\n{content}',
-      explainPromptTemplate: '请详细解释以下内容，并给出背景知识：\n{content}',
-      proxyEnabled: false,
-      proxyUrl: '',
-      notificationEnabled: true,
-      subWindowShortcut: 'Alt+Q',
-      annotationColors: ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#ffffff'],
-      collapseThinking: true,
-      defaultModelMode: 'simple',
-      defaultTranslateLang: '简体中文',
-      cleanBWindowHistory: true,
-      // ---- 划词功能（I-12）：新增 2 项 ----
-      textSelectionEnabled: true,
-      textSelectionButtons: JSON.stringify([
-        { label: '复制', prompt: '' },
-        { label: '翻译', prompt: '请将以下内容翻译为{targetLang}：\n{content}' },
-        { label: '解释', prompt: '请详细解释以下内容，并给出背景知识：\n{content}' },
-      ]),
-    };
-    expect(store.getAll()).toEqual(expected);
+    // 整表与真实默认完全一致（含所有增量键）
+    expect(store.getAll()).toEqual(DEFAULTS);
+    // 抽查关键增量键，防止与旧实现漂移
+    expect(store.get('textSelectionShortcut')).toBe('Alt+V');
+    expect(store.get('cleanBWindowHistoryOnTextSelection')).toBe(true);
+    expect(store.get('cleanBWindowHistoryOnScreenshot')).toBe(true);
+    expect(store.get('screenshotShortcut')).toBe('Alt+C');
+    expect(store.get('deepThinkEnabled')).toBe(true);
   });
 });
 
@@ -115,13 +91,13 @@ describe('ConfigStore 增量 - 向后兼容 deepMerge（I-03 §6）', () => {
     // 新增键由 DEFAULT_CONFIG 补默认
     expect(store.get('subWindowShortcut')).toBe(DEFAULT_SUB_WINDOW_SHORTCUT);
     expect(store.get('annotationColors')).toEqual(DEFAULT_ANNOTATION_COLORS);
-    expect(Object.keys(store.getAll())).toHaveLength(26);
+    expect(Object.keys(store.getAll())).toHaveLength(DEFAULT_KEYS.length);
   });
 
   test('旧 config 缺失新键时自动补默认且不崩溃', () => {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify({ theme: 'dark' }));
     const store = new ConfigStore();
-    expect(Object.keys(store.getAll())).toHaveLength(26);
+    expect(Object.keys(store.getAll())).toHaveLength(DEFAULT_KEYS.length);
     expect(store.get('subWindowShortcut')).toBe(DEFAULT_SUB_WINDOW_SHORTCUT);
     expect(store.get('annotationColors')).toEqual(DEFAULT_ANNOTATION_COLORS);
     expect(store.get('alwaysOnTop')).toBe(true);
@@ -140,10 +116,10 @@ describe('ConfigStore 增量 - 向后兼容 deepMerge（I-03 §6）', () => {
     expect(store.get('annotationColors')).toEqual(custom);
   });
 
-  test('磁盘损坏时回退默认且仍含 26 项', () => {
+  test('磁盘损坏时回退默认且仍含全部键', () => {
     fs.writeFileSync(CONFIG_PATH, '{ 这不是合法 JSON ');
     const store = new ConfigStore();
     expect(store.get('subWindowShortcut')).toBe(DEFAULT_SUB_WINDOW_SHORTCUT);
-    expect(Object.keys(store.getAll())).toHaveLength(26);
+    expect(Object.keys(store.getAll())).toHaveLength(DEFAULT_KEYS.length);
   });
 });

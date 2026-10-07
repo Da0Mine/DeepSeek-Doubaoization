@@ -46,58 +46,6 @@ export const IPC = {
   SETTINGS_OPEN: 'settings:open',
   /** 渲染 -> 主：关闭设置面板（内嵌于主窗口的设置视图）。 */
   SETTINGS_CLOSE: 'settings:close',
-  /** 渲染 -> 主：打开插件管理面板。 */
-  EXTENSIONS_OPEN: 'extensions:open',
-  /** 渲染 -> 主：关闭插件管理面板。 */
-  EXTENSIONS_CLOSE: 'extensions:close',
-  /** 插件面板 -> 主：列出已安装/已加载的插件。 */
-  EXTENSIONS_LIST: 'extensions:list',
-  /** 插件面板 -> 主：加载本地已解压扩展（payload: { dir }）。 */
-  EXTENSIONS_LOAD: 'extensions:load',
-  /** 插件面板 -> 主：弹出目录选择框后加载扩展（用户取消返回 null）。 */
-  EXTENSIONS_PICK_DIR: 'extensions:pickDir',
-  /** 插件面板 -> 主：启用/禁用插件（payload: { id, enabled }）。 */
-  EXTENSIONS_SET_ENABLED: 'extensions:setEnabled',
-  /** 插件面板 -> 主：卸载插件（payload: { id }）。 */
-  EXTENSIONS_REMOVE: 'extensions:remove',
-  /** 插件面板 -> 主：固定/取消固定插件到窗口栏（payload: { id, pinned }）。 */
-  EXTENSIONS_SET_PINNED: 'extensions:setPinned',
-  /** 标题栏 -> 主：查询当前固定在窗口栏的插件。 */
-  EXTENSIONS_GET_PINNED: 'extensions:getPinned',
-  /** 标题栏 -> 主（invoke）：打开指定插件的入口页（payload: { id }）。 */
-  EXTENSIONS_OPEN_PAGE: 'extensions:openPage',
-  /** 主 -> 标题栏：固定列表变化时推送刷新（payload: { ... }[]）。 */
-  EXTENSIONS_PINNED_CHANGED: 'extensions:pinnedChanged',
-  /** 侧边栏页面内 ✕ 按钮 -> 主：关闭内嵌侧边栏（DeepSeek++）。 */
-  DSPP_CLOSE_SIDEPANEL: 'dspp:closeSidepanel',
-  /** 标题栏 -> 主（invoke）：设置联网模式（web_search + web_fetch 开关，payload: { enabled }）。 */
-  EXTENSIONS_SET_WEB_TOOLS: 'extensions:setWebTools',
-  /** 标题栏 -> 主（invoke）：查询当前联网模式是否开启。 */
-  EXTENSIONS_GET_WEB_TOOLS: 'extensions:getWebTools',
-  /** 聊天页下拉「模式切换」-> 主（send）：切换普通/联网模式（payload: 'normal' | 'online'）。 */
-  CHAT_MODE_SET: 'chatMode:set',
-  /** 下拉普通模式旁的「记忆功能」-> 主（send）：设置是否注入记忆提示词（payload: boolean）。 */
-  MEMORY_TOGGLE: 'chat:memo',
-  /** 下拉任务模式旁的 skill 自动激活 -> 主（send）：设置模型自动激活两个子项（payload: {first,every}）。 */
-  SKILL_AUTO_TOGGLE: 'chat:skillAuto',
-  /** 页面 -> 主（invoke）：读取 skill 自动激活当前状态（返回 {first,every}，用于与插件侧同步）。 */
-  SKILL_AUTO_GET: 'chat:skillAutoGet',
-  /** 下拉增强搜索旁的网页工具展开框 -> 主（send）：设置 web_search/web_fetch（payload: {search,fetch}）。 */
-  WEBTOOLS_TOGGLE: 'chat:webToolsToggle',
-  /** 页面 -> 主（invoke）：读取 web_search/web_fetch 当前状态（返回 {search,fetch}）。 */
-  WEBTOOLS_GET: 'chat:webToolsGet',
-  /** 页面 token 悬浮块 -> 主（invoke）：查询今日/累计 token 用量（返回 {enabled,tokens,totalTokens}）。 */
-  TOKEN_WIDGET_GET: 'chat:tokenWidgetGet',
-
-  // ---- ExtensionHost（DeepSeek++ 宿主：chrome 兼容层） ----
-  /** 页面 content -> 主：chrome.storage.local.get。 */
-  EXT_HOST_STORAGE_GET: 'exthost:storageGet',
-  /** 页面 content -> 主：chrome.storage.local.set。 */
-  EXT_HOST_STORAGE_SET: 'exthost:storageSet',
-  /** 页面 content -> 主：chrome.storage.local.remove。 */
-  EXT_HOST_STORAGE_REMOVE: 'exthost:storageRemove',
-  /** 页面 content -> 主：chrome.runtime.sendMessage（交给后台 handler）。 */
-  EXT_HOST_RUNTIME_MESSAGE: 'exthost:runtimeMessage',
   /** 渲染 -> 主：呼出/聚焦常驻副窗口（Alt+Q 或标题栏按钮）。 */
   SUB_SUMMON: 'sub:summon',
   /** 渲染 -> 主：主副切换。 */
@@ -136,18 +84,14 @@ export const IPC = {
   SCREEN_SHARE_STOP: 'screenShare:stop',
   /** 渲染 -> 主（任务栏按钮，非识图模式时点击「立即切换」）：在当前窗口新开对话并切换识图模式。 */
   SCREEN_SHARE_SWITCH_VISION: 'screenShare:switchVision',
+  /** 渲染 -> 主（任务栏按钮悬浮态）：payload { on: boolean }，用于把四角共享框同步变为淡红。 */
+  SCREEN_SHARE_HOVER: 'screenShare:hover',
 
   // ---- 无痕模式 ----
   /** webview -> 主：切换无痕模式（payload: { on: boolean | 'toggle' }）。 */
   INC0GNITO_MODE: 'incognito:mode',
   /** webview -> 主（invoke）：查询当前无痕模式是否开启（每次打开/关闭均由主进程判定，避免页面标志陈旧）。 */
   INC0GNITO_GET_STATE: 'incognito:getState',
-
-  // ---- 任务模式（按需唤醒 DeepSeek++ 增强层） ----
-  /** webview -> 主：切换任务模式（payload: { on: boolean | 'toggle' }）。 */
-  TASK_MODE: 'taskMode:mode',
-  /** webview -> 主（invoke）：查询当前任务模式是否开启（主进程为唯一真源）。 */
-  TASK_MODE_GET_STATE: 'taskMode:getState',
 
   /** 渲染（overlay）-> 主：选区完成，回报 rect。 */
   OVERLAY_SELECT: 'overlay:select',
@@ -197,8 +141,6 @@ export const IPC = {
   NOTIFY: 'app:notify',
 
   // ---- 划词功能（I-12） ----
-  /** 主 -> 渲染（划词工具栏）：显示工具栏并传入选中文本。 */
-  TEXT_SELECTION_SHOW: 'textSelection:show',
   /** 渲染（划词工具栏）-> 主：用户点击工具栏按钮。 */
   TEXT_SELECTION_ACTION: 'textSelection:action',
   /** 渲染（划词工具栏）-> 主：工具栏关闭。 */
@@ -277,6 +219,28 @@ export const IPC = {
   BROWSER_NEW_TAB: 'browser:newTab',
   /** 浏览器外壳 -> 主：关闭整个浏览器窗口。 */
   BROWSER_CLOSE: 'browser:close',
+
+  // ---- 黑名单板块 ----
+  /** 设置 -> 主（invoke）：查询当前黑名单进程列表（返回 string[]，本身不含扩展，便于去重）。 */
+  BLACKLIST_GET: 'blacklist:get',
+  /** 设置 -> 主（invoke）：把进程名加入黑名单（payload: { name }）。 */
+  BLACKLIST_ADD: 'blacklist:add',
+  // 手动添加进程：获取「识别到的软件」候选列表（运行中带主窗口的进程名，去重、排除本软件与系统项）。
+  BLACKLIST_CANDIDATES: 'blacklist:candidates',
+  // 手动添加进程：打开文件选择器选 .exe，把进程名加入黑名单（返回 { ok, name }）。
+  BLACKLIST_BROWSE_ADD: 'blacklist:browseAdd',
+  /** 设置 -> 主（invoke）：把进程名移出黑名单（payload: { name }）。 */
+  BLACKLIST_REMOVE: 'blacklist:remove',
+  /** 设置 -> 主（send）：进入「黑名单窗口选择」模式（全屏遮罩选择目标窗口）。 */
+  BLACKLIST_PICK: 'blacklist:pick',
+  /** 黑名单选择遮罩 -> 主：用户点击了窗口，回报其进程名（payload: { name }）。 */
+  BLACKLIST_PICK_SELECTED: 'blacklist:pickSelected',
+  /** 黑名单选择遮罩 -> 主：用户取消（Esc / 点击空白）。 */
+  BLACKLIST_PICK_CANCEL: 'blacklist:pickCancel',
+  /** 主 -> 黑名单选择遮罩：下发可选窗口列表（{x,y,width,height,processName}，局部 CSS 坐标）。 */
+  BLACKLIST_PICK_WINDOWS: 'blacklist:pickWindows',
+  // 主进程 → 设置界面：黑名单窗口选择流程结束（已保存）后，通知渲染层回到黑名单板块并刷新列表。
+  BLACKLIST_PICK_DONE: 'blacklist:pickDone',
 } as const;
 
 export type ChannelName = (typeof IPC)[keyof typeof IPC];

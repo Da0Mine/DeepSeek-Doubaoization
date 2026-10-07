@@ -36,8 +36,6 @@ export const CONFIG_PATH: string = (() => {
 export const SHELL_PRELOAD = path.join(__dirname, '..', 'preload', 'shellPreload.js');
 export const WEBVIEW_PRELOAD = path.join(__dirname, '..', 'preload', 'webviewPreload.js');
 export const SCREEN_SHARE_TASKBAR_PRELOAD = path.join(__dirname, '..', 'preload', 'screenShareTaskbarPreload.js');
-/** DeepSeek++ 侧边栏（dspp:// 协议加载 sidepanel.html）专用 preload。 */
-export const DSPP_SIDEPANEL_PRELOAD = path.join(__dirname, '..', 'preload', 'dsppSidepanelPreload.js');
 
 /** 外壳渲染资源目录（__dirname = dist/main => dist/renderer/shell）。 */
 export const SHELL_DIR = path.join(__dirname, '..', 'renderer', 'shell');
@@ -45,12 +43,6 @@ export const TITLEBAR_HTML = path.join(SHELL_DIR, 'titlebar.html');
 export const OVERLAY_HTML = path.join(SHELL_DIR, 'overlay.html');
 export const TRANSLATE_HTML = path.join(SHELL_DIR, 'translate.html');
 export const SETTINGS_HTML = path.join(SHELL_DIR, 'settings.html');
-/** 插件管理面板（内嵌于主窗口的 WebContentsView）。 */
-export const EXTENSIONS_HTML = path.join(SHELL_DIR, 'extensions.html');
-/** 内置插件（DeepSeek++）所在目录：随 copy-assets 复制到 dist/renderer/extensions/deepseek-pp。 */
-export const EXTENSIONS_BUILTIN_DIR = path.join(__dirname, '..', 'renderer', 'extensions', 'deepseek-pp');
-/** 内置插件展示名（与扩展 manifest 名称一致，locale 解析为 DeepSeek++）。 */
-export const EXTENSIONS_BUILTIN_NAME = 'DeepSeek++';
 export const BWINDOW_HTML = path.join(SHELL_DIR, 'bwindow.html');
 /** 内置浏览器窗口外壳（多标签页标签栏 UI）。 */
 export const BROWSER_HTML = path.join(SHELL_DIR, 'browser.html');
@@ -60,6 +52,8 @@ export const UPDATE_PROMPT_HTML = path.join(SHELL_DIR, 'updatePrompt.html');
 export const MODE_REMINDER_HTML = path.join(SHELL_DIR, 'modeReminder.html');
 /** 首次运行登录引导 / 用户须知（覆盖主窗口的透明窗口，仅首次运行时弹出）。 */
 export const FIRST_RUN_HTML = path.join(SHELL_DIR, 'firstRun.html');
+/** 黑名单窗口选择遮罩（全屏透明，hover 高亮窗口 + 显示进程名，点击加入黑名单）。 */
+export const BLACKLIST_PICKER_HTML = path.join(SHELL_DIR, 'blacklistPicker.html');
 
 /** 图标目录。 */
 export const ICON_DIR = path.join(__dirname, '..', 'renderer', 'assets', 'icons');

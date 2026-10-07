@@ -6,7 +6,7 @@
  * 预加载脚本运行在特权上下文，可直接 require Node 模块（fs），
  * 通过 contextBridge 仅暴露安全的方法给页面。
  */
-import { contextBridge, ipcRenderer, webFrame } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC } from '../main/ipc/channels';
@@ -207,16 +207,6 @@ const dsApi = {
     }
   },
 
-  // ---- ExtensionHost（DeepSeek++ 宿主：chrome 兼容层） ----
-  extHostStorageGet: (keys?: string | string[]): Promise<Record<string, unknown>> =>
-    ipcRenderer.invoke(IPC.EXT_HOST_STORAGE_GET, keys),
-  extHostStorageSet: (values: Record<string, unknown>): Promise<boolean> =>
-    ipcRenderer.invoke(IPC.EXT_HOST_STORAGE_SET, values),
-  extHostStorageRemove: (keys: string | string[]): Promise<boolean> =>
-    ipcRenderer.invoke(IPC.EXT_HOST_STORAGE_REMOVE, keys),
-  extHostRuntimeMessage: (message: unknown): Promise<unknown> =>
-    ipcRenderer.invoke(IPC.EXT_HOST_RUNTIME_MESSAGE, message),
-
   /**
    * 通用 IPC 发送方法，供注入脚本使用。
    * 用于共享屏幕 Enter 键拦截器、共享文档发送/刷新等场景。
@@ -268,93 +258,6 @@ const dsApi = {
 };
 
 contextBridge.exposeInMainWorld('__ds', dsApi);
-
-// 悬浮窗（今日 token 消耗）：页面定期查询开关与数字 → 主进程汇总 → 回推页面
-function bindTokenWidgetQueryEvents(): void {
-  const queryHandler = (): void => {
-    ipcRenderer.invoke(IPC.TOKEN_WIDGET_GET)
-      .then((r) => {
-        if (r && typeof r === 'object') {
-          document.dispatchEvent(
-            new CustomEvent('ds-token-widget-state', {
-              detail: { enabled: r.enabled === true, tokens: Number(r.tokens) || 0, totalTokens: Number(r.totalTokens) || 0 },
-            })
-          );
-        }
-      })
-      .catch(() => {});
-  };
-  document.addEventListener('ds-token-widget-query', queryHandler);
-}
-bindTokenWidgetQueryEvents();
-
-// ---------------- 注入模式：把内置 DeepSeek++ 作为页面脚本注入 ----------------
-// 【已由原生 loadExtension 取代】Electron 43 会加载 MV3 service worker 并以真实隔离世界
-// 注入 content 脚本。本手动注入停用（末尾不再调用），如需回退取消末尾调用注释。
-function injectBuiltInEnhancement(): void {
-  const logPath = (() => {
-    try {
-      const dir = process.env.APPDATA
-        ? path.join(process.env.APPDATA, 'DeepSeek')
-        : __dirname;
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      return path.join(dir, 'dspp-inject.log');
-    } catch {
-      return '';
-    }
-  })();
-  const trace = (line: string): void => {
-    console.log('[DSPP] ' + line);
-    try {
-      if (logPath) fs.appendFileSync(logPath, '[' + new Date().toISOString() + '] ' + line + '\n', 'utf-8');
-    } catch {
-      /* 忽略 */
-    }
-  };
-  try {
-    const cfgPath = process.env.APPDATA
-      ? path.join(process.env.APPDATA, 'DeepSeek', 'extensions.json')
-      : '';
-    trace('cfg=' + cfgPath + ' exists=' + (cfgPath ? fs.existsSync(cfgPath) : false));
-    if (!cfgPath || !fs.existsSync(cfgPath)) return;
-    let enabled = false;
-    try {
-      enabled = !!(JSON.parse(fs.readFileSync(cfgPath, 'utf-8').replace(/^\uFEFF/, '')) as { builtinEnabled?: unknown }).builtinEnabled;
-    } catch (e) {
-      trace('readCfgErr=' + String(e));
-    }
-    trace('builtinEnabled=' + enabled);
-    if (!enabled) return;
-    const dir = path.join(__dirname, '..', 'renderer', 'extensions', 'deepseek-pp', 'content-scripts');
-    const files = ['main-world.js', 'content.js', 'floating-chat.js'];
-    for (const name of files) {
-      const abs = path.join(dir, name);
-      if (!fs.existsSync(abs)) {
-        trace('MISS ' + name + ' @ ' + abs);
-        continue;
-      }
-      const tag = name.replace(/\.js$/, '');
-      const code = fs.readFileSync(abs, 'utf-8');
-      trace('INJ ' + name + ' bytes=' + code.length);
-      webFrame
-        .executeJavaScript(
-          `(function(){ if (window['__dspp_inj_${tag}']) return 'skip'; window['__dspp_inj_${tag}'] = true; return 'run'; })()`
-        )
-        .then((guard) => {
-          if (guard === 'skip') return;
-          return webFrame.executeJavaScript(code + `\nwindow.__dspp_last=${JSON.stringify(name)}; void 0;`);
-        })
-        .then(() => trace('OK ' + name))
-        .catch((e) =>
-          trace('ERR ' + name + ' :: ' + ((e as { message?: unknown })?.message ? String((e as { message?: unknown })?.message) : String(e)))
-        );
-    }
-  } catch (e) {
-    trace('except :: ' + ((e as { message?: unknown })?.message ? String((e as { message?: unknown })?.message) : String(e)));
-  }
-}
-// 原生加载已替代手动注入：停用（回退时取消注释）。
-// injectBuiltInEnhancement();
 
 // 网页内剪刀按钮触发：页面派发自定义 DOM 事件 -> 经 IPC 通知主进程启动截图（I-01）
 function bindScissorsTrigger(): void {
@@ -408,116 +311,6 @@ function bindPlusEvents(): void {
   }
 }
 bindPlusEvents();
-
-// 聊天页「模式切换」下拉：普通模式 / 增强检索 / 任务模式
-// 注入脚本 dispatch ds-chat-mode-trigger（detail.mode: 'normal' | 'online' | 'task'）→ 主进程切换
-function bindChatModeEvents(): void {
-  const handler = (e: Event): void => {
-    try {
-      const mode = (e as CustomEvent).detail?.mode;
-      if (mode === 'normal' || mode === 'online' || mode === 'task') {
-        ipcRenderer.send(IPC.CHAT_MODE_SET, mode);
-      }
-    } catch (err) {
-      // 忽略
-    }
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () =>
-      document.addEventListener('ds-chat-mode-trigger', handler)
-    );
-  } else {
-    document.addEventListener('ds-chat-mode-trigger', handler);
-  }
-}
-bindChatModeEvents();
-// 下拉普通模式旁的「记忆功能」开关（detail.on: boolean）→ 主进程设置是否注入记忆提示词
-function bindMemoryToggleEvents(): void {
-  const handler = (e: Event): void => {
-    try {
-      const on = (e as CustomEvent).detail?.on;
-      if (typeof on === 'boolean') ipcRenderer.send(IPC.MEMORY_TOGGLE, on);
-    } catch (err) {
-      // 忽略
-    }
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => document.addEventListener('ds-memory-toggle', handler));
-  } else {
-    document.addEventListener('ds-memory-toggle', handler);
-  }
-}
-bindMemoryToggleEvents();
-// 下拉任务模式旁的 skill 自动激活展开框（detail: {first, every}）→ 主进程设置两个子项（首条/每条）
-function bindSkillAutoToggleEvents(): void {
-  const handler = (e: Event): void => {
-    try {
-      const d = (e as CustomEvent).detail;
-      if (d && typeof d.first === 'boolean' && typeof d.every === 'boolean') {
-        ipcRenderer.send(IPC.SKILL_AUTO_TOGGLE, { first: d.first, every: d.every });
-      }
-    } catch (err) {
-      // 忽略
-    }
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => document.addEventListener('ds-skill-auto-toggle', handler));
-  } else {
-    document.addEventListener('ds-skill-auto-toggle', handler);
-  }
-}
-bindSkillAutoToggleEvents();
-// 页面展开框就绪后请求插件 skill 自动激活实际状态 → 主进程读扩展真实存储 → 回推页面同步 UI
-function bindSkillAutoQueryEvents(): void {
-  const queryHandler = (): void => {
-    ipcRenderer.invoke(IPC.SKILL_AUTO_GET).then((r) => {
-      if (r && typeof r.first === 'boolean' && typeof r.every === 'boolean') {
-        document.dispatchEvent(new CustomEvent('ds-skill-auto-state', { detail: { first: r.first, every: r.every } }));
-      }
-    }).catch(() => {});
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => document.addEventListener('ds-skill-auto-query', queryHandler));
-  } else {
-    document.addEventListener('ds-skill-auto-query', queryHandler);
-  }
-}
-bindSkillAutoQueryEvents();
-// 下拉增强搜索旁的网页工具展开框（detail: {search, fetch}）→ 主进程分别设置 web_search/web_fetch
-function bindWebToolsToggleEvents(): void {
-  const handler = (e: Event): void => {
-    try {
-      const d = (e as CustomEvent).detail;
-      if (d && typeof d.search === 'boolean' && typeof d.fetch === 'boolean') {
-        ipcRenderer.send(IPC.WEBTOOLS_TOGGLE, { search: d.search, fetch: d.fetch });
-      }
-    } catch (err) {
-      // 忽略
-    }
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => document.addEventListener('ds-web-tools-toggle', handler));
-  } else {
-    document.addEventListener('ds-web-tools-toggle', handler);
-  }
-}
-bindWebToolsToggleEvents();
-// 页面展开框就绪后请求 web_search/web_fetch 实际状态 → 主进程读扩展真实存储 → 回推页面同步 UI
-function bindWebToolsQueryEvents(): void {
-  const queryHandler = (): void => {
-    ipcRenderer.invoke(IPC.WEBTOOLS_GET).then((r) => {
-      if (r && typeof r.search === 'boolean' && typeof r.fetch === 'boolean') {
-        document.dispatchEvent(new CustomEvent('ds-web-tools-state', { detail: { search: r.search, fetch: r.fetch } }));
-      }
-    }).catch(() => {});
-  };
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => document.addEventListener('ds-web-tools-query', queryHandler));
-  } else {
-    document.addEventListener('ds-web-tools-query', queryHandler);
-  }
-}
-bindWebToolsQueryEvents();
 
 /**
  * 页面内查找栏（Ctrl+F 唤起，浏览器原生查找体验）。

@@ -30,6 +30,7 @@
       position: absolute;
       background: #4A90E2;
       box-shadow: 0 0 8px rgba(74, 144, 226, 0.6);
+      transition: background 0.2s, box-shadow 0.2s;
     }
 
     /* 非识图模式（快速/专家）提示置黄：四角颜色与任务栏按钮保持一致 */
@@ -37,6 +38,13 @@
     body.warning .corner::after {
       background: #E2A04A;
       box-shadow: 0 0 8px rgba(226, 160, 74, 0.6);
+    }
+
+    /* 悬浮任务栏按钮（将取消共享）→ 四角变淡红 */
+    body.hover-red .corner::before,
+    body.hover-red .corner::after {
+      background: #E24A4A;
+      box-shadow: 0 0 8px rgba(226, 74, 74, 0.6);
     }
 
     /* 左上角 */

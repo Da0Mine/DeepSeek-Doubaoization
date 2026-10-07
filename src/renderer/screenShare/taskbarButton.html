@@ -36,7 +36,9 @@
       white-space: nowrap;
     }
     .taskbar-btn:hover {
-      background: rgba(74, 144, 226, 0.48);
+      /* 悬浮=即将取消共享：变淡红色作色彩提醒 */
+      background: rgba(226, 74, 74, 0.55);
+      border-color: rgba(255, 120, 120, 0.35);
     }
     /* 非识图模式（快速模式）提示置黄：背景、阴影、悬浮色同步切换 */
     .taskbar-btn.warning {
@@ -102,6 +104,13 @@
         } else {
           window.__dsScreenShare.sendSwitchVision();
         }
+      });
+      // 悬浮进入/移出：把屏幕四角共享框同步为淡红（进入=提示将取消共享；移出恢复蓝色）
+      btn.addEventListener('mouseenter', function () {
+        if (window.__dsScreenShare) window.__dsScreenShare.sendHover(true);
+      });
+      btn.addEventListener('mouseleave', function () {
+        if (window.__dsScreenShare) window.__dsScreenShare.sendHover(false);
       });
     })();
   </script>

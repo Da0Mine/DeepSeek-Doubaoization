@@ -47,32 +47,6 @@
     }
 
     if (btnSettings) btnSettings.onclick = function () { shell.openSettings(); };
-    // 固定在窗口栏的扩展按钮（位于设置按钮右侧；仅主窗口）。
-    var tbPinned = document.getElementById('tb-pinned');
-    function renderPinned(list) {
-      if (!tbPinned || shell.windowType !== 'main') return;
-      tbPinned.innerHTML = '';
-      (list || []).forEach(function (p) {
-        var b = document.createElement('button');
-        b.className = 'tb-btn tb-pinned';
-        b.title = p.name || '扩展';
-        b.setAttribute('aria-label', p.name || '扩展');
-        if (p.iconPath) {
-          var img = document.createElement('img');
-          img.className = 'tb-pinned-ico';
-          img.src = p.iconPath;
-          img.alt = '';
-          img.onerror = function () { img.style.display = 'none'; };
-          b.appendChild(img);
-        }
-        b.onclick = function () { if (shell.openExtensionPage) shell.openExtensionPage(p.id); };
-        tbPinned.appendChild(b);
-      });
-    }
-    if (shell.windowType === 'main') {
-      if (shell.getPinnedExtensions) shell.getPinnedExtensions().then(renderPinned).catch(function () {});
-      if (shell.onPinnedExtensions) shell.onPinnedExtensions(renderPinned);
-    }
     // 更新图标按钮：仅主窗口需要；收到「发现新版本」后显示，点击打开设置并跳转到「更新」板块。
     if (shell.windowType !== 'main') {
       if (btnUpdate) btnUpdate.style.display = 'none';

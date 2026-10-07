@@ -6,12 +6,6 @@
 /** 窗口类型枚举（单一来源：constants.ts 仅作值导出，此处为类型定义）。 */
 export type WindowType = 'main' | 'sub' | 'vision' | 'translate' | 'explain' | 'extract';
 
-/** 默认新建对话的模型模式。 */
-export type DefaultModelMode = 'simple' | 'expert' | 'vision';
-
-/** 截图「发送到新对话」窗口的模型模式：simple=快速模式，vision=识图模式。 */
-export type ScreenshotSendNewMode = 'simple' | 'vision';
-
 /** 主题模式。 */
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -109,30 +103,10 @@ export interface ConfigShape {
   /** 一键呼出/聚焦副窗口的全局快捷键（默认 "Alt+Space"，即 左Alt+空格）。 */
   subWindowShortcut: string;
   /** 一键开关屏幕共享的全局快捷键（默认空，由用户自行设置）。
-   *  开启时自动打开副窗口并按需切换识图模式；再次按下关闭共享。 */
+   *  开启时共享屏幕；再次按下关闭共享。 */
   screenShareShortcut: string;
   /** 一键呼出「共享WPS文档」选择器的全局快捷键（默认空，由用户自行设置）。 */
   docShareShortcut: string;
-  /** 默认新建对话的模型模式（simple=简单，expert=专家/深度思考，vision=识图）。 */
-  defaultModelMode: DefaultModelMode;
-  /** 新建对话 / 启动时应用的默认「模式」：normal=普通，online=增强搜索，task=任务。 */
-  defaultChatMode: 'normal' | 'online' | 'task';
-  /** 普通模式下是否注入「记忆提示词」前置提示（默认开；关闭则不注入）。 */
-  conversationMemory: boolean;
-  /** 任务模式「新对话首条消息自动激活」子开关（默认开）。 */
-  taskSkillAutoFirst: boolean;
-  /** 任务模式「当前对话每条消息自动激活」子开关（默认开）。 */
-  taskSkillAutoEvery: boolean;
-  /** 增强搜索展开框「搜索互联网」偏好（默认开；进入增强/任务模式时按此开启插件侧 web_search）。 */
-  webToolSearch: boolean;
-  /** 增强搜索展开框「获取网页」偏好（默认开；进入增强/任务模式时按此开启插件侧 web_fetch）。 */
-  webToolFetch: boolean;
-  /** 截图「发送到新对话」窗口的模型模式（simple=快速模式，vision=识图模式）。默认识图模式。 */
-  screenshotSendNewMode: ScreenshotSendNewMode;
-  /** 点击「共享屏幕」时是否自动切换到识图模式（默认开启；关闭则仅按当前模式提示）。 */
-  screenShareSwitchVision: boolean;
-  /** 共享屏幕模式提示弹框总开关（专家/快速模式限制时弹提示）。默认开启；点「不再提醒」后关闭，可在设置中重新开启。 */
-  screenShareModeReminder: boolean;
   /** 共享（屏幕/文档）空闲自动退出时间（分钟）：0=不自动退出。默认 10。 */
   shareIdleTimeout: number;
   /** 共享WPS Word 大文档（>70万字）重新提交轮数，默认 15（WPS Word 专属设置；≤70万字仅在检测到改动时提交）。 */
@@ -154,8 +128,6 @@ export interface ConfigShape {
   annotationColors: string[];
   /** 折叠思考过程：true=默认折叠深度思考过程，仅显示最终答案。 */
   collapseThinking: boolean;
-  /** 聊天页「今日 token 消耗」悬浮块开关。 */
-  floatingTokenWidget: boolean;
   /** AI 流式输出回答时的界面滚动方式：stay=停留开头（生成时保持当前位置），follow=跟随回答（自动滚动到最新输出）。默认停留开头。 */
   answerScrollMode: 'stay' | 'follow';
   /** 截图翻译默认目标语言（如 '简体中文'、'English'）。 */
@@ -188,6 +160,10 @@ export interface ConfigShape {
   ignoredUpdateVersion: string;
   /** 更新板块粒子文字特效显示的文本（默认 "DeepSeek-Doubaoization"，可在设置中修改）。 */
   particleText: string;
+
+  // ---- 黑名单板块 ----
+  /** 黑名单进程名集合（如 game.exe 的前缀 game）：其中任一进程运行时临时停用快捷键 / 划词 / 系统通知。 */
+  blacklistProcesses: string[];
 }
 
 /** 配置键。 */

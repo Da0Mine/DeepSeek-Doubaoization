@@ -40,11 +40,11 @@ export class ScreenShareManager {
     return this.active;
   }
 
-  /** 进入共享屏幕模式。mode 为当前对话模型模式（非识图模式时任务栏按钮提示置黄）。 */
-  public start(mode: 'vision' | 'simple' | 'expert' | 'unknown' = 'unknown'): void {
+  /** 进入共享屏幕模式。模型模式已统一，任务栏/指示器固定为正常（蓝色）共享态。 */
+  public start(mode: 'vision' | 'simple' | 'expert' | 'unknown' = 'vision'): void {
     if (this.active) return;
     this.active = true;
-    this.mode = mode;
+    this.mode = 'vision'; // 模型模式已合并：始终按「支持上传/识图」的正常共享态显示
     this.showIndicators();
     this.showTaskbarButton();
     this.injectEnterInterceptor();
@@ -245,16 +245,24 @@ export class ScreenShareManager {
     this.taskbarWin = null;
   }
 
-  /** 临时隐藏指示器和本软件窗口（截图前调用） */
-  public hideIndicatorsTemporarily(): void {
+  /** 悬浮任务栏按钮时，把屏幕四角共享框同步为淡红（将取消共享的色彩提醒）；移出后恢复。 */
+  public setIndicatorsHover(on: boolean): void {
+    if (!this.indicatorWin || this.indicatorWin.isDestroyed()) return;
+    this.indicatorWin.webContents.executeJavaScript(
+      `document.body.classList.toggle('hover-red', ${on === true});`
+    ).catch(() => {});
+  }
+
+  /** 临时隐藏指示器和本软件窗口（截图前调用）：await 后窗口才确实已隐藏。 */
+  public async hideIndicatorsTemporarily(): Promise<void> {
     if (this.indicatorWin && !this.indicatorWin.isDestroyed()) {
       this.indicatorWin.hide();
     }
     if (this.taskbarWin && !this.taskbarWin.isDestroyed()) {
       this.taskbarWin.hide();
     }
-    // 隐藏本软件所有窗口，避免被截进截图里
-    this.windows?.hideChatWindowsForScreenshot();
+    // 隐藏本软件所有窗口，避免被截进截图里；等真正隐藏后再由调用方采集屏幕
+    await this.windows?.hideChatWindowsForScreenshot();
   }
 
   /** 恢复指示器和本软件窗口显示（截图后调用） */
@@ -443,7 +451,7 @@ export class ScreenShareManager {
     try {
       // 1. 隐藏指示器
       console.time('screenShare:hide');
-      this.hideIndicatorsTemporarily();
+      await this.hideIndicatorsTemporarily();
       await sleep(30);
       console.timeEnd('screenShare:hide');
 
@@ -542,7 +550,7 @@ export class ScreenShareManager {
    * 当共享文档与共享屏幕同时开启时，把截图并入同一条消息发送。
    */
   public async captureAndSaveScreenshot(): Promise<string | null> {
-    this.hideIndicatorsTemporarily();
+    await this.hideIndicatorsTemporarily();
     await sleep(30);
     try {
       const img = await this.captureFullScreen();

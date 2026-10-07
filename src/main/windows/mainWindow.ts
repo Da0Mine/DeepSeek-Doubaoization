@@ -17,7 +17,6 @@ import type { ConfigStore } from '../config/ConfigStore';
 import { installLinkOpenHandler } from './browserWindow';
 import { logf } from '../logger';
 import { getLoginItem } from '../loginItem';
-import { getSidebarPane } from '../plugins/sidebarReservation';
 
 /** 依据配置主题 + 系统深浅，计算窗口底色（首帧防白屏）。 */
 function resolveBackgroundColor(config: ConfigStore): string {
@@ -50,13 +49,10 @@ function applyViewBounds(win: BrowserWindow, view: WebContentsView, titlebarHeig
   if (win.isDestroyed() || view.webContents.isDestroyed()) return;
   const { width, height } = win.getContentBounds();
   if (width <= 0 || height <= 0) return;
-  // 侧边栏打开时为其预留右缘宽度，chat 只铺到侧边栏左侧。否则每次 resize 都会短暂铺满全宽
-  // 再被侧边栏压回，WebContentsView 两侧交替导致网页 viewport 左右横跳（见 sidebarReservation）。
-  const pane = getSidebarPane(win);
   const target = {
     x: 0,
     y: titlebarHeight,
-    width: Math.max(0, width - pane),
+    width: Math.max(0, width),
     height: Math.max(0, height - titlebarHeight),
   };
   const prev = lastBounds.get(view);
@@ -66,7 +62,7 @@ function applyViewBounds(win: BrowserWindow, view: WebContentsView, titlebarHeig
   lastBounds.set(view, target);
   view.setBounds(target);
   // 诊断用：仅当项目根目录存在 .debug-autolog（或 DS_DEBUG=1）时才落盘/打印，生产环境无感。
-  logf('layout', 'applyViewBounds', { width, height, titlebar: titlebarHeight, pane });
+  logf('layout', 'applyViewBounds', { width, height, titlebar: titlebarHeight });
 }
 
 /** 每个窗口的延迟布局 timer（WeakMap 避免内存泄漏，且窗口销毁后自动回收 key）。 */

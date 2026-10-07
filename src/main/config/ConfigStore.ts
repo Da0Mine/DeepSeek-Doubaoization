@@ -56,24 +56,6 @@ const DEFAULT_CONFIG: ConfigShape = {
   screenShareShortcut: '',
   /** 一键呼出「共享WPS文档」选择器的快捷键：默认空，由用户自行设置。 */
   docShareShortcut: '',
-  defaultModelMode: 'simple',
-  /** 新建对话 / 启动时应用的默认「模式」：normal=普通，online=增强搜索，task=任务。 */
-  defaultChatMode: 'normal',
-  /** 普通模式下是否注入「记忆提示词」前置提示（默认关；开启才注入）。 */
-  conversationMemory: false,
-  /** 任务模式「新对话首条消息自动激活」子开关（默认开）。 */
-  taskSkillAutoFirst: true,
-  /** 任务模式「当前对话每条消息自动激活」子开关（默认开）。 */
-  taskSkillAutoEvery: true,
-  /** 增强搜索展开框「搜索互联网」偏好（默认开；进入增强/任务模式时按此开启插件侧 web_search）。 */
-  webToolSearch: true,
-  /** 增强搜索展开框「获取网页」偏好（默认开；进入增强/任务模式时按此开启插件侧 web_fetch）。 */
-  webToolFetch: true,
-  /** 截图「发送到新对话」窗口的模型模式：默认识图模式（用户要求，可改为快速模式）。 */
-  screenshotSendNewMode: 'vision',
-  screenShareSwitchVision: true,
-  /** 共享屏幕模式提示弹框：默认开启。点击「不再提醒」后置 false，可在设置中重新开启。 */
-  screenShareModeReminder: true,
   /** 共享（屏幕/文档）空闲自动退出时间（分钟）：0=不自动退出。默认 10。 */
   shareIdleTimeout: 10,
   /** 共享WPS Word 大文档（>70万字）重新提交轮数，默认 15；≤70万字仅在检测到改动时提交。 */
@@ -93,8 +75,6 @@ const DEFAULT_CONFIG: ConfigShape = {
   annotationColors: ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#ffffff'],
   /** 默认折叠模型的思考过程（深度思考/思维链），默认开启。 */
   collapseThinking: true,
-  /** 聊天页「token 小窗」悬浮块开关，默认开启。 */
-  floatingTokenWidget: true,
   /** AI 流式输出回答时的界面滚动方式：stay=停留开头（默认），follow=跟随回答。 */
   answerScrollMode: 'stay',
   /** 截图翻译默认目标语言。 */
@@ -121,8 +101,8 @@ const DEFAULT_CONFIG: ConfigShape = {
     { label: '翻译', prompt: '请将以下内容翻译为{targetLang}：\n{content}', deepThink: false, smartSearch: false, mode: 'simple' },
     { label: '解释', prompt: '请详细解释以下内容，并给出背景知识：\n{content}', deepThink: false, smartSearch: false, mode: 'simple' },
   ]),
-  /** 划词功能开关快捷键，默认空，需手动设置。 */
-  textSelectionShortcut: '',
+  /** 划词功能开关快捷键，默认 Alt+V（一键开启/关闭划词，避免划词误触发）。 */
+  textSelectionShortcut: 'Alt+V',
   /** 首次运行登录引导 / 用户须知：默认未展示，展示完即置 true（仅首次运行触发一次）。 */
   firstRunNoticeShown: false,
   /** 启动时自动检查更新：默认开启。 */
@@ -131,6 +111,8 @@ const DEFAULT_CONFIG: ConfigShape = {
   ignoredUpdateVersion: '',
   /** 更新板块粒子文字特效显示的文本，默认 DeepSeek-Doubaoization。 */
   particleText: 'DeepSeek-Doubaoization',
+  /** 黑名单进程名集合（默认空）：其中任一进程运行时临时停用快捷键 / 划词 / 系统通知。 */
+  blacklistProcesses: [],
 };
 
 type Listener = (cfg: ConfigShape) => void;

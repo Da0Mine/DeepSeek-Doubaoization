@@ -1776,215 +1776,6 @@ html, body {
   color: #ffffff;
 }
 
-/* ============ 插件管理板块（内嵌设置面板） ============ */
-.ext-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  width: 100%;
-}
-.ext-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 14px 16px;
-  border: 1px solid var(--ds-border, rgba(0,0,0,0.1));
-  border-radius: 12px;
-  background: var(--bg-soft, rgba(128,128,128,0.03));
-}
-.ext-hint {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-2, #5f6368);
-  flex: 1;
-  min-width: 200px;
-}
-.ext-actions { display: flex; gap: 10px; flex: none; }
-.ext-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-1, #1f1f1f);
-  background: var(--bg-soft, rgba(128,128,128,0.06));
-  border: 1px solid var(--ds-border, rgba(0,0,0,0.14));
-  border-radius: 9px;
-  cursor: pointer;
-  transition: background .15s ease, border-color .15s ease, opacity .15s ease;
-}
-.ext-btn:hover { background: var(--bg-hover, rgba(51,112,255,.06)); border-color: var(--ds-accent, #3370ff); }
-.ext-btn-primary {
-  color: #fff;
-  background: var(--ds-accent, #3370ff);
-  border-color: var(--ds-accent, #3370ff);
-}
-.ext-btn-primary:hover { background: color-mix(in srgb, var(--ds-accent,#3370ff) 90%, #000); border-color: transparent; }
-
-.ext-list { display: flex; flex-direction: column; gap: 12px; }
-.ext-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 18px;
-  border: 1px solid var(--ds-border, rgba(0,0,0,0.1));
-  border-radius: 14px;
-  background: var(--bg-soft, rgba(128,128,128,0.02));
-  transition: box-shadow .18s ease, border-color .18s ease;
-}
-.ext-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.07); border-color: var(--ds-accent, #3370ff); }
-.ext-card.is-off { opacity: 0.66; }
-.ext-ico {
-  width: 44px;
-  height: 44px;
-  flex: none;
-  border-radius: 12px;
-  background: var(--bg-hover, rgba(51,112,255,.08));
-  color: var(--ds-accent, #3370ff);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.ext-ico img { width: 30px; height: 30px; object-fit: contain; }
-.ext-ico svg { width: 22px; height: 22px; }
-.ext-meta { flex: 1; min-width: 0; }
-.ext-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-1, #1f1f1f);
-}
-.ext-ver { font-size: 12px; font-weight: 400; color: var(--text-3, #8a8f98); }
-.ext-tag {
-  font-size: 11px;
-  line-height: 1;
-  color: var(--ds-accent, #3370ff);
-  background: var(--bg-hover, rgba(51,112,255,.1));
-  border: 1px solid var(--ds-accent, #3370ff);
-  border-radius: 5px;
-  padding: 2px 6px;
-  font-weight: 500;
-}
-.ext-path {
-  margin-top: 5px;
-  font-size: 12.5px;
-  color: var(--text-3, #8a8f98);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-.ext-state { margin-top: 6px; font-size: 12.5px; font-weight: 500; display: flex; align-items: center; gap: 5px; }
-.ext-state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; flex: none; }
-.ext-state.on { color: #34a853; }
-.ext-state.on::before { background: #34a853; box-shadow: 0 0 0 3px rgba(52,168,83,.15); }
-.ext-state.off { color: var(--text-3, #8a8f98); }
-.ext-state.off::before { background: var(--text-3, #8a8f98); }
-
-.ext-ops { display: flex; align-items: center; gap: 10px; flex: none; }
-.ext-op {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: none;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--text-3, #8a8f98);
-  cursor: pointer;
-  transition: background .15s ease, color .15s ease;
-}
-.ext-op:hover { background: var(--bg-soft, rgba(128,128,128,.08)); color: var(--text-1, #1f1f1f); }
-.ext-pin.on { color: var(--ds-accent, #3370ff); }
-.ext-remove:hover { background: rgba(220,50,50,.12); color: #dc3232; }
-
-.ext-switch {
-  position: relative;
-  display: inline-block;
-  width: 42px;
-  height: 24px;
-  flex: none;
-  cursor: pointer;
-}
-.ext-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
-.ext-track {
-  position: absolute;
-  inset: 0;
-  border-radius: 12px;
-  background: var(--ds-border, rgba(0,0,0,0.22));
-  transition: background .15s ease;
-}
-.ext-track::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-  transition: transform .15s ease;
-}
-.ext-switch.on .ext-track { background: var(--ds-accent, #3370ff); }
-.ext-switch.on .ext-track::after { transform: translateX(18px); }
-.ext-switch input:focus-visible + .ext-track { box-shadow: 0 0 0 3px var(--ds-accent-ring, rgba(51,112,255,.25)); }
-
-.ext-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 56px 20px;
-  text-align: center;
-  color: var(--text-3, #8a8f98);
-  border: 1px dashed var(--ds-border, rgba(0,0,0,0.14));
-  border-radius: 14px;
-}
-.ext-empty p { margin: 0; font-size: 15px; font-weight: 500; color: var(--text-2, #5f6368); }
-.ext-empty span { font-size: 13px; }
-.ext-empty-ico { color: var(--ds-accent, #3370ff); opacity: .8; }
-
-/* 依赖内置 DeepSeek++ 插件的设置项：插件关闭时整行置灰，点击弹原因提示 */
-.dspp-disabled { opacity: 0.55; }
-.dspp-disabled label { cursor: not-allowed; }
-.dspp-lock {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  cursor: not-allowed;
-}
-#dspp-toast {
-  position: fixed;
-  top: 74px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 2147483000;
-  max-width: 86%;
-  padding: 10px 16px;
-  border-radius: 10px;
-  background: rgba(28,30,38,0.88);
-  border: 1px solid rgba(255,255,255,0.18);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.5;
-  text-align: center;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.28);
-  opacity: 1;
-  animation: dspp-toast-in .18s ease;
-  pointer-events: none;
-}
-@keyframes dspp-toast-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
-
 /* ============ 历史更新弹窗 ============ */
 .update-history-btn { font-weight: 500; color: var(--text-1, #1f1f1f); }
 .uh-overlay {
@@ -2074,4 +1865,189 @@ html, body {
   color: var(--text-2, #5f6368);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ===== 黑名单板块 ===== */
+/* 窗口选择（瞄镜）按钮：强调色 */
+.blacklist-pick-btn {
+  background: var(--bg-soft, rgba(51,112,255,0.06));
+  color: var(--ds-accent, #3370ff);
+  font-weight: 500;
+}
+.blacklist-pick-btn:hover {
+  background: var(--ds-accent, #3370ff);
+  color: #fff;
+}
+
+/* 手动添加：输入 + 按钮 一行 */
+.blacklist-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.blacklist-add-row .blacklist-add-input {
+  flex: 1;
+  min-width: 0;
+}
+.blacklist-add-row .blacklist-add-select {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.blacklist-sel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1, #e6e8eb);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.blacklist-sel-head:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.blacklist-sel-ph {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.blacklist-sel-arrow {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  color: var(--text-3, #8a8f98);
+  transition: transform 0.15s ease;
+}
+.blacklist-add-select:has(.blacklist-sel-panel.open) .blacklist-sel-arrow {
+  transform: rotate(180deg);
+}
+.blacklist-add-select.is-busy .blacklist-sel-head {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.blacklist-sel-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 260px;
+  overflow-y: auto;
+  border-radius: 10px;
+  background: rgba(34, 37, 44, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+}
+.blacklist-sel-panel.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.blacklist-sel-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  min-height: 34px;
+  cursor: pointer;
+}
+.blacklist-sel-item:hover {
+  background: rgba(90, 140, 255, 0.16);
+}
+.blacklist-sel-ico {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+.blacklist-sel-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-1, #e6e8eb);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.blacklist-sel-empty {
+  padding: 12px 10px;
+  font-size: 13px;
+  color: var(--text-3, #8a8f98);
+  text-align: center;
+}
+.blacklist-browse-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.blacklist-add-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* 已加入进程列表 */
+.blacklist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.blacklist-empty {
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--text-3, #8a8f98);
+  text-align: center;
+}
+.blacklist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--ds-border, rgba(0,0,0,0.1));
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft, rgba(128,128,128,0.04));
+}
+.blacklist-item-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--ds-accent, #3370ff);
+}
+.blacklist-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ds-fg, #1f1f1f);
+  font-family: Consolas, Menlo, monospace;
+  word-break: break-all;
+}
+.blacklist-item-del {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3, #8a8f98);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition-speed) ease, color var(--transition-speed) ease;
+}
+.blacklist-item-del:hover {
+  background: rgba(244, 67, 54, 0.1);
+  color: #e53935;
 }

@@ -2,7 +2,7 @@
  * 主进程 IPC 处理器注册入口（唯一注册点）。
  * 所有通道名来自 channels.ts，与预加载脚本对称。
  */
-import { BrowserWindow, Notification, app, dialog, ipcMain, session } from 'electron';
+import { BrowserWindow, Notification, dialog, ipcMain, session } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -16,10 +16,6 @@ import type { TrayManager } from '../tray/TrayManager';
 import type { ShortcutManager } from '../shortcuts/ShortcutManager';
 import type { PromptTemplates } from '../prompts/promptTemplates';
 import type { SettingsWindow } from '../windows/settingsWindow';
-import type { ExtensionsWindow } from '../windows/extensionsWindow';
-import type { ExtensionManager } from '../plugins/ExtensionManager';
-import type { ExtensionHost } from '../extensions/ExtensionHost';
-import { setShellLocalEnabledForHost } from '../extensions/LocalShellServer';
 import type { ScreenShareManager } from '../screenShare/ScreenShareManager';
 import { applyThinkCollapse } from '../inject/thinkCollapse';
 import { logf } from '../logger';
@@ -44,6 +40,9 @@ import type { WpsDocManager } from '../wps/WpsDocManager';
 import type { FirstRunDialog } from '../firstRun/FirstRunDialog';
 import type { AnswerReminder } from '../reminder/AnswerReminder';
 import { setLoginItem } from '../loginItem';
+import type { BlacklistManager } from '../blacklist/BlacklistManager';
+import { isBlacklistPaused } from '../blacklist/blacklistState';
+import { startBlacklistPicker } from '../blacklist/windowPick';
 
 export interface HandlerCtx {
   config: ConfigStore;
@@ -55,9 +54,6 @@ export interface HandlerCtx {
   shortcuts: ShortcutManager;
   templates: PromptTemplates;
   settings: SettingsWindow;
-  extensions: ExtensionsWindow;
-  extensionManager: ExtensionManager;
-  extensionHost: ExtensionHost;
   screenShare: ScreenShareManager;
   update: UpdateChecker;
   updatePrompt: UpdatePromptWindow;
@@ -67,6 +63,8 @@ export interface HandlerCtx {
   answerReminder: AnswerReminder;
   /** 首次运行流程：弹出「登录引导 / 用户须知」（仅首次运行触发一次）。 */
   startFirstRunFlow: () => void;
+  /** 黑名单管理（进程集合 / 暂停态）。 */
+  blacklist: BlacklistManager;
 }
 
 /**
@@ -79,7 +77,7 @@ export function getDocShareAllTrigger(): (() => void) | null {
 }
 
 export function registerHandlers(ctx: HandlerCtx): void {
-  const { config, windows, injector, screenshot, theme, tray, shortcuts, templates, settings, extensions, extensionManager, extensionHost, screenShare, update, updatePrompt, modeReminder, wps, firstRunDialog, answerReminder, startFirstRunFlow } = ctx;
+  const { config, windows, injector, screenshot, theme, tray, shortcuts, templates, settings, screenShare, update, updatePrompt, modeReminder, wps, firstRunDialog, answerReminder, startFirstRunFlow, blacklist } = ctx;
 
   // 按标签在截图按钮列表（screenshotButtons）中查找按钮，用于截图动作按按钮应用细分项。
   const screenshotButtonsFind = (label: string): { deepThink?: boolean; smartSearch?: boolean; mode?: string } | null => {
@@ -123,6 +121,8 @@ export function registerHandlers(ctx: HandlerCtx): void {
   settings.onReady = () => broadcastTheme();
 
   const notify = (title: string, body: string, type: NotificationType = 'operation'): void => {
+    // 黑名单暂停态：黑名单中有进程在运行（如游戏）时不弹任何系统通知
+    if (isBlacklistPaused()) return;
     if (!config.get('notificationEnabled')) return;
     // 按通知分类检查对应开关（总开关已在上方判断）
     const keyByType: Record<NotificationType, ConfigKey> = {
@@ -263,7 +263,6 @@ export function registerHandlers(ctx: HandlerCtx): void {
         switch (action) {
           case 'clipboard':
             screenshot.copyToClipboard(img);
-            notify('截图已复制', '已复制到剪贴板，可直接粘贴', 'screenshot');
             break;
           case 'chat': {
             const wc = windows.getScreenshotTarget();
@@ -320,12 +319,6 @@ export function registerHandlers(ctx: HandlerCtx): void {
               }
               // 等待新对话页面 DOM 就绪（文件框 + 输入框重新出现）。
               await injector.waitForAppReady(wc);
-              // 截图「发送到新对话」的模型模式由设置控制（默认识图模式，可改为快速模式）。
-              if (config.get('screenshotSendNewMode') === 'vision') {
-                await injector.switchModelMode(wc, 'vision').catch(() => {});
-              } else {
-                await injector.switchModelMode(wc, 'simple').catch(() => {});
-              }
               // 同步「深度思考」开关到当前设置（只读默认，不强行开启）
               await injector.setDeepThink(wc, config.get('deepThinkEnabled') === true).catch(() => {});
               // 呼出目标窗口到前台（截图期间窗口被隐藏，这里恢复并聚焦，确保用户看到发送结果）
@@ -356,11 +349,6 @@ export function registerHandlers(ctx: HandlerCtx): void {
             const sBtn = screenshotButtonsFind(actionLabel);
             await injector.setDeepThink(wc, (sBtn && sBtn.deepThink) === true);
             await injector.setSmartSearch(wc, (sBtn && sBtn.smartSearch) === true).catch(() => {});
-            const sMode = sBtn && sBtn.mode === 'vision' ? ('vision' as const) : ('simple' as const);
-            if (sMode === 'vision') {
-              // 识图模式：直接切换，无需额外提示
-              await injector.switchToVisionModel(wc).catch(() => {});
-            }
             if (action === 'extract') {
               await injector.extractText(wc, tmp);
             } else if (action === 'translate') {
@@ -390,220 +378,6 @@ export function registerHandlers(ctx: HandlerCtx): void {
   ipcMain.on(IPC.SETTINGS_OPEN, () => settings.open());
   ipcMain.on(IPC.SETTINGS_CLOSE, () => settings.close());
 
-  // ---------------- 插件管理面板 ----------------
-  ipcMain.on(IPC.EXTENSIONS_OPEN, () => extensions.open());
-  ipcMain.on(IPC.EXTENSIONS_CLOSE, () => extensions.close());
-  ipcMain.handle(IPC.EXTENSIONS_LIST, () => extensionManager.list());
-  ipcMain.handle(IPC.EXTENSIONS_LOAD, async (_e, { dir }: { dir?: string }) => {
-    if (!dir) throw new Error('缺少插件目录');
-    return extensionManager.loadUnpacked(dir);
-  });
-  ipcMain.handle(IPC.EXTENSIONS_PICK_DIR, async (e) => {
-    const parent = BrowserWindow.fromWebContents(e.sender);
-    const opts = {
-      title: '选择插件目录',
-      properties: ['openDirectory'] as Array<'openDirectory'>,
-    };
-    const res = parent ? await dialog.showOpenDialog(parent, opts) : await dialog.showOpenDialog(opts);
-    const dir = res && !res.canceled && res.filePaths && res.filePaths[0] ? res.filePaths[0] : null;
-    if (!dir) return null;
-    return extensionManager.loadUnpacked(dir);
-  });
-  ipcMain.handle(IPC.EXTENSIONS_SET_ENABLED, async (_e, { id, enabled }: { id: string; enabled: boolean }) => {
-    await extensionManager.setEnabled(id, !!enabled);
-    if (extensionManager.isBuiltin(id)) {
-      // 内置插件走「注入模式」：preload 在页面加载时读 builtinEnabled 决定是否注入 content。
-      // 因此开/关内置后需刷新当前 chat 页才能让注入生效/移除。
-      // 同步 Injector：关闭插件则断开模式切换按钮/token 等基于插件功能的注入，开启则重连。
-      try { injector.setDsppEnabled(!!enabled); } catch { /* ignore */ }
-      // 关闭内置插件 → 移除标题栏固定的鲸鱼图标（重开自动恢复）
-      try { void refreshPinnedTitlebar(); } catch { /* ignore */ }
-      const view = windows.getMainWindow()?.view;
-      const wc = view?.webContents;
-      if (wc && !wc.isDestroyed()) wc.reload();
-    }
-    return { ok: true };
-  });
-  ipcMain.handle(IPC.EXTENSIONS_REMOVE, async (_e, { id }: { id: string }) => {
-    await extensionManager.remove(id);
-    return { ok: true };
-  });
-  const refreshPinnedTitlebar = async (): Promise<void> => {
-    const list = await extensionManager.getPinned();
-    const shellWc = windows.getMainWindow()?.win?.webContents;
-    if (shellWc && !shellWc.isDestroyed()) shellWc.send(IPC.EXTENSIONS_PINNED_CHANGED, list);
-  };
-  ipcMain.handle(IPC.EXTENSIONS_SET_PINNED, async (_e, { id, pinned }: { id: string; pinned: boolean }) => {
-    await extensionManager.setPinned(id, !!pinned);
-    void refreshPinnedTitlebar();
-    return { ok: true };
-  });
-  ipcMain.handle(IPC.EXTENSIONS_GET_PINNED, () => extensionManager.getPinned());
-  ipcMain.handle(IPC.EXTENSIONS_OPEN_PAGE, async (_e, { id }: { id: string }) => {
-    // 内置插件（DeepSeek++）：打开其完整 React 工作台（sidepanel.html，经 dspp:// 协议 + ExtensionHost 宿主）
-    if (extensionManager.isBuiltin(id)) {
-      extensionManager.openBuiltinSidepanel();
-      return true;
-    }
-    return extensionManager.openExtensionPage(id);
-  });
-  // 侧边栏页面内 ✕ 按钮 -> 关闭内嵌侧边栏（DeepSeek++）
-  ipcMain.on(IPC.DSPP_CLOSE_SIDEPANEL, () => {
-    extensionManager.closeSidepanel();
-  });
-  // 标题栏「联网模式」按钮 -> 一键开启/关闭 web_search + web_fetch（写入扩展 storage 持久化）
-  ipcMain.handle(IPC.EXTENSIONS_SET_WEB_TOOLS, async (_e, { enabled }: { enabled?: boolean }) => {
-    console.log('[web-tools] set invoked enabled=', !!enabled);
-    const ok = await extensionManager.setWebToolsEnabled(!!enabled);
-    console.log('[web-tools] set result ok=', ok);
-    return { ok, enabled: !!enabled };
-  });
-  ipcMain.handle(IPC.EXTENSIONS_GET_WEB_TOOLS, async () => {
-    const s = await extensionManager.getWebToolsEnabled();
-    console.log('[web-tools] get state=', s);
-    return s;
-  });
-  // 聊天页「模式切换」下拉（普通模式 / 增强检索）
-  //  - online：打开插件「搜索互联网 + 获取网页」，关闭网页原生「智能搜索」按钮，
-  //            并记录进入前智能搜索开关状态（切回普通模式时还原）；
-  //  - normal：关闭插件两个联网开关，还原进入增强前网页智能搜索开关。
-  const smartSearchBackup = new WeakMap<object, boolean>();
-  /** 各 webContents 当前「模式切换」状态（normal/online/task），用于切换后即时联动 skill 自动激活。 */
-  const modePerWc = new WeakMap<object, 'normal' | 'online' | 'task'>();
-  /** 任务模式下的 skill 自动激活状态：直接取两个子项（首条/每条）。 */
-  const effectiveSkillAuto = (): { first: boolean; every: boolean } => {
-    return { first: config.get('taskSkillAutoFirst') !== false, every: config.get('taskSkillAutoEvery') !== false };
-  };
-  /** 按当前模式应用 skill 自动激活：任务模式按两个子项（首条/每条），普通/增强一律关闭。 */
-  const applySkillAutoForMode = (mode: 'normal' | 'online' | 'task'): Promise<void> => {
-    if (mode === 'task') {
-      const eff = effectiveSkillAuto();
-      extensionHost.setSkillAutoFull(eff.first, eff.every);
-      return extensionManager.setSkillAutoFull(eff.first, eff.every).then(() => undefined);
-    }
-    extensionHost.setSkillAutoEnabled(false);
-    return extensionManager.setSkillAutoEnabled(false).then(() => undefined);
-  };
-  // 记忆提示词开关默认值同步给宿主，保证普通模式注入与否首帧即一致。
-  extensionHost.setMemoryOn(config.get('conversationMemory') !== false);
-  extensionManager.setMemoryEnabled(config.get('conversationMemory') !== false).catch(() => {});
-  // 按当前情形计算并应用记忆开关（全局一个标志）：
-  //  - B 类窗口 / 无痕开启 → 强制关闭记忆；
-  //  - 否则（主窗口/副窗口普通/增强/任务，且未开无痕）→ 用用户偏好（默认关，可手动开）。
-  const applyMemoryForWc = (wc: Electron.WebContents): void => {
-    const bwin = windows.isBWindowWebContents(wc);
-    const inc = windows.isIncognitoOn(wc);
-    const mem = (bwin || inc) ? false : (config.get('conversationMemory') === true);
-    extensionHost.setMemoryOn(mem);
-    extensionManager.setMemoryEnabled(mem).catch(() => {});
-  };
-  ipcMain.on(IPC.MEMORY_TOGGLE, (e, on: boolean) => {
-    const mem = !!on;
-    config.set('conversationMemory', mem);
-    extensionHost.setMemoryOn(mem);
-    // 写 SW 端真实存储（deepseek_pp_prompt_injection_settings.memoryEnabled）：
-    // 只改宿主内存标志(GET_PROMPT_INJECTION_SETTINGS)不会影响 SW buildPrompt 是否拼入记忆提示词。
-    extensionManager.setMemoryEnabled(mem).catch(() => {});
-    logf('MEMO', `记忆提示词注入=${mem}`);
-  });
-  // 统一切换模式（含旁路调用：无痕开启时强制退出任务，见 INC0GNITO_MODE）。末尾按情形重算记忆。
-  const switchMode = async (wc: Electron.WebContents, mode: 'normal' | 'online' | 'task'): Promise<void> => {
-    try {
-      if (mode === 'online' || mode === 'task') {
-        // 增强检索 / 任务模式：按偏好打开插件联网开关（宿主 + 扩展真实存储）、关闭网页原生智能搜索。
-        const wsp = { search: config.get('webToolSearch') !== false, fetch: config.get('webToolFetch') !== false };
-        extensionHost.setWebToolsAll(wsp.search, wsp.fetch);
-        await extensionManager.setWebSearchFetch(wsp.search, wsp.fetch);
-        const before = await injector.getSmartSearchState(wc);
-        if (before !== null) smartSearchBackup.set(wc, before);
-        await injector.setSmartSearch(wc, false);
-        // 任务模式 → 同时启用 Shell Local（本地工具+联网）；skill 自动激活按「自动匹配skill」总开关门控。
-        if (mode === 'task') {
-          extensionHost.setShellLocalEnabled(true);
-          setShellLocalEnabledForHost(true);
-          await applySkillAutoForMode('task');
-        } else {
-          await applySkillAutoForMode('online');
-        }
-        await injector.syncChatModeToPage(wc, mode);
-      } else {
-        // 普通模式：关闭联网开关、还原智能搜索、关闭 Shell Local、关闭 skill 自动激活。
-        extensionHost.setWebToolsAll(false, false);
-        await extensionManager.setWebToolsEnabled(false);
-        extensionHost.setShellLocalEnabled(false);
-        setShellLocalEnabledForHost(false);
-        await applySkillAutoForMode('normal');
-        const before = smartSearchBackup.get(wc);
-        if (before !== undefined) {
-          await injector.setSmartSearch(wc, before);
-          smartSearchBackup.delete(wc);
-        }
-        await injector.syncChatModeToPage(wc, 'normal');
-      }
-      applyMemoryForWc(wc);
-    } catch (err) {
-      console.error('[chat-mode] 切换失败', err);
-    }
-  };
-  ipcMain.on(IPC.CHAT_MODE_SET, (e, mode: string) => {
-    const wc = e.sender;
-    if (!wc || wc.isDestroyed()) return;
-    const bwin = windows.isBWindowWebContents(wc);
-    const inc = windows.isIncognitoOn(wc);
-    const req = mode === 'online' ? 'online' : mode === 'task' ? 'task' : 'normal';
-    let m: 'normal' | 'online' | 'task' = req;
-    if (bwin) m = 'normal';                                   // B 类窗口强制普通模式
-    else if (inc && req === 'task') m = modePerWc.get(wc) || 'normal'; // 无痕开启禁切任务：保持原模式
-    modePerWc.set(wc, m);
-    void switchMode(wc, m);
-  });
-
-  // 下拉任务模式旁的 skill 自动激活展开框：读写「偏好」（默认开）；进任务模式时才按偏好打开插件侧。
-  ipcMain.handle(IPC.SKILL_AUTO_GET, async () => ({
-    first: config.get('taskSkillAutoFirst') !== false,
-    every: config.get('taskSkillAutoEvery') !== false,
-  }));
-  // 下拉增强搜索旁的网页工具展开框：读写「偏好」（默认开）；进增强/任务模式时才按偏好打开插件侧。
-  ipcMain.handle(IPC.WEBTOOLS_GET, async () => ({
-    search: config.get('webToolSearch') !== false,
-    fetch: config.get('webToolFetch') !== false,
-  }));
-  // 页面 token 悬浮块 -> 主：汇总今日/累计 token（主进程解析插件 LevelDB/snappy），并返回开关状态。
-  ipcMain.handle(IPC.TOKEN_WIDGET_GET, async () => {
-    const s = extensionHost.getTokenStats(true);
-    return { enabled: config.get('floatingTokenWidget') === true, tokens: s.today, totalTokens: s.total };
-  });
-  ipcMain.on(IPC.WEBTOOLS_TOGGLE, (e, p: { search?: boolean; fetch?: boolean }) => {
-    const wc = e.sender;
-    const s = p && typeof p === 'object' ? p : {};
-    const search = typeof s.search === 'boolean' ? s.search : true;
-    const fetch = typeof s.fetch === 'boolean' ? s.fetch : true;
-    config.set('webToolSearch', search);
-    config.set('webToolFetch', fetch);
-    // 仅当已处于增强/任务模式时立即应用到插件侧；否则作为偏好，待进入模式时生效。
-    if (wc && !wc.isDestroyed()) {
-      const m = modePerWc.get(wc);
-      if (m === 'online' || m === 'task') {
-        extensionHost.setWebToolsAll(search, fetch);
-        extensionManager.setWebSearchFetch(search, fetch).catch(() => {});
-      }
-    }
-    logf('WEBTOOL', `pref web_search=${search} web_fetch=${fetch}`);
-  });
-  ipcMain.on(IPC.SKILL_AUTO_TOGGLE, (e, p: { first?: boolean; every?: boolean }) => {
-    const wc = e.sender;
-    const s = p && typeof p === 'object' ? p : {};
-    const first = typeof s.first === 'boolean' ? s.first : true;
-    const every = typeof s.every === 'boolean' ? s.every : true;
-    config.set('taskSkillAutoFirst', first);
-    config.set('taskSkillAutoEvery', every);
-    // 仅当已处于任务模式时立即应用；否则作为偏好，待进任务模式时生效。
-    if (wc && !wc.isDestroyed() && modePerWc.get(wc) === 'task') {
-      void applySkillAutoForMode('task');
-    }
-    logf('SKILL', `pref 首条=${first} 每条=${every}`);
-  });
-
   // 标题栏更新图标 -> 打开设置并跳转到「更新」板块。
   // 设置视图可能尚未加载完（监听未注册），此时先缓存，待 did-finish-load（settings.onReady）后补发。
   let pendingSettingsGoto: { top: string; sub: string } | null = null;
@@ -624,7 +398,6 @@ export function registerHandlers(ctx: HandlerCtx): void {
   });
   // 设置面板拉取更新历史（每个版本更新了什么）
   ipcMain.handle(IPC.UPDATE_GET_HISTORY, () => update.fetchHistory());
-
   // ---- 内置浏览器窗口（多标签） ----
   ipcMain.handle(IPC.BROWSER_GET_STATE, () => getBrowserWindowManager()?.getState() ?? { tabs: [], visible: false });
   ipcMain.on(IPC.BROWSER_SWITCH_TAB, (_e, { id }: { id: number }) => {
@@ -647,19 +420,17 @@ export function registerHandlers(ctx: HandlerCtx): void {
     windows.swapMainSub(id || undefined).catch(() => {});
   });
   ipcMain.on(IPC.NEW_CONVERSATION, (e) => {
-    // 网页内「新建对话」被触发：自动把当前对话窗口切换到设置的默认模型模式（Bug2 修复）。
+    // 网页内「新建对话」被触发：恢复该窗口的默认模型开关（深度思考 / 智能搜索）。
     logf('NEW_CONV', `收到网页新建对话事件 senderId=${e.sender?.id}`);
     const wc = e.sender;
-    // 新建对话 → 把插件「模式」套用设置的默认模式（普通/增强搜索/任务），不再硬编码普通，
-    // 否则会把用户设置的默认（如增强搜索）盖掉。后续 applyDefaultModelMode 仍会经
-    // resetChatModeHook 再应用一次默认，双保险收敛到同一目标。
-    if (wc && !wc.isDestroyed()) {
-      const def = config.get('defaultChatMode');
-      const m = (def === 'online' || def === 'task') ? def : 'normal';
-      logf('NEW_CONV', `新建对话：应用默认模式 ${m}`);
-      void switchMode(wc, m);
+    if (!wc || wc.isDestroyed()) return;
+    // 先用 WindowManager 的 session guard 判定：是不是真的「有 id → 无 id」进入新对话页，
+    // 还是 reload（如页面自身刷新）时 SPA 内部 URL 抖动误报。reload 场景下 guard 命中返回 false。
+    if (!windows.shouldResetNewConversationFor(wc)) {
+      logf('NEW_CONV', `session guard 命中（非真新建对话 / reload 误触发），跳过默认模型复位`);
+      return;
     }
-    windows.applyDefaultModelMode(wc).catch(() => {});
+    void windows.applyDefaultModelMode(wc);
   });
   // 网页内剪刀按钮 → 截图：origin = 发起截图的窗口（主窗口/副窗口，哪里截图发哪里）
   ipcMain.on(IPC.SCISSORS_TRIGGER, (e) => screenshot.startCapture(undefined, windows.findIdByWebContents(e.sender)));
@@ -705,54 +476,16 @@ export function registerHandlers(ctx: HandlerCtx): void {
   });
 
   /**
-   * 共享屏幕进入前置检查：
-   *  - 设置「共享屏幕自动切识图模式」开启时，先尝试把当前对话切换到识图模式（新建对话可切）；
-   *  - 若当前对话已无法切换模型（已有对话，模型选择器被页面卸载）且不是识图模式，则按当前模式提示：
-   *      快速模式：提示「只支持 OCR 识别，可能不精准」，仍开启共享；
-   *      专家模式：提示「不支持上传图片」，且不开启共享屏幕。
+   * 共享屏幕进入前置检查。
+   * DeepSeek 当前版本已合并模型模式，所有对话都支持图片上传，无需再按旧模型切换。
    */
   const prepareScreenShare = async (): Promise<void> => {
-    const wc = windows.getActiveWebContents();
-    if (!wc || wc.isDestroyed()) return;
-
-    // 当前对话模型模式（快速/专家/识图/未知）
-    const mode = await injector.getCurrentModelMode(wc);
-    if (mode === 'vision') {
-      screenShare.start('vision');
-      return;
-    }
-
-    // 模型选择器是否可用（新建对话可切；已有对话后 radio 被卸载）
-    const canSwitch = await injector.canSwitchModel(wc);
-    if (canSwitch && config.get('screenShareSwitchVision')) {
-      // 自动切换到识图模式（禁止点「新建对话」，避免破坏当前对话）
-      const ok = await injector.switchToVisionModel(wc, { allowNewConversation: false });
-      if (ok) {
-        screenShare.start('vision');
-        return;
-      }
-    }
-
-    // 无法切换模型或自动切换关闭：按当前模式处理（不再弹覆盖式提醒窗口）
-    if (mode === 'expert') {
-      // 专家模式不支持上传图片：不打开共享屏幕
-      return;
-    }
-    if (mode === 'simple') {
-      // 快速模式仅支持 OCR 识别：仍开启共享（任务栏按钮置黄提示「当前非识图模式」）
-      screenShare.start('simple');
-      return;
-    }
-    // 模式未知：保守开启，不阻断功能
-    screenShare.start('unknown');
+    screenShare.start();
   };
 
   // ---- 共享屏幕模式提示弹框 ----
-  // 「我知道了」仅关闭弹窗；「不再提醒」关闭弹窗并永久关闭该提示（可在设置中重新开启）
+  // 模型模式已统一，此提示不再需要；按钮进入仅关闭弹窗（配置键 screenShareModeReminder 已删除）。
   ipcMain.on(IPC.MODE_REMINDER_ACTION, (_e, { action }: { action: 'ok' | 'never' }) => {
-    if (action === 'never') {
-      config.set('screenShareModeReminder', false);
-    }
     modeReminder.close();
   });
 
@@ -766,25 +499,17 @@ export function registerHandlers(ctx: HandlerCtx): void {
     screenShare.stop();
   });
 
-  // 任务栏按钮（非识图模式）→「立即切换」：在当前活跃窗口新建对话并切换到识图模式。
-  // 切识图后共享屏幕继续开启（拦截器已注入输入框；新建对话后由 ScreenShareManager 重新注入）。
-  // 参考快捷键切识图成功路径（main.prepareIn）：需用 suppressDefaultModelFor 包裹，
-  // 防止「新建对话」触发默认模型竞争，否则 switchToVisionModel(allowNewConversation) 会失败。
+  // 任务栏按钮「立即切换识图」：模型模式已统一，无需切换，直接确保共享开启。
   ipcMain.on(IPC.SCREEN_SHARE_SWITCH_VISION, async () => {
     const wc = windows.getActiveWebContents();
     console.log('[ScreenShare:switchVision] active wc =', wc && !wc.isDestroyed() ? wc.id : 'null');
     if (!wc || wc.isDestroyed()) return;
-    let ok = false;
-    await windows.suppressDefaultModelFor(wc.id, async () => {
-      ok = await injector.switchToVisionModel(wc, { allowNewConversation: true });
-    });
-    console.log('[ScreenShare:switchVision] switchToVisionModel ok =', ok);
-    if (ok && screenShare.isActive()) {
-      // 新建对话后拦截器可能失效：重新绑定到新活跃窗口
-      screenShare.rebindInterceptor();
-      // 切到识图模式：任务栏按钮恢复为识图态（蓝色「取消共享」）
-      screenShare.markVisionMode();
-    }
+    screenShare.start();
+  });
+
+  // 任务栏按钮悬浮：把四角共享框同步为淡红（将取消共享的色彩提醒）；移出恢复。
+  ipcMain.on(IPC.SCREEN_SHARE_HOVER, (_e, { on }: { on?: boolean } = {}) => {
+    screenShare.setIndicatorsHover(!!on);
   });
 
   // ---------------- 无痕模式 ----------------
@@ -797,17 +522,6 @@ export function registerHandlers(ctx: HandlerCtx): void {
     if (!wc || wc.isDestroyed()) return;
     const next = on === 'toggle' ? !windows.isIncognitoOn(wc) : !!on;
     windows.setIncognito(wc, next);
-    // 无痕开启：强制关记忆（普通/增强都关）；若本在任务模式，强制退出到普通（无痕不支持任务）。
-    if (next) {
-      applyMemoryForWc(wc);
-      if ((modePerWc.get(wc) || 'normal') === 'task') {
-        modePerWc.set(wc, 'normal');
-        void switchMode(wc, 'normal');
-      }
-    } else {
-      // 退出无痕：按当前情形重算记忆（主窗口/普通模式按用户偏好恢复）。
-      applyMemoryForWc(wc);
-    }
   });
   // 每次打开/关闭菜单时页面据此查询真实状态，刷新蓝框高亮。
   ipcMain.handle(IPC.INC0GNITO_GET_STATE, (e) => windows.isIncognitoOn(e.sender));
@@ -1196,22 +910,6 @@ export function registerHandlers(ctx: HandlerCtx): void {
       return;
     }
     console.log('[DocShare:' + m + '] 重新提交文档（changed=' + track.changed + ' since=' + roundsSince + '）docName=' + docName);
-    // 图片式 PDF（扫描件/纯图片，无文本层）：自动切换到识图模式，否则上传后无法解析内容
-    if (m === 'pdf') {
-      const ptype = await wps.detectPdfType(docName);
-      if (ptype === 'image') {
-        const curMode = await injector.getCurrentModelMode(wc);
-        if (curMode !== 'vision') {
-          const canSwitch = await injector.canSwitchModel(wc);
-          if (canSwitch) {
-            console.log('[DocShare:pdf] 图片式 PDF，自动切换到识图模式');
-            await injector.switchToVisionModel(wc, { allowNewConversation: false });
-          } else {
-            notify('共享文档', '图片式 PDF 需要识图模式，但当前对话无法切换模型');
-          }
-        }
-      }
-    }
     const doc = pendingDoc || (m === 'excel' ? await wps.getExcelDocumentFile(docName) : m === 'pdf' ? await wps.getPdfDocumentFile(docName) : await wps.getDocumentFile(docName));
     if (!doc || !doc.full) {
       console.log('[DocShare:' + m + '] 获取文档失败');
@@ -1597,14 +1295,9 @@ export function registerHandlers(ctx: HandlerCtx): void {
       return;
     }
     await injector.waitForAppReady(wc);
-    // 按该按钮的细分配置同步划词 B 窗口深度思考/智能搜索/模型模式
-    // （默认：深度思考关、智能搜索关、对话模式=快速模式）
+    // 按该按钮的细分配置同步划词 B 窗口深度思考/智能搜索（模型模式已统一，无需切换）
     await injector.setDeepThink(wc, btn.deepThink === true);
     await injector.setSmartSearch(wc, btn.smartSearch === true).catch(() => {});
-    const textMode = btn.mode === 'expert' ? ('expert' as const) : ('simple' as const);
-    if (textMode !== 'simple') {
-      await injector.switchModelMode(wc, textMode).catch(() => {});
-    }
     // 替换 prompt 中的 {content} 占位符
     let prompt = btn.prompt.replace(/\{content\}/g, text);
     // 如果有 {targetLang}，用默认翻译语言替换
@@ -1683,6 +1376,53 @@ export function registerHandlers(ctx: HandlerCtx): void {
     return update.check(!!force);
   });
 
+  // ---- 黑名单板块 ----
+  // 查询当前黑名单进程列表（供设置界面渲染，默认已去扩展名）。
+  ipcMain.handle(IPC.BLACKLIST_GET, () => blacklist.listProcesses());
+  // 手动添加进程到黑名单。
+  ipcMain.handle(IPC.BLACKLIST_ADD, (_e, { name }: { name?: string }) => blacklist.add(String(name || '')).then((ok) => ({ ok })));
+  // 手动添加进程：返回「识别到的软件」候选列表（下拉框用）。
+  ipcMain.handle(IPC.BLACKLIST_CANDIDATES, () => blacklist.listCandidates());
+  // 手动添加进程：打开文件选择器选 .exe，把进程名加入黑名单。
+  ipcMain.handle(IPC.BLACKLIST_BROWSE_ADD, async () => {
+    try {
+      const res = await dialog.showOpenDialog({
+        title: '选择要加入黑名单的可执行文件',
+        properties: ['openFile'],
+        filters: [{ name: '可执行文件', extensions: ['exe'] }],
+      });
+      if (res.canceled || !res.filePaths || !res.filePaths.length) {
+        return { ok: false, canceled: true };
+      }
+      const base = path.basename(res.filePaths[0], path.extname(res.filePaths[0]));
+      const ok = await blacklist.add(base).catch(() => false);
+      return { ok, name: base };
+    } catch {
+      return { ok: false, canceled: true };
+    }
+  });
+  // 从黑名单移除进程。
+  ipcMain.handle(IPC.BLACKLIST_REMOVE, (_e, { name }: { name?: string }) => blacklist.remove(String(name || '')).then((ok) => ({ ok })));
+  // 进入「黑名单窗口选择」模式（全屏遮罩 hover 高亮窗口），选中窗口后把其进程名加入黑名单。
+  ipcMain.on(IPC.BLACKLIST_PICK, () => {
+    startBlacklistPicker(
+      windows,
+      async (name) => {
+        // 先落库（必须在恢复主窗之前完成，否则列表还没写入 → 显示后列表不更新）
+        if (name) await blacklist.add(name).catch(() => {});
+        // 落库完成后通知设置界面：回到黑名单板块并刷新列表。
+        // 主窗只是短暂隐藏（hide→show），设置视图保留、无需重载，板块状态自然保留；
+        // 这里再发事件做兜底：万一板块不在黑名单，也能导航过去并刷新列表。
+        try {
+          const wc = settings.getWebContents?.();
+          if (wc && !wc.isDestroyed()) wc.send(IPC.BLACKLIST_PICK_DONE, {});
+        } catch { /* 忽略通知失败 */ }
+      }
+      // 注意：不再用 afterRestore 调 settings.open()——那会重建设置视图导致板块被重置。
+      // 恢复靠 restoreChatWindowsAfterScreenshot 的 hide→show 即可保留设置界面与其板块状态。
+    );
+  });
+
   // 在默认浏览器打开 GitHub Release 页面。
   ipcMain.handle(IPC.UPDATE_OPEN_RELEASES, () => {
     update.openReleasesPage();
@@ -1738,23 +1478,12 @@ export function registerHandlers(ctx: HandlerCtx): void {
         notify('问问 AI', '无法打开窗口，请重试');
         return;
       }
-      // 3) 等待页面就绪 → 显示窗口 → 确保快速模式
+      // 3) 等待页面就绪 → 显示窗口（模型模式已统一，无需切换）
       const ready = await injector.waitForAppReady(wc);
       windows.revealWindow(id);
       if (!ready) {
         notify('问问 AI', '对话页面加载超时，请确认已登录 DeepSeek 后重试');
         return;
-      }
-      const cur = await injector.getCurrentModelMode(wc);
-      if (cur !== 'simple') {
-        const canSwitch = await injector.canSwitchModel(wc);
-        if (canSwitch) {
-          await injector.switchModelMode(wc, 'simple').catch(() => {});
-        } else {
-          await injector.clickNewConversationButton(wc).catch(() => {});
-          await injector.waitForAppReady(wc);
-          await injector.switchModelMode(wc, 'simple').catch(() => {});
-        }
       }
       // 4) 上传 .md 说明书附件并点击发送
       const attached = await injector.uploadImage(wc, manualPath);

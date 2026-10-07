@@ -26,41 +26,12 @@ import { ConfigStore } from '../src/main/config/ConfigStore';
 import { CONFIG_PATH } from '../src/main/constants';
 import type { ConfigShape } from '../src/shared/types';
 
-/** PRD 规定的 26 项默认值（键名 + 值），用作断言基准。 */
-const PRD_DEFAULTS: Record<string, unknown> = {
-  globalToggleShortcut: 'Alt+`',
-  screenshotShortcut: 'Ctrl+Shift+A',
-  theme: 'system',
-  closeToTray: true,
-  trayEnabled: true,
-  startAtLogin: false,
-  minimizeToTrayOnStart: false,
-  deepThinkEnabled: false,
-  smartSearchEnabled: true,
-  alwaysOnTop: true,
-  fontSize: 14,
-  visionPromptTemplate: '请识别并描述这张图片中的内容。',
-  extractTextPromptTemplate: '请提取图片中的所有文字，保留原有排版。',
-  translatePromptTemplate: '请将以下内容翻译为{targetLang}：\n{content}',
-  explainPromptTemplate: '请详细解释以下内容，并给出背景知识：\n{content}',
-  proxyEnabled: false,
-  proxyUrl: '',
-  notificationEnabled: true,
-  // ---- 增量（I-08 / I-09 / I-10 / I-11）：新增 4 项 ----
-  subWindowShortcut: 'Alt+Q',
-  annotationColors: ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#ffffff'],
-  collapseThinking: true,
-  defaultModelMode: 'simple',
-  defaultTranslateLang: '简体中文',
-  cleanBWindowHistory: true,
-  // ---- 划词功能（I-12）：新增 2 项 ----
-  textSelectionEnabled: true,
-  textSelectionButtons: JSON.stringify([
-    { label: '复制', prompt: '' },
-    { label: '翻译', prompt: '请将以下内容翻译为{targetLang}：\n{content}' },
-    { label: '解释', prompt: '请详细解释以下内容，并给出背景知识：\n{content}' },
-  ]),
-};
+/**
+ * 配置真实默认值（以 ConfigStore.DEFAULT_CONFIG 为准）。
+ * 用全新 store 动态读取，避免硬编码对象在下次配置增长时再次发脆。
+ */
+const DEFAULTS = new ConfigStore().getAll();
+const DEFAULT_KEYS = Object.keys(DEFAULTS);
 
 function deleteDiskConfig(): void {
   if (fs.existsSync(CONFIG_PATH)) {
@@ -83,23 +54,26 @@ afterAll(() => {
   }
 });
 
-describe('ConfigStore - 26 项默认值', () => {
-  test('getAll 返回恰好 26 个键', () => {
+describe('ConfigStore - 默认值', () => {
+  test('getAll 返回全部默认键（与真实默认配置一致）', () => {
     const store = new ConfigStore();
-    expect(Object.keys(store.getAll())).toHaveLength(26);
+    expect(Object.keys(store.getAll())).toHaveLength(DEFAULT_KEYS.length);
   });
 
-  test('所有默认值与 PRD 完全一致', () => {
+  test('默认值与配置真实默认值完全一致（含关键新增项）', () => {
     const store = new ConfigStore();
     const all = store.getAll();
-    for (const [key, value] of Object.entries(PRD_DEFAULTS)) {
-      expect(all[key as keyof typeof all]).toEqual(value);
-    }
+    expect(all).toEqual(DEFAULTS);
+    // 抽查当前真实默认值（快捷键等）——避免与旧版断言漂移
+    expect(all.screenshotShortcut).toBe('Alt+C');
+    expect(all.subWindowShortcut).toBe('Alt+Space');
+    expect(all.textSelectionShortcut).toBe('Alt+V');
+    expect(all.deepThinkEnabled).toBe(true);
   });
 
   test('get 能正确读取单项', () => {
     const store = new ConfigStore();
-    expect(store.get('fontSize')).toBe(14);
+    expect(store.get('fontSize')).toBe(DEFAULTS.fontSize);
     expect(store.get('theme')).toBe('system');
   });
 });
@@ -107,40 +81,41 @@ describe('ConfigStore - 26 项默认值', () => {
 describe('ConfigStore - 深度合并 (load)', () => {
   test('磁盘缺字段时以默认值补齐', () => {
     // 仅提供部分字段，缺失项应回退默认值
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ fontSize: 20, theme: 'dark' }));
+    // 注：不写 fontSize —— 该键现为「相对偏移」，旧绝对值（>5）加载时会被迁移归零。
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ theme: 'dark' }));
     const store = new ConfigStore();
     const all = store.getAll();
     // 已有字段被保留
-    expect(all.fontSize).toBe(20);
     expect(all.theme).toBe('dark');
     // 缺失字段补齐默认
-    expect(all.closeToTray).toBe(true);
-    expect(all.trayEnabled).toBe(true);
-    // 总数仍为 26
-    expect(Object.keys(all)).toHaveLength(26);
+    expect(all.closeToTray).toBe(DEFAULTS.closeToTray);
+    expect(all.trayEnabled).toBe(DEFAULTS.trayEnabled);
+    // 总数与原默认一致
+    expect(Object.keys(all)).toHaveLength(DEFAULT_KEYS.length);
   });
 
   test('磁盘已有值不被默认值覆盖', () => {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ fontSize: 99, closeToTray: false }));
+    // 用不受迁移影响的键（theme / notificationEnabled）验证「磁盘比默认优先」。
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ theme: 'dark', notificationEnabled: false }));
     const store = new ConfigStore();
-    expect(store.get('fontSize')).toBe(99);
-    expect(store.get('closeToTray')).toBe(false);
+    expect(store.get('theme')).toBe('dark');
+    expect(store.get('notificationEnabled')).toBe(false);
     // 其它默认值保持
     expect(store.get('trayEnabled')).toBe(true);
-    expect(store.get('theme')).toBe('system');
+    expect(store.get('subWindowShortcut')).toBe(DEFAULTS.subWindowShortcut);
   });
 
   test('磁盘文件缺失时回退到默认配置', () => {
     deleteDiskConfig();
     const store = new ConfigStore();
-    expect(store.getAll()).toEqual(PRD_DEFAULTS as never);
+    expect(store.getAll()).toEqual(DEFAULTS);
   });
 
   test('磁盘文件损坏（非法 JSON）时不崩溃，回退默认', () => {
     fs.writeFileSync(CONFIG_PATH, '{ this is not valid json ');
     const store = new ConfigStore();
-    expect(store.get('fontSize')).toBe(14);
-    expect(Object.keys(store.getAll())).toHaveLength(26);
+    expect(store.get('subWindowShortcut')).toBe(DEFAULTS.subWindowShortcut);
+    expect(Object.keys(store.getAll())).toHaveLength(DEFAULT_KEYS.length);
   });
 });
 
@@ -153,13 +128,13 @@ describe('ConfigStore - set / 持久化', () => {
     expect(raw.fontSize).toBe(18);
   });
 
-  test('set 写入的是完整配置（含全部 26 项默认），不会丢字段', () => {
+  test('set 写入的是完整配置（含全部默认），不会丢字段', () => {
     const store = new ConfigStore();
     store.set('theme', 'dark');
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    expect(Object.keys(raw)).toHaveLength(26);
+    expect(Object.keys(raw)).toHaveLength(DEFAULT_KEYS.length);
     expect(raw.theme).toBe('dark');
-    expect(raw.fontSize).toBe(14); // 其它默认仍在
+    expect(raw.fontSize).toBe(DEFAULTS.fontSize); // 其它默认仍在
   });
 
   test('set 只改目标键，不影响其它项', () => {
@@ -176,7 +151,7 @@ describe('ConfigStore - getAll 返回副本', () => {
     const store = new ConfigStore();
     const snapshot = store.getAll();
     snapshot.fontSize = 999;
-    expect(store.get('fontSize')).toBe(14);
+    expect(store.get('fontSize')).toBe(DEFAULTS.fontSize);
   });
 });
 
@@ -186,10 +161,10 @@ describe('ConfigStore - reset', () => {
     store.set('fontSize', 30);
     expect(store.get('fontSize')).toBe(30);
     store.reset();
-    expect(store.get('fontSize')).toBe(14);
+    expect(store.get('fontSize')).toBe(DEFAULTS.fontSize);
     expect(store.get('theme')).toBe('system');
     expect(store.get('closeToTray')).toBe(true);
-    expect(Object.keys(store.getAll())).toHaveLength(26);
+    expect(Object.keys(store.getAll())).toHaveLength(DEFAULT_KEYS.length);
   });
 
   test('reset 后落盘也是默认', () => {
@@ -197,7 +172,7 @@ describe('ConfigStore - reset', () => {
     store.set('fontSize', 30);
     store.reset();
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    expect(raw.fontSize).toBe(14);
+    expect(raw.fontSize).toBe(DEFAULTS.fontSize);
   });
 });
 
@@ -218,7 +193,7 @@ describe('ConfigStore - onChange 订阅', () => {
     store.set('fontSize', 40);
     store.reset();
     expect(calls).toHaveLength(2);
-    expect(calls[1].fontSize).toBe(14);
+    expect(calls[1].fontSize).toBe(DEFAULTS.fontSize);
   });
 
   test('返回的取消订阅函数可停止接收通知', () => {

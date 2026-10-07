@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>选择窗口加入黑名单</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="blacklistPicker.css" />
+  </head>
+  <body>
+    <!-- 半透明暗化层（全屏，透过它可见桌面/窗口）（z-index 1） -->
+    <div id="shade"></div>
+
+    <!-- hover 高亮的窗口边框（绝对定位）（z-index 8） -->
+    <div id="snap"></div>
+
+    <!-- 高亮窗口左上角的进程名标签（z-index 9） -->
+    <div id="plabel" class="hidden"></div>
+
+    <div id="hint">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <span>移动鼠标扫描窗口并点击，把该进程加入黑名单 · Esc 退出</span>
+    </div>
+
+    <script src="blacklistPicker.js"></script>
+  </body>
+</html>
